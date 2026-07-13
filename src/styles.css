@@ -53,3 +53,7 @@ h2 { font-size: 18px; margin: 24px 0 12px; }
 .preview th, .preview td { border: 1px solid #e7e5e4; padding: 6px 8px; text-align: left; }
 .summary { background: #f0fdf4; border-radius: 8px; padding: 12px; }
 .summary ul { margin: 8px 0 0 20px; max-height: 200px; overflow-y: auto; }
+.chart-block { background: #fff; border-radius: 12px; padding: 16px 8px; margin-bottom: 20px; }
+.state-dist { display: flex; align-items: center; gap: 16px; padding: 16px; }
+.dist-legend { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.dist-legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
