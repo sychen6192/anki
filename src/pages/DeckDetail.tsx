@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
@@ -22,6 +22,8 @@ export default function DeckDetail() {
   const [form, setForm] = useState<NoteInput>(EMPTY)
   const [deckName, setDeckName] = useState<string | null>(null)
   const [newPerDay, setNewPerDay] = useState<number | null>(null)
+  const busy = useRef(false)
+  const [errMsg, setErrMsg] = useState<string | null>(null)
 
   if (!deck || !notes) return null
   if (deck.deleted) return <p>牌組已刪除</p>
@@ -31,30 +33,64 @@ export default function DeckDetail() {
     : notes
 
   const saveNote = async () => {
+    if (busy.current) return
     if (!form.expression.trim() || !form.meaning.trim()) return
-    if (editingId === 'new') await createNote(deck.id, form)
-    else if (editingId) await updateNote(editingId, form)
-    setEditingId(null)
-    setForm(EMPTY)
+    busy.current = true
+    try {
+      if (editingId === 'new') await createNote(deck.id, form)
+      else if (editingId) await updateNote(editingId, form)
+      setEditingId(null)
+      setForm(EMPTY)
+      setErrMsg(null)
+    } catch (e) {
+      setErrMsg(`操作失敗:${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      busy.current = false
+    }
   }
 
   const saveDeck = async () => {
-    await updateDeck(deck.id, {
-      name: deckName ?? deck.name,
-      new_per_day: newPerDay ?? deck.new_per_day,
-    })
-    setDeckName(null); setNewPerDay(null)
+    if (busy.current) return
+    busy.current = true
+    try {
+      const name = (deckName ?? deck.name).trim()
+      if (name === '') {
+        setErrMsg('牌組名稱不能是空的')
+        return
+      }
+      const limit = Math.max(0, Math.floor(newPerDay ?? deck.new_per_day))
+      await updateDeck(deck.id, {
+        name,
+        new_per_day: limit,
+      })
+      setDeckName(null); setNewPerDay(null)
+      setErrMsg(null)
+    } catch (e) {
+      setErrMsg(`操作失敗:${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      busy.current = false
+    }
   }
 
   const removeDeck = async () => {
+    if (busy.current) return
     if (!confirm(`刪除牌組「${deck.name}」與其所有卡片?`)) return
-    await softDeleteDeck(deck.id)
-    navigate('/')
+    busy.current = true
+    try {
+      await softDeleteDeck(deck.id)
+      setErrMsg(null)
+      navigate('/')
+    } catch (e) {
+      setErrMsg(`操作失敗:${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      busy.current = false
+    }
   }
 
   return (
     <div>
       <h1>{deck.name}</h1>
+      {errMsg && <p className="err">{errMsg}</p>}
       <div className="toolbar">
         <Link to={`/review/${deck.id}`} className="btn">開始複習</Link>
         <button className="btn secondary" onClick={() => download(`${deck.name}.csv`, exportCsv(notes))}>
@@ -94,7 +130,18 @@ export default function DeckDetail() {
               setForm({ expression: n.expression, reading: n.reading, meaning: n.meaning, reversed: n.reversed === 1 })
             }}>編輯</button>
             <button className="link danger" onClick={async () => {
-              if (confirm(`刪除「${n.expression}」?`)) await softDeleteNote(n.id)
+              if (busy.current) return
+              if (confirm(`刪除「${n.expression}」?`)) {
+                busy.current = true
+                try {
+                  await softDeleteNote(n.id)
+                  setErrMsg(null)
+                } catch (e) {
+                  setErrMsg(`操作失敗:${e instanceof Error ? e.message : String(e)}`)
+                } finally {
+                  busy.current = false
+                }
+              }
             }}>刪除</button>
           </li>
         ))}
