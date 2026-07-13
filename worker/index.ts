@@ -24,30 +24,35 @@ const TABLE_COLS = {
 
 type TableName = keyof typeof TABLE_COLS
 
-async function nextSeq(db: D1Database): Promise<number> {
-  const row = await db.prepare("UPDATE meta SET value = value + 1 WHERE key = 'seq' RETURNING value")
-    .first<{ value: number }>()
-  return row!.value
-}
+// server_seq is no longer bound as a JS-computed value: it's taken inline via a
+// subquery on meta so that "bump seq" + "write row" become two statements in the
+// SAME db.batch() call — D1 executes a batch as one atomic transaction, running
+// statements in order, so the write's subquery sees exactly the value its own
+// preceding bump produced (same per-row semantics as the old sequential
+// nextSeq()-then-INSERT, just packed into one API call instead of two).
+const SEQ_EXPR = "(SELECT value FROM meta WHERE key = 'seq')"
+const BUMP_SEQ_SQL = "UPDATE meta SET value = value + 1 WHERE key = 'seq'"
 
-async function upsertRow(db: D1Database, table: TableName, row: Record<string, unknown>): Promise<void> {
-  // seq is allocated up front, before we know whether this row will actually be
-  // written (the LWW/idempotency check below may cause it to be ignored). That
-  // leaves a harmless gap in server_seq for ignored rows — pull's cursor semantics
-  // only rely on server_seq being monotonically increasing, not contiguous, so gaps
-  // are safe.
-  const seq = await nextSeq(db)
+// Two statements per row: [0] bumps the shared seq counter, [1] does the actual
+// write. Bumping unconditionally (even for rows the LWW/idempotency check below
+// will end up ignoring) leaves a harmless gap in server_seq — pull's cursor
+// semantics only rely on server_seq being monotonically increasing, not
+// contiguous, so gaps are safe.
+function buildRowStatements(
+  db: D1Database, table: TableName, row: Record<string, unknown>,
+): [D1PreparedStatement, D1PreparedStatement] {
+  const bump = db.prepare(BUMP_SEQ_SQL)
   const cols = TABLE_COLS[table]
   const allCols = [...cols, 'server_seq']
-  const placeholders = allCols.map(() => '?').join(', ')
-  const values = [...cols.map((c) => (row[c] === undefined ? null : row[c])), seq]
+  const colPlaceholders = cols.map(() => '?').join(', ')
+  const values = cols.map((c) => (row[c] === undefined ? null : row[c]))
 
   if (table === 'review_logs') {
     // review_logs are immutable events keyed by id: atomic no-op on duplicate id.
-    await db.prepare(`INSERT OR IGNORE INTO review_logs (${allCols.join(', ')}) VALUES (${placeholders})`)
-      .bind(...values)
-      .run()
-    return
+    const write = db.prepare(
+      `INSERT OR IGNORE INTO review_logs (${allCols.join(', ')}) VALUES (${colPlaceholders}, ${SEQ_EXPR})`,
+    ).bind(...values)
+    return [bump, write]
   }
 
   // Atomic LWW upsert: a single statement replaces the previous SELECT-then-INSERT
@@ -58,21 +63,31 @@ async function upsertRow(db: D1Database, table: TableName, row: Record<string, u
   // updated. Existing id with older/equal updated_at -> WHERE clause false, DO
   // UPDATE is skipped, row is left untouched (LWW: 較舊或同時間戳忽略).
   const updateSet = cols.map((c) => `${c} = excluded.${c}`).concat('server_seq = excluded.server_seq').join(', ')
-  await db.prepare(`
-    INSERT INTO ${table} (${allCols.join(', ')}) VALUES (${placeholders})
+  const write = db.prepare(`
+    INSERT INTO ${table} (${allCols.join(', ')}) VALUES (${colPlaceholders}, ${SEQ_EXPR})
     ON CONFLICT(id) DO UPDATE SET ${updateSet}
     WHERE excluded.updated_at > ${table}.updated_at
-  `)
-    .bind(...values)
-    .run()
+  `).bind(...values)
+  return [bump, write]
 }
+
+// D1 batch() = 1 API call (subrequest) regardless of how many statements it holds,
+// which is exactly what lets a big push stay under Cloudflare's per-invocation
+// subrequest limit. Still chunk at 100 statements (50 rows) per batch call to stay
+// well under D1's bound-param/statement-count limits per call.
+const STATEMENTS_PER_BATCH = 100
 
 app.post('/api/sync', async (c) => {
   const body = await c.req.json<SyncPush>()
+  const db = c.env.DB
+  const statements: D1PreparedStatement[] = []
   for (const t of ['decks', 'notes', 'cards', 'review_logs'] as const) {
     for (const row of body[t] ?? []) {
-      await upsertRow(c.env.DB, t, row as unknown as Record<string, unknown>)
+      statements.push(...buildRowStatements(db, t, row as unknown as Record<string, unknown>))
     }
+  }
+  for (let i = 0; i < statements.length; i += STATEMENTS_PER_BATCH) {
+    await db.batch(statements.slice(i, i + STATEMENTS_PER_BATCH))
   }
   return c.json({ ok: true })
 })

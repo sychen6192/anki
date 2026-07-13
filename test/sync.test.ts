@@ -88,4 +88,40 @@ describe('syncNow', () => {
     expect(r.ok).toBe(false)
     expect((await db.decks.get(deck.id))!.dirty).toBe(1)
   })
+
+  it('分批 push:某批送出後失敗,已成功批次維持 dirty=0,之後只補送剩餘髒資料', async () => {
+    const deck = await createDeck('A')
+    await db.decks.update(deck.id, { dirty: 0 }) // 這筆已同步過,不參與本測試的分批筆數
+    const t = Date.now()
+    const notes = Array.from({ length: 250 }, (_, i) => ({
+      id: crypto.randomUUID(), deck_id: deck.id, expression: `w${i}`, reading: '', meaning: `m${i}`,
+      reversed: 0 as const, updated_at: t, deleted: 0 as const, dirty: 1 as const,
+    }))
+    await db.notes.bulkAdd(notes)
+
+    let postCount = 0
+    const flakyFetch = (async (input: any, init?: any) => {
+      if (init?.method === 'POST') {
+        postCount += 1
+        // 第 2 個 chunk(理應是剩下的 50 筆)故意失敗
+        if (postCount === 2) return new Response('boom', { status: 500 })
+        return new Response(JSON.stringify({ ok: true }))
+      }
+      return new Response(JSON.stringify({ decks: [], notes: [], cards: [], review_logs: [], seq: 0 }))
+    }) as typeof fetch
+
+    const r = await syncNow(flakyFetch)
+    expect(r.ok).toBe(false)
+    expect(postCount).toBe(2)
+    // 200 筆(第 1 批)已清 dirty,50 筆(第 2 批,失敗)仍是 dirty
+    expect(await db.notes.where('dirty').equals(0).count()).toBe(200)
+    expect(await db.notes.where('dirty').equals(1).count()).toBe(50)
+
+    // 之後用健康的 server 補跑一次:應只推剩下的 50 筆,不是全部 250 筆
+    const server = makeServer()
+    const r2 = await syncNow(server.fetchFn)
+    expect(r2.ok).toBe(true)
+    expect(await db.notes.where('dirty').equals(1).count()).toBe(0)
+    expect(server.tables.notes.size).toBe(50)
+  })
 })

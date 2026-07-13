@@ -73,4 +73,18 @@ describe('/api/sync', () => {
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'invalid since' })
   })
+
+  it('單次 POST 推 120 筆混合資料表(跨多個 db.batch)→ 全部可 pull 回來', async () => {
+    const decks = Array.from({ length: 60 }, (_, i) => deck({ id: `d${i}`, updated_at: 1000 + i }))
+    const notes = Array.from({ length: 60 }, (_, i) => ({
+      id: `n${i}`, deck_id: 'd0', expression: `e${i}`, reading: '', meaning: `m${i}`,
+      reversed: 0, updated_at: 1000 + i, deleted: 0,
+    }))
+    await push({ ...empty, decks, notes })
+    const out = await pull(0)
+    expect(out.decks).toHaveLength(60)
+    expect(out.notes).toHaveLength(60)
+    expect(new Set(out.decks.map((d: { id: string }) => d.id)).size).toBe(60)
+    expect(new Set(out.notes.map((n: { id: string }) => n.id)).size).toBe(60)
+  })
 })
