@@ -32,3 +32,17 @@ input, select, textarea { padding: 8px 10px; border: 1px solid #d6d3d1; border-r
 .rating-3 { background: #16a34a; } .rating-4 { background: #2563eb; }
 .review-done { text-align: center; display: flex; flex-direction: column; gap: 16px; align-items: center; padding-top: 48px; }
 .err { color: #dc2626; }
+.toolbar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.note-form { background: #fff; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.form-actions { display: flex; gap: 8px; }
+.search { width: 100%; margin-bottom: 12px; }
+.note-list { list-style: none; padding: 0; }
+.note-row { display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 10px; padding: 10px 14px; margin-bottom: 6px; }
+.note-text { flex: 1; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.reading-inline { color: #4f46e5; font-size: 14px; }
+.link { background: none; border: none; color: #4f46e5; cursor: pointer; font-size: 14px; }
+.link.danger { color: #dc2626; }
+.hint { color: #a8a29e; font-size: 13px; margin: 8px 0 24px; }
+h2 { font-size: 18px; margin: 24px 0 12px; }
+.deck-settings { background: #fff; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.deck-settings label { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
