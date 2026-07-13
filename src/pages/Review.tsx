@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { db } from '../db/db'
 import { applyReview } from '../db/repo'
@@ -16,10 +16,13 @@ export default function Review() {
   const [remaining, setRemaining] = useState(0)
   const [done, setDone] = useState(false)
   const [nextDue, setNextDue] = useState<number | null>(null)
+  const [missing, setMissing] = useState(false)
+  const [errMsg, setErrMsg] = useState<string | null>(null)
+  const answering = useRef(false)
 
   const loadNext = useCallback(async () => {
     const deck = await db.decks.get(deckId!)
-    if (!deck) return
+    if (!deck || deck.deleted) { setMissing(true); return }
     const cards = await db.cards.where('deck_id').equals(deckId!).toArray()
     const ids = new Set(cards.map((c) => c.id))
     const logs = (await db.review_logs.where('reviewed_at').aboveOrEqual(startOfToday()).toArray())
@@ -33,7 +36,13 @@ export default function Review() {
       return
     }
     const card = queue[0]
-    const note = (await db.notes.get(card.note_id))!
+    const note = await db.notes.get(card.note_id)
+    if (!note) {
+      setErrMsg('卡片資料缺失')
+      setCurrent(null)
+      setDone(true)
+      return
+    }
     setCurrent({ card, note })
     setRemaining(queue.length)
     setShowBack(false)
@@ -42,10 +51,18 @@ export default function Review() {
   useEffect(() => { void loadNext() }, [loadNext])
 
   const answer = useCallback(async (rating: RatingValue) => {
-    if (!current) return
-    const { fields, log } = rate(current.card, rating)
-    await applyReview(current.card, fields, log)
-    await loadNext()
+    if (!current || answering.current) return
+    answering.current = true
+    try {
+      const { fields, log } = rate(current.card, rating)
+      await applyReview(current.card, fields, log)
+      await loadNext()
+      setErrMsg(null)
+    } catch (e) {
+      setErrMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      answering.current = false
+    }
   }, [current, loadNext])
 
   useEffect(() => {
@@ -57,6 +74,14 @@ export default function Review() {
     return () => window.removeEventListener('keydown', onKey)
   }, [showBack, answer])
 
+  if (missing) {
+    return (
+      <div className="review-done">
+        <h1>找不到這個牌組</h1>
+        <Link to="/" className="btn">回牌組列表</Link>
+      </div>
+    )
+  }
   if (done) {
     return (
       <div className="review-done">
@@ -75,6 +100,7 @@ export default function Review() {
   return (
     <div className="review">
       <p className="remaining">剩 {remaining} 張</p>
+      {errMsg !== null && <p className="err">評分未儲存:{errMsg}</p>}
       <div className="flashcard" onClick={() => setShowBack(true)}>
         {!showBack ? (
           <p className="expression">{front}</p>

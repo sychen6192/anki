@@ -31,3 +31,4 @@ input, select, textarea { padding: 8px 10px; border: 1px solid #d6d3d1; border-r
 .rating-1 { background: #dc2626; } .rating-2 { background: #d97706; }
 .rating-3 { background: #16a34a; } .rating-4 { background: #2563eb; }
 .review-done { text-align: center; display: flex; flex-direction: column; gap: 16px; align-items: center; padding-top: 48px; }
+.err { color: #dc2626; }
