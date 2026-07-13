@@ -124,4 +124,43 @@ describe('syncNow', () => {
     expect(await db.notes.where('dirty').equals(1).count()).toBe(0)
     expect(server.tables.notes.size).toBe(50)
   })
+
+  it('跨表分批:150 筆 dirty notes + 100 筆 dirty cards(共 250,超過單批 200)→ 第一批依 decks→notes→cards 順序填滿並橫跨 notes/cards 邊界,全部送達且成功後清 dirty', async () => {
+    const server = makeServer()
+    const deck = await createDeck('A')
+    await db.decks.update(deck.id, { dirty: 0 }) // 這筆已同步過,不參與本測試的分批筆數
+    const t = Date.now()
+    const notes = Array.from({ length: 150 }, (_, i) => ({
+      id: crypto.randomUUID(), deck_id: deck.id, expression: `w${i}`, reading: '', meaning: `m${i}`,
+      reversed: 0 as const, updated_at: t, deleted: 0 as const, dirty: 1 as const,
+    }))
+    await db.notes.bulkAdd(notes)
+    const cards = Array.from({ length: 100 }, (_, i) => ({
+      id: crypto.randomUUID(), note_id: notes[i % notes.length].id, deck_id: deck.id,
+      direction: 'forward' as const, due: t, stability: 1, difficulty: 5,
+      elapsed_days: 0, scheduled_days: 0, learning_steps: 0, reps: 0, lapses: 0, state: 0,
+      last_review: null, updated_at: t, deleted: 0 as const, dirty: 1 as const,
+    }))
+    await db.cards.bulkAdd(cards)
+
+    const bodies: Row[] = []
+    const capturingFetch = (async (input: any, init?: any) => {
+      if (init?.method === 'POST') bodies.push(JSON.parse(String(init.body)))
+      return server.fetchFn(input, init)
+    }) as typeof fetch
+
+    const r = await syncNow(capturingFetch)
+    expect(r.ok).toBe(true)
+    expect(bodies).toHaveLength(2)
+    // 第一批 200 筆額度:150 筆 notes 全部填入,剩 50 筆額度從 cards 補上(邊界橫跨兩表)
+    expect(bodies[0].notes).toHaveLength(150)
+    expect(bodies[0].cards).toHaveLength(50)
+    expect(bodies[1].notes).toHaveLength(0)
+    expect(bodies[1].cards).toHaveLength(50)
+
+    expect(server.tables.notes.size).toBe(150)
+    expect(server.tables.cards.size).toBe(100)
+    expect(await db.notes.where('dirty').equals(1).count()).toBe(0)
+    expect(await db.cards.where('dirty').equals(1).count()).toBe(0)
+  })
 })

@@ -35,7 +35,7 @@ export default function SettingsPage() {
           <input type="file" accept="application/json" onChange={async (e) => {
             const f = e.target.files?.[0]
             if (!f) return
-            if (!confirm('還原會清空本機現有資料再寫入備份內容,確定?')) return
+            if (!confirm('還原會清空本機資料,並在下次同步時以備份內容覆蓋雲端與其他裝置,確定?')) return
             try {
               await importBackup(await f.text())
               setMsg('✓ 還原完成,建議立即同步')

@@ -77,6 +77,12 @@ function buildRowStatements(
 // well under D1's bound-param/statement-count limits per call.
 const STATEMENTS_PER_BATCH = 100
 
+// Each row contributes exactly 2 statements (bump + write, see buildRowStatements)
+// and callers rely on chunk boundaries never splitting a row's pair across two
+// db.batch() calls. That only holds if STATEMENTS_PER_BATCH is even — enforce it
+// once at module load instead of re-deriving/trusting it at every call site.
+if (STATEMENTS_PER_BATCH % 2 !== 0) throw new Error('STATEMENTS_PER_BATCH must be even')
+
 app.post('/api/sync', async (c) => {
   const body = await c.req.json<SyncPush>()
   const db = c.env.DB

@@ -56,10 +56,15 @@ export default function Review() {
     try {
       const { fields, log } = rate(current.card, rating)
       await applyReview(current.card, fields, log)
-      await loadNext()
+      // 評分已儲存成功,先清掉舊錯誤——loadNext 若失敗是另一回事,不代表評分沒存到。
       setErrMsg(null)
+      try {
+        await loadNext()
+      } catch (e) {
+        setErrMsg('載入下一張失敗')
+      }
     } catch (e) {
-      setErrMsg(e instanceof Error ? e.message : String(e))
+      setErrMsg(`評分未儲存:${e instanceof Error ? e.message : String(e)}`)
     } finally {
       answering.current = false
     }
@@ -86,6 +91,7 @@ export default function Review() {
     return (
       <div className="review-done">
         <h1>今日完成 🎉</h1>
+        {errMsg && <p className="err">{errMsg}</p>}
         {nextDue !== null && <p>還有學習中的卡片,約 {formatInterval(nextDue - Date.now())}後到期</p>}
         <Link to="/" className="btn">回牌組列表</Link>
       </div>
@@ -100,7 +106,7 @@ export default function Review() {
   return (
     <div className="review">
       <p className="remaining">剩 {remaining} 張</p>
-      {errMsg !== null && <p className="err">評分未儲存:{errMsg}</p>}
+      {errMsg && <p className="err">{errMsg}</p>}
       <div className="flashcard" onClick={() => setShowBack(true)}>
         {!showBack ? (
           <p className="expression">{front}</p>

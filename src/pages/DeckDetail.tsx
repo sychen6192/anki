@@ -34,7 +34,10 @@ export default function DeckDetail() {
 
   const saveNote = async () => {
     if (busy.current) return
-    if (!form.expression.trim() || !form.meaning.trim()) return
+    if (!form.expression.trim() || !form.meaning.trim()) {
+      setErrMsg('單字與意思為必填')
+      return
+    }
     busy.current = true
     try {
       if (editingId === 'new') await createNote(deck.id, form)
@@ -58,7 +61,12 @@ export default function DeckDetail() {
         setErrMsg('牌組名稱不能是空的')
         return
       }
-      const limit = Math.max(0, Math.floor(newPerDay ?? deck.new_per_day))
+      const rawLimit = newPerDay ?? deck.new_per_day
+      if (Number.isNaN(rawLimit)) {
+        setErrMsg('請輸入每日新卡上限')
+        return
+      }
+      const limit = Math.max(0, Math.floor(rawLimit))
       await updateDeck(deck.id, {
         name,
         new_per_day: limit,
@@ -151,8 +159,9 @@ export default function DeckDetail() {
       <h2>牌組設定</h2>
       <div className="deck-settings">
         <label>名稱 <input value={deckName ?? deck.name} onChange={(e) => setDeckName(e.target.value)} /></label>
-        <label>每日新卡上限 <input type="number" min={0} value={newPerDay ?? deck.new_per_day}
-          onChange={(e) => setNewPerDay(Number(e.target.value))} /></label>
+        <label>每日新卡上限 <input type="number" min={0}
+          value={newPerDay !== null && Number.isNaN(newPerDay) ? '' : newPerDay ?? deck.new_per_day}
+          onChange={(e) => setNewPerDay(e.target.value === '' ? NaN : Number(e.target.value))} /></label>
         <div className="form-actions">
           <button className="btn" onClick={saveDeck}>儲存設定</button>
           <button className="btn danger" onClick={removeDeck}>刪除牌組</button>
