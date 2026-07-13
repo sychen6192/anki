@@ -2,8 +2,9 @@
   "compilerOptions": {
     "composite": true, "target": "ES2022", "lib": ["ES2022"],
     "module": "ESNext", "moduleResolution": "bundler",
+    "rootDir": "..",
     "strict": true, "noEmit": false, "emitDeclarationOnly": true, "outDir": "../node_modules/.tsbuild/worker",
     "skipLibCheck": true, "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers"]
   },
-  "include": ["."]
+  "include": [".", "../shared"]
 }
