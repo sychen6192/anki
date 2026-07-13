@@ -46,3 +46,10 @@ input, select, textarea { padding: 8px 10px; border: 1px solid #d6d3d1; border-r
 h2 { font-size: 18px; margin: 24px 0 12px; }
 .deck-settings { background: #fff; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .deck-settings label { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.import-form, .settings-block { background: #fff; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+.import-form label, .settings-block label { display: flex; gap: 8px; align-items: center; }
+.mapping { display: flex; gap: 12px; flex-wrap: wrap; }
+.preview { width: 100%; border-collapse: collapse; font-size: 14px; }
+.preview th, .preview td { border: 1px solid #e7e5e4; padding: 6px 8px; text-align: left; }
+.summary { background: #f0fdf4; border-radius: 8px; padding: 12px; }
+.summary ul { margin: 8px 0 0 20px; max-height: 200px; overflow-y: auto; }
