@@ -31,18 +31,39 @@ async function nextSeq(db: D1Database): Promise<number> {
 }
 
 async function upsertRow(db: D1Database, table: TableName, row: Record<string, unknown>): Promise<void> {
-  if (table === 'review_logs') {
-    const existing = await db.prepare('SELECT id FROM review_logs WHERE id = ?').bind(row.id).first()
-    if (existing) return
-  } else {
-    const existing = await db.prepare(`SELECT updated_at FROM ${table} WHERE id = ?`)
-      .bind(row.id).first<{ updated_at: number }>()
-    if (existing && existing.updated_at >= (row.updated_at as number)) return // LWW:較舊或同時間戳忽略
-  }
-  const cols = [...TABLE_COLS[table], 'server_seq']
+  // seq is allocated up front, before we know whether this row will actually be
+  // written (the LWW/idempotency check below may cause it to be ignored). That
+  // leaves a harmless gap in server_seq for ignored rows — pull's cursor semantics
+  // only rely on server_seq being monotonically increasing, not contiguous, so gaps
+  // are safe.
   const seq = await nextSeq(db)
-  await db.prepare(`INSERT OR REPLACE INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
-    .bind(...TABLE_COLS[table].map((c) => (row[c] === undefined ? null : row[c])), seq)
+  const cols = TABLE_COLS[table]
+  const allCols = [...cols, 'server_seq']
+  const placeholders = allCols.map(() => '?').join(', ')
+  const values = [...cols.map((c) => (row[c] === undefined ? null : row[c])), seq]
+
+  if (table === 'review_logs') {
+    // review_logs are immutable events keyed by id: atomic no-op on duplicate id.
+    await db.prepare(`INSERT OR IGNORE INTO review_logs (${allCols.join(', ')}) VALUES (${placeholders})`)
+      .bind(...values)
+      .run()
+    return
+  }
+
+  // Atomic LWW upsert: a single statement replaces the previous SELECT-then-INSERT
+  // OR REPLACE, so two near-simultaneous pushes to the same row can no longer
+  // interleave a stale write over a newer one — the "is this row newer?" check and
+  // the write happen as one statement, not as separate round trips a race could
+  // land between. New id -> inserted. Existing id with strictly newer updated_at ->
+  // updated. Existing id with older/equal updated_at -> WHERE clause false, DO
+  // UPDATE is skipped, row is left untouched (LWW: 較舊或同時間戳忽略).
+  const updateSet = cols.map((c) => `${c} = excluded.${c}`).concat('server_seq = excluded.server_seq').join(', ')
+  await db.prepare(`
+    INSERT INTO ${table} (${allCols.join(', ')}) VALUES (${placeholders})
+    ON CONFLICT(id) DO UPDATE SET ${updateSet}
+    WHERE excluded.updated_at > ${table}.updated_at
+  `)
+    .bind(...values)
     .run()
 }
 
@@ -58,6 +79,7 @@ app.post('/api/sync', async (c) => {
 
 app.get('/api/sync', async (c) => {
   const since = Number(c.req.query('since') ?? '0')
+  if (Number.isNaN(since) || since < 0) return c.json({ error: 'invalid since' }, 400)
   const db = c.env.DB
   const pullTable = async <T>(table: TableName): Promise<T[]> => {
     const res = await db.prepare(`SELECT * FROM ${table} WHERE server_seq > ?`).bind(since)

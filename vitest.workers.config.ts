@@ -9,6 +9,8 @@ export default defineWorkersConfig(async () => {
       poolOptions: {
         workers: {
           miniflare: {
+            // Bundled miniflare in @cloudflare/vitest-pool-workers@0.12.x only knows up to
+            // 2026-01-03, so it falls back from this date (2026-07-01) with a benign warning in tests (known, accepted).
             compatibilityDate: '2026-07-01',
             d1Databases: ['DB'],
             bindings: { TEST_MIGRATIONS: migrations },

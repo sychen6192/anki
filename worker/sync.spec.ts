@@ -67,4 +67,10 @@ describe('/api/sync', () => {
     const out = await pull(0)
     expect(out.decks[0].deleted).toBe(1)
   })
+
+  it('since 不是數字時回傳 400', async () => {
+    const res = await app.request('/api/sync?since=abc', {}, env)
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'invalid since' })
+  })
 })
