@@ -73,4 +73,4 @@ id,漢字,拼音,中文翻譯
 
 ## 已知限制
 
-- 同步 push 目前未分批:單次推送的髒資料列數若過多(例如一次匯入近千筆單字後首次同步),單一 Worker 呼叫的 D1 子請求數可能超過 Cloudflare 平台上限,導致該次 `/api/sync` 回傳 500、資料只部分寫入遠端。本機 IndexedDB 資料不受影響,但遠端 D1 可能落後本機。之後可考慮:前端分批送出、或後端改用 `D1Database.batch()` 減少子請求數。
+- 同步 push 大量資料(例如一次匯入近千筆單字後首次同步)原本會因為單一 Worker 呼叫的 D1 子請求數超過 Cloudflare 平台上限而回傳 500。已修正:前端 push 分塊(每批最多 200 筆,依 decks→notes→cards→review_logs 順序填充,一批送完才清該批的 dirty 旗標)+ 後端改用 `D1Database.batch()` 把每列的 seq 分配與 upsert 合併成單次 API 呼叫(每批 100 個 statement/50 列)。實測 869 筆單字全量同步已可一次到位。
