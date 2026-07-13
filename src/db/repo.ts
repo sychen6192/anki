@@ -50,6 +50,21 @@ export async function createNote(deckId: string, input: NoteInput): Promise<Note
   return note
 }
 
+export async function createNotes(deckId: string, inputs: NoteInput[]): Promise<NoteRecord[]> {
+  const t = now()
+  const notes: Local<NoteRecord>[] = inputs.map((input) => ({
+    id: crypto.randomUUID(), deck_id: deckId,
+    expression: input.expression.trim(), reading: input.reading.trim(), meaning: input.meaning.trim(),
+    reversed: input.reversed ? 1 : 0, updated_at: t, deleted: 0, dirty: 1,
+  }))
+  const cards = notes.flatMap((n) => n.reversed ? [makeCard(n, 'forward', t), makeCard(n, 'reverse', t)] : [makeCard(n, 'forward', t)])
+  await db.transaction('rw', [db.notes, db.cards], async () => {
+    await db.notes.bulkAdd(notes)
+    await db.cards.bulkAdd(cards)
+  })
+  return notes
+}
+
 export async function updateNote(id: string, patch: Partial<NoteInput>): Promise<void> {
   await db.transaction('rw', [db.notes, db.cards], async () => {
     const note = await db.notes.get(id)

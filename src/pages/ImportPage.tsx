@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
-import { createDeck, createNote } from '../db/repo'
+import { createDeck, createNotes } from '../db/repo'
 import {
   autoMapHeaders, dedupeRows, mapRows, noteKey, parseCsv,
   type CsvMapping, type ParsedRow,
@@ -18,6 +18,7 @@ export default function ImportPage() {
   const [hasHeader, setHasHeader] = useState(false)
   const [summary, setSummary] = useState<{ imported: number; skipped: ParsedRow[] } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [errMsg, setErrMsg] = useState('')
 
   const rows = useMemo(() => (text.trim() ? parseCsv(text) : []), [text])
   const dataRows = hasHeader ? rows.slice(1) : rows
@@ -46,8 +47,12 @@ export default function ImportPage() {
       const existing = await db.notes.where('deck_id').equals(targetId).filter((n) => !n.deleted).toArray()
       const keys = new Set(existing.map((n) => noteKey(n.expression, n.reading)))
       const { toImport, skipped } = dedupeRows(parsed, keys)
-      for (const r of toImport) await createNote(targetId, { ...r, reversed: false })
+      await createNotes(targetId, toImport.map((r) => ({ ...r, reversed: false })))
       setSummary({ imported: toImport.length, skipped })
+      setErrMsg('')
+    } catch (e) {
+      setSummary(null)
+      setErrMsg(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
     }
@@ -119,6 +124,7 @@ export default function ImportPage() {
             )}
           </div>
         )}
+        {errMsg && <p className="err">匯入失敗:{errMsg}</p>}
       </div>
     </div>
   )

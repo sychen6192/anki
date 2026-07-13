@@ -36,8 +36,13 @@ export default function SettingsPage() {
             const f = e.target.files?.[0]
             if (!f) return
             if (!confirm('還原會清空本機現有資料再寫入備份內容,確定?')) return
-            await importBackup(await f.text())
-            setMsg('✓ 還原完成,建議立即同步')
+            try {
+              await importBackup(await f.text())
+              setMsg('✓ 還原完成,建議立即同步')
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err)
+              setMsg(`還原失敗:${message}`)
+            }
           }} />
         </label>
       </div>

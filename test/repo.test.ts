@@ -3,7 +3,7 @@ import { beforeEach, describe, it, expect } from 'vitest'
 import { db } from '../src/db/db'
 import {
   createDeck, updateDeck, softDeleteDeck,
-  createNote, updateNote, softDeleteNote, applyReview,
+  createNote, createNotes, updateNote, softDeleteNote, applyReview,
 } from '../src/db/repo'
 import { rate } from '../src/lib/fsrs'
 
@@ -73,6 +73,20 @@ describe('note 與卡片生成', () => {
     await softDeleteNote(note.id)
     expect((await db.notes.get(note.id))!.deleted).toBe(1)
     for (const c of await db.cards.where('note_id').equals(note.id).toArray()) expect(c.deleted).toBe(1)
+  })
+
+  it('createNotes 批次建立 3 筆(1 筆 reversed)→ 3 notes + 4 cards,皆 dirty=1', async () => {
+    const deck = await createDeck('A')
+    const notes = await createNotes(deck.id, [
+      { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false },
+      { expression: '猫', reading: 'ねこ', meaning: '貓', reversed: true },
+      { expression: '鳥', reading: 'とり', meaning: '鳥', reversed: false },
+    ])
+    expect(notes).toHaveLength(3)
+    for (const n of notes) expect(n).toMatchObject({ deck_id: deck.id, deleted: 0, dirty: 1 })
+    const allCards = await db.cards.where('deck_id').equals(deck.id).toArray()
+    expect(allCards).toHaveLength(4)
+    for (const c of allCards) expect(c.dirty).toBe(1)
   })
 })
 
