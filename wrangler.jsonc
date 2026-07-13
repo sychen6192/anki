@@ -5,7 +5,7 @@
   "assets": { "directory": "./dist", "not_found_handling": "single-page-application" },
   "d1_databases": [
     // database_id 在 Task 14 執行 `wrangler d1 create` 後填入;local dev/test 不需要真 id
-    { "binding": "DB", "database_name": "anki-pwa", "database_id": "placeholder" }
+    { "binding": "DB", "database_name": "anki-pwa", "database_id": "466916b1-0856-49a5-8894-20dd3b5a8588" }
   ],
   "observability": { "enabled": true }
 }
