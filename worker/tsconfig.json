@@ -5,5 +5,5 @@
     "strict": true, "noEmit": false, "emitDeclarationOnly": true, "outDir": "../node_modules/.tsbuild/worker",
     "skipLibCheck": true, "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers"]
   },
-  "include": [".", "../shared"]
+  "include": ["."]
 }
