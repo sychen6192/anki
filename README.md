@@ -36,10 +36,9 @@ npm run build      # 型別檢查 + 打包,部署前務必跑過
 npm run deploy
 ```
 
-等同於 `npm run build && wrangler deploy`,會將 `dist/` 靜態檔與 Worker 一併發布到 Cloudflare。首次部署前需要:
+等同於 `npm run build && wrangler deploy`,會將 `dist/` 靜態檔與 Worker 一併發布到 Cloudflare。
 
-1. `npx wrangler d1 create anki-pwa`,把回傳的 `database_id` 填入 `wrangler.jsonc` 的 `d1_databases[0].database_id`(取代 `"placeholder"`)
-2. `npx wrangler d1 migrations apply anki-pwa --remote`,套用資料庫結構
+若要部署到自己的 Cloudflare 帳號,先 `npx wrangler d1 create anki-pwa` 並把回傳的 `database_id` 填入 `wrangler.jsonc`(本 repo 已填入原作者的 id),接著 `npx wrangler d1 migrations apply anki-pwa --remote` 套用資料庫結構。
 
 部署完成後 wrangler 會印出 `https://anki-pwa.<account>.workers.dev`,可用 `curl <URL>/api/health` 確認回傳 `{"ok":true}`。
 
