@@ -111,4 +111,16 @@ describe('backup', () => {
     expect(server.decks.get('d1')?.deleted).toBe(0) // 雲端被還原內容覆蓋
     expect((await db.decks.get('d1'))?.deleted).toBe(0) // 本機保持存活
   })
+
+  it('匯入缺 accent 的舊備份時,note.accent 補成空字串', async () => {
+    const json = JSON.stringify({
+      version: 1,
+      exported_at: 1000,
+      decks: [{ id: 'd1', name: 'A', new_per_day: 20, updated_at: 1000, deleted: 0 }],
+      notes: [{ id: 'n1', deck_id: 'd1', expression: '犬', reading: 'いぬ', meaning: '狗', reversed: 0, updated_at: 1000, deleted: 0 }], // 無 accent 欄
+      cards: [], review_logs: [],
+    })
+    await importBackup(json)
+    expect((await db.notes.get('n1'))!.accent).toBe('')
+  })
 })
