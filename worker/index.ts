@@ -129,4 +129,86 @@ app.get('/api/sync', async (c) => {
   return c.json(resp)
 })
 
+// 片假名 → 平假名,讓字典(平假名 reading)與各種輸入對得上。
+const kataToHira = (s: string) => s.replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60))
+
+// 把 statements 依 STATEMENTS_PER_BATCH 分批送 db.batch(),不逐項單發(避免超過子請求上限)。
+async function batchAll(db: D1Database, stmts: D1PreparedStatement[]): Promise<D1Result[]> {
+  const out: D1Result[] = []
+  for (let i = 0; i < stmts.length; i += STATEMENTS_PER_BATCH) {
+    out.push(...await db.batch(stmts.slice(i, i + STATEMENTS_PER_BATCH)))
+  }
+  return out
+}
+
+interface Pair { expression: string; reading: string }
+
+// 精確查(漢字+読み),回傳與 pairs 同序的 (pitch|null)[]。
+async function queryExact(db: D1Database, pairs: Pair[]): Promise<(string | null)[]> {
+  if (pairs.length === 0) return []
+  const stmts = pairs.map((p) =>
+    db.prepare('SELECT pitch FROM accent_dict WHERE expression = ? AND reading = ? LIMIT 1').bind(p.expression, p.reading))
+  return (await batchAll(db, stmts)).map((r) => {
+    const row = (r.results as { pitch: string }[])[0]
+    return row ? row.pitch : null
+  })
+}
+
+// 読み反查:只有唯一 pitch 才採用,多解回 null。
+async function queryByReading(db: D1Database, readings: string[]): Promise<(string | null)[]> {
+  if (readings.length === 0) return []
+  const stmts = readings.map((r) => db.prepare('SELECT DISTINCT pitch FROM accent_dict WHERE reading = ?').bind(r))
+  return (await batchAll(db, stmts)).map((r) => {
+    const rows = r.results as { pitch: string }[]
+    return rows.length === 1 ? rows[0].pitch : null
+  })
+}
+
+async function lookupAccents(db: D1Database, items: Pair[]): Promise<(string | null)[]> {
+  const norm = items.map((it) => ({ expression: it.expression, reading: kataToHira(it.reading) }))
+  const out = await queryExact(db, norm)
+
+  // 第二段:読み反查(對第一段的 miss)
+  const missIdx = out.flatMap((v, i) => (v === null ? [i] : []))
+  if (missIdx.length) {
+    const byReading = await queryByReading(db, missIdx.map((i) => norm[i].reading))
+    missIdx.forEach((i, k) => { if (byReading[k] !== null) out[i] = byReading[k] })
+  }
+
+  // 第三段:漢字與読み皆以「な」結尾 → 去尾後再跑精確 + 読み反查
+  const naIdx = out.flatMap((v, i) =>
+    (v === null && norm[i].expression.endsWith('な') && norm[i].reading.endsWith('な') ? [i] : []))
+  if (naIdx.length) {
+    const stripped = naIdx.map((i) => ({
+      expression: norm[i].expression.slice(0, -1), reading: norm[i].reading.slice(0, -1),
+    }))
+    const ex = await queryExact(db, stripped)
+    const stillMiss: { idx: number; reading: string }[] = []
+    naIdx.forEach((i, k) => {
+      if (ex[k] !== null) out[i] = ex[k]
+      else stillMiss.push({ idx: i, reading: stripped[k].reading })
+    })
+    if (stillMiss.length) {
+      const byReading = await queryByReading(db, stillMiss.map((s) => s.reading))
+      stillMiss.forEach((s, k) => { if (byReading[k] !== null) out[s.idx] = byReading[k] })
+    }
+  }
+  return out
+}
+
+app.post('/api/accent/lookup', async (c) => {
+  const body = await c.req.json<{ items?: unknown }>().catch(() => ({}))
+  const items = (body as { items?: unknown }).items
+  if (!Array.isArray(items)) return c.json({ error: 'items must be an array' }, 400)
+  if (items.length === 0) return c.json({ error: 'items is empty' }, 400)
+  if (items.length > 200) return c.json({ error: 'too many items (max 200)' }, 400)
+  for (const it of items) {
+    if (typeof it?.expression !== 'string' || typeof it?.reading !== 'string') {
+      return c.json({ error: 'each item needs string expression and reading' }, 400)
+    }
+  }
+  const results = await lookupAccents(c.env.DB, items as Pair[])
+  return c.json({ results })
+})
+
 export default app
