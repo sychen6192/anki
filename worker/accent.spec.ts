@@ -62,4 +62,16 @@ describe('/api/accent/lookup', () => {
     expect((await lookup(Array.from({ length: 201 }, () => ({ expression: 'a', reading: 'b' })))).status).toBe(400)
     expect((await lookup([{ expression: 'a' }])).status).toBe(400)
   })
+
+  it('>100 筆 lookup 跨多個 db.batch 仍逐筆正確對位', async () => {
+    const N = 150
+    const rows: [string, string, string][] = Array.from({ length: N }, (_, i) => [`e${i}`, `r${i}`, String(i % 5)])
+    await seed(rows)
+    const items = Array.from({ length: N }, (_, i) => ({ expression: `e${i}`, reading: `r${i}` }))
+    const res = await lookup(items)
+    expect(res.status).toBe(200)
+    const { results } = await res.json() as { results: (string | null)[] }
+    expect(results).toHaveLength(N)
+    expect(results).toEqual(Array.from({ length: N }, (_, i) => String(i % 5)))
+  })
 })
