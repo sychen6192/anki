@@ -141,4 +141,21 @@ describe('/api/sync', () => {
     expect(outA.decks).toHaveLength(1)
     expect(outA.decks[0].name).toBe('new')
   })
+
+  it('push 忽略 client 送的 namespace,一律以 header 為準', async () => {
+    await pushNs('real', { ...empty, decks: [deck({ id: 'dx', namespace: 'spoofed' })] })
+    expect((await pullNs('real')).decks.map((d: { id: string }) => d.id)).toEqual(['dx'])
+    expect((await pullNs('spoofed')).decks).toHaveLength(0)
+  })
+
+  // 已知限制(可接受):namespace 不在 upsert 的 conflict target(id 為全表唯一 PK)。
+  // 同一 id 跨 namespace 以較新時間戳推送會「搬移」該列,而非各自獨立。實務上不會發生:
+  // 客戶端 id 為全域唯一 UUID,且「換金鑰」會強制清空本機(見 Task 2/3 的 space.ts)。
+  // 此測試釘住並記錄此行為,使限制可見。
+  it('已知限制:同 id 跨 namespace 以較新時間戳推送會搬移該列', async () => {
+    await pushNs('A', { ...empty, decks: [deck({ id: 'shared', updated_at: 1000 })] })
+    await pushNs('B', { ...empty, decks: [deck({ id: 'shared', updated_at: 2000 })] })
+    expect((await pullNs('A')).decks).toHaveLength(0)
+    expect((await pullNs('B')).decks.map((d: { id: string }) => d.id)).toEqual(['shared'])
+  })
 })

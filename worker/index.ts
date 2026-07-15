@@ -44,6 +44,10 @@ const BUMP_SEQ_SQL = "UPDATE meta SET value = value + 1 WHERE key = 'seq'"
 // will end up ignoring) leaves a harmless gap in server_seq — pull's cursor
 // semantics only rely on server_seq being monotonically increasing, not
 // contiguous, so gaps are safe.
+//
+// 注意:namespace 不在 upsert 的 conflict target —— conflict 仍以 id(全表唯一 PK)為準。
+// 跨 namespace 的隔離因此仰賴「id 全域唯一(UUID)」+「換金鑰時客戶端強制清空本機」。
+// 這是刻意的輕量設計(非安全邊界);見 spec 2026-07-16-sync-namespace-design.md「安全」。
 function buildRowStatements(
   db: D1Database, table: TableName, row: Record<string, unknown>,
 ): [D1PreparedStatement, D1PreparedStatement] {
