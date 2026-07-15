@@ -98,4 +98,47 @@ describe('/api/sync', () => {
     expect(byId.n1.accent).toBe('2')
     expect(byId.n2.accent).toBe('')
   })
+
+  // 帶 x-sync-space header 的 push/pull
+  async function pushNs(space: string, body: unknown) {
+    const res = await app.request('/api/sync', {
+      method: 'POST', body: JSON.stringify(body),
+      headers: { 'content-type': 'application/json', 'x-sync-space': space },
+    }, env)
+    expect(res.status).toBe(200)
+  }
+  async function pullNs(space: string, since = 0): Promise<any> {
+    const res = await app.request(`/api/sync?since=${since}`, { headers: { 'x-sync-space': space } }, env)
+    expect(res.status).toBe(200)
+    return res.json()
+  }
+
+  it('namespace 隔離:A 空間 push 的資料,B 空間與預設空間都看不到', async () => {
+    await pushNs('spaceA', { ...empty, decks: [deck({ id: 'da', name: 'A的牌組' })] })
+    await pushNs('spaceB', { ...empty, decks: [deck({ id: 'db', name: 'B的牌組' })] })
+
+    const outA = await pullNs('spaceA')
+    const outB = await pullNs('spaceB')
+    const outDefault = await pull(0) // 無 header = 預設空間 ''
+
+    expect(outA.decks.map((d: { id: string }) => d.id)).toEqual(['da'])
+    expect(outB.decks.map((d: { id: string }) => d.id)).toEqual(['db'])
+    expect(outDefault.decks).toHaveLength(0)
+  })
+
+  it('pull 回傳的列不含 namespace(內部欄位不外洩)', async () => {
+    await pushNs('spaceA', { ...empty, decks: [deck({ id: 'da' })] })
+    const outA = await pullNs('spaceA')
+    expect(outA.decks[0].namespace).toBeUndefined()
+    expect(outA.decks[0].server_seq).toBeUndefined()
+  })
+
+  it('同一 namespace 內 LWW 仍正確', async () => {
+    await pushNs('spaceA', { ...empty, decks: [deck({ id: 'da', updated_at: 1000, name: 'old' })] })
+    await pushNs('spaceA', { ...empty, decks: [deck({ id: 'da', updated_at: 2000, name: 'new' })] })
+    await pushNs('spaceA', { ...empty, decks: [deck({ id: 'da', updated_at: 1500, name: 'stale' })] })
+    const outA = await pullNs('spaceA')
+    expect(outA.decks).toHaveLength(1)
+    expect(outA.decks[0].name).toBe('new')
+  })
 })
