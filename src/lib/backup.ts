@@ -25,9 +25,12 @@ export async function importBackup(json: string): Promise<void> {
   // review_logs 是不可變事件(以 id 冪等去重,不走 LWW),不重蓋時間戳。
   const withDirty = (r: object) => ({ ...r, dirty: 1 as const, updated_at: now })
   const withDirtyOnly = (r: object) => ({ ...r, dirty: 1 as const })
+  // 舊備份(pitch-accent 功能之前匯出)的 note 沒有 accent 欄,匯入時補成 ''
+  // 以符合 NoteRecord.accent 的必填 string 型別(見 design spec:匯入舊備份缺 accent 時補 '')。
+  const withDirtyNote = (r: { accent?: string }) => ({ ...r, accent: r.accent ?? '', dirty: 1 as const, updated_at: now })
   await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.meta], async () => {
     await db.decks.clear(); await db.decks.bulkAdd((data.decks ?? []).map(withDirty))
-    await db.notes.clear(); await db.notes.bulkAdd((data.notes ?? []).map(withDirty))
+    await db.notes.clear(); await db.notes.bulkAdd((data.notes ?? []).map(withDirtyNote))
     await db.cards.clear(); await db.cards.bulkAdd((data.cards ?? []).map(withDirty))
     await db.review_logs.clear(); await db.review_logs.bulkAdd((data.review_logs ?? []).map(withDirtyOnly))
     await db.meta.delete('sync_cursor') // 下次同步全量重拉,restore-wins 讓還原內容覆蓋雲端與其他裝置

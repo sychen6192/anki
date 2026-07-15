@@ -5,6 +5,7 @@
 ## 功能
 
 - 牌組 / 卡片 / 複習(FSRS 排程,含正向與反向卡)
+- 日文重音(ピッチアクセント):自動標註(kanjium 字典)、卡片與編輯器以高低線圖顯示
 - CSV 匯入(自動欄位對應、預覽、跳過重複)與匯出
 - 完整資料 JSON 備份與還原
 - 背景同步(push/pull、Last-Write-Wins 合併)
@@ -54,7 +55,23 @@ id,漢字,拼音,中文翻譯
 
 - 預設「第一列是表頭」勾選時,第一列不會被當成資料匯入
 - 同一牌組內「單字+讀音」相同視為重複,會自動跳過並列出被跳過的項目
-- 匯出時(牌組詳情頁「匯出 CSV」)欄位為單字、讀音、意思三欄
+- 匯出時(牌組詳情頁「匯出 CSV」)欄位為單字、讀音、意思、重音四欄
+
+## 日文重音字典
+
+重音由開源字典 [kanjium](https://github.com/mifunetoshiro/kanjium)(mifunetoshiro/kanjium)提供,存於 D1 表 `accent_dict`。建置與載入:
+
+```bash
+curl -sL -o scripts/accents.txt https://raw.githubusercontent.com/mifunetoshiro/kanjium/master/data/source_files/raw/accents.txt
+node scripts/build-accent-dict.mjs                              # 產出 scripts/accent-dict.sql(約 12 萬筆)
+npx wrangler d1 migrations apply anki-pwa --remote              # 套用 0002(notes.accent 欄 + accent_dict 表)
+npx wrangler d1 execute anki-pwa --remote --file=scripts/accent-dict.sql
+```
+
+- 匯入 CSV 時,對沒帶「重音」欄的列會自動查字典填入(離線則留空)
+- 牌組詳情頁「自動標註重音」可一鍵回填整副牌組的空白重音
+- 編輯器可手動輸入重音(格式:數字,多重音用逗號,如 `0` 或 `0,3`)或按「自動查詢」
+- 匯入表頭支援「重音 / アクセント / accent / pitch」欄;匯出含「重音」欄
 
 ## 啟用 SYNC_TOKEN 上鎖
 

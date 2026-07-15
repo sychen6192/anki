@@ -23,6 +23,12 @@ input, select, textarea { padding: 8px 10px; border: 1px solid #d6d3d1; border-r
 .flashcard { width: 100%; min-height: 260px; background: #fff; border-radius: 16px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 12px; padding: 24px; cursor: pointer; box-shadow: 0 1px 3px rgb(0 0 0 / 0.08); }
 .expression { font-size: 40px; font-weight: 700; }
 .reading { font-size: 20px; color: #4f46e5; }
+.pitch { display: inline-flex; align-items: flex-start; gap: 6px; }
+.pitch-morae { display: inline-flex; }
+.pitch-morae .mora { border-top: 2px solid transparent; line-height: 1.9; padding: 0 1px; }
+.pitch-morae .mora.high { border-top-color: currentColor; }
+.pitch-morae .mora.drop { border-right: 2px solid currentColor; }
+.pitch-num { font-size: 0.7em; opacity: 0.65; }
 .meaning { font-size: 20px; color: #57534e; }
 .show-answer { width: 100%; padding: 14px; }
 .ratings { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; width: 100%; }

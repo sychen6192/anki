@@ -6,6 +6,7 @@ export interface DeckRecord {
 export interface NoteRecord {
   id: string; deck_id: string
   expression: string; reading: string; meaning: string; reversed: 0 | 1
+  accent: string
   updated_at: number; deleted: 0 | 1
 }
 

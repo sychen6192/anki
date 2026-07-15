@@ -2,7 +2,7 @@ import { db, type Local } from './db'
 import type { CardRecord, DeckRecord, NoteRecord, ReviewLogRecord } from '../../shared/types'
 import { newCardFields, type FsrsFields } from '../lib/fsrs'
 
-export interface NoteInput { expression: string; reading: string; meaning: string; reversed: boolean }
+export interface NoteInput { expression: string; reading: string; meaning: string; reversed: boolean; accent: string }
 
 const now = () => Date.now()
 
@@ -40,6 +40,7 @@ export async function createNote(deckId: string, input: NoteInput): Promise<Note
   const note: Local<NoteRecord> = {
     id: crypto.randomUUID(), deck_id: deckId,
     expression: input.expression.trim(), reading: input.reading.trim(), meaning: input.meaning.trim(),
+    accent: input.accent.trim(),
     reversed: input.reversed ? 1 : 0, updated_at: t, deleted: 0, dirty: 1,
   }
   await db.transaction('rw', [db.notes, db.cards], async () => {
@@ -55,6 +56,7 @@ export async function createNotes(deckId: string, inputs: NoteInput[]): Promise<
   const notes: Local<NoteRecord>[] = inputs.map((input) => ({
     id: crypto.randomUUID(), deck_id: deckId,
     expression: input.expression.trim(), reading: input.reading.trim(), meaning: input.meaning.trim(),
+    accent: input.accent.trim(),
     reversed: input.reversed ? 1 : 0, updated_at: t, deleted: 0, dirty: 1,
   }))
   const cards = notes.flatMap((n) => n.reversed ? [makeCard(n, 'forward', t), makeCard(n, 'reverse', t)] : [makeCard(n, 'forward', t)])
@@ -75,6 +77,7 @@ export async function updateNote(id: string, patch: Partial<NoteInput>): Promise
       expression: (patch.expression ?? note.expression).trim(),
       reading: (patch.reading ?? note.reading).trim(),
       meaning: (patch.meaning ?? note.meaning).trim(),
+      accent: (patch.accent ?? note.accent).trim(),
       reversed, updated_at: t, dirty: 1,
     })
     const rev = (await db.cards.where('note_id').equals(id).toArray()).find((c) => c.direction === 'reverse')

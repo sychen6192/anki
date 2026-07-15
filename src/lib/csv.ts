@@ -1,12 +1,14 @@
 import Papa from 'papaparse'
 import type { NoteRecord } from '../../shared/types'
+import { isValidAccent } from './accent'
 
-export interface CsvMapping { expression: number; reading: number | null; meaning: number }
-export interface ParsedRow { expression: string; reading: string; meaning: string }
+export interface CsvMapping { expression: number; reading: number | null; meaning: number; accent: number | null }
+export interface ParsedRow { expression: string; reading: string; meaning: string; accent: string }
 
 const EXPRESSION_ALIASES = ['漢字', '單字', '单字', 'expression', 'word', 'front', '正面']
 const READING_ALIASES = ['拼音', '読み', '讀音', '读音', 'reading', 'kana', '假名']
 const MEANING_ALIASES = ['中文翻譯', '中文翻译', '意思', '翻譯', '翻译', 'meaning', 'back', '背面']
+const ACCENT_ALIASES = ['重音', 'アクセント', 'accent', 'pitch']
 
 export function parseCsv(text: string): string[][] {
   return Papa.parse<string[]>(text.trim(), { skipEmptyLines: true }).data
@@ -21,16 +23,20 @@ export function autoMapHeaders(headers: string[]): CsvMapping | null {
   const expression = find(EXPRESSION_ALIASES)
   const meaning = find(MEANING_ALIASES)
   if (expression === null || meaning === null) return null
-  return { expression, reading: find(READING_ALIASES), meaning }
+  return { expression, reading: find(READING_ALIASES), meaning, accent: find(ACCENT_ALIASES) }
 }
 
 export function mapRows(rows: string[][], mapping: CsvMapping): ParsedRow[] {
   return rows
-    .map((r) => ({
-      expression: (r[mapping.expression] ?? '').trim(),
-      reading: mapping.reading === null ? '' : (r[mapping.reading] ?? '').trim(),
-      meaning: (r[mapping.meaning] ?? '').trim(),
-    }))
+    .map((r) => {
+      const rawAccent = mapping.accent === null ? '' : (r[mapping.accent] ?? '').trim()
+      return {
+        expression: (r[mapping.expression] ?? '').trim(),
+        reading: mapping.reading === null ? '' : (r[mapping.reading] ?? '').trim(),
+        meaning: (r[mapping.meaning] ?? '').trim(),
+        accent: isValidAccent(rawAccent) ? rawAccent : '',
+      }
+    })
     .filter((r) => r.expression !== '' && r.meaning !== '')
 }
 
@@ -50,8 +56,8 @@ export function dedupeRows(rows: ParsedRow[], existingKeys: Set<string>): { toIm
 
 export function exportCsv(notes: NoteRecord[]): string {
   const csv = Papa.unparse({
-    fields: ['單字', '讀音', '意思'],
-    data: notes.filter((n) => !n.deleted).map((n) => [n.expression, n.reading, n.meaning]),
+    fields: ['單字', '讀音', '意思', '重音'],
+    data: notes.filter((n) => !n.deleted).map((n) => [n.expression, n.reading, n.meaning, n.accent]),
   })
   return csv.replace(/\r/g, '')
 }

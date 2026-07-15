@@ -7,8 +7,10 @@ import {
 } from '../db/repo'
 import { exportCsv } from '../lib/csv'
 import { download } from '../lib/download'
+import { fillMissingAccents, isValidAccent, lookupAccents } from '../lib/accent'
+import { PitchAccent } from '../components/PitchAccent'
 
-const EMPTY: NoteInput = { expression: '', reading: '', meaning: '', reversed: false }
+const EMPTY: NoteInput = { expression: '', reading: '', meaning: '', reversed: false, accent: '' }
 
 export default function DeckDetail() {
   const { deckId } = useParams()
@@ -24,6 +26,8 @@ export default function DeckDetail() {
   const [newPerDay, setNewPerDay] = useState<number | null>(null)
   const busy = useRef(false)
   const [errMsg, setErrMsg] = useState<string | null>(null)
+  const [looking, setLooking] = useState(false)
+  const [annotateMsg, setAnnotateMsg] = useState<string | null>(null)
 
   if (!deck || !notes) return null
   if (deck.deleted) return <p>牌組已刪除</p>
@@ -32,10 +36,51 @@ export default function DeckDetail() {
     ? notes.filter((n) => [n.expression, n.reading, n.meaning].some((s) => s.includes(search)))
     : notes
 
+  const lookupOne = async () => {
+    if (!form.expression.trim()) { setErrMsg('請先輸入單字'); return }
+    setLooking(true)
+    try {
+      const [pitch] = await lookupAccents([{ expression: form.expression.trim(), reading: form.reading.trim() }])
+      if (pitch != null) { setForm((f) => ({ ...f, accent: pitch })); setErrMsg(null) }
+      else setErrMsg('字典查無此字的重音')
+    } catch (e) {
+      setErrMsg(`查詢失敗:${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setLooking(false)
+    }
+  }
+
+  const annotateDeck = async () => {
+    if (busy.current) return
+    const blanks = notes.filter((n) => !n.accent)
+    if (blanks.length === 0) { setAnnotateMsg('這副牌組沒有待標註的卡片'); return }
+    busy.current = true
+    setAnnotateMsg(`標註中…(${blanks.length} 筆)`)
+    try {
+      const { rows, filled, missed } = await fillMissingAccents(
+        blanks.map((n) => ({ id: n.id, expression: n.expression, reading: n.reading, accent: n.accent ?? '' })),
+      )
+      for (const r of rows) {
+        if (r.accent !== '') await updateNote(r.id, { accent: r.accent })
+      }
+      setAnnotateMsg(`完成:標註 ${filled} 筆,查無 ${missed} 筆`)
+      setErrMsg(null)
+    } catch (e) {
+      setAnnotateMsg(null)
+      setErrMsg(`自動標註失敗:${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      busy.current = false
+    }
+  }
+
   const saveNote = async () => {
     if (busy.current) return
     if (!form.expression.trim() || !form.meaning.trim()) {
       setErrMsg('單字與意思為必填')
+      return
+    }
+    if (!isValidAccent(form.accent.trim())) {
+      setErrMsg('重音格式錯誤(只能是數字,多重音用逗號分隔,如 0 或 0,3)')
       return
     }
     busy.current = true
@@ -105,7 +150,9 @@ export default function DeckDetail() {
           匯出 CSV
         </button>
         <button className="btn secondary" onClick={() => { setEditingId('new'); setForm(EMPTY) }}>＋新增卡片</button>
+        <button className="btn secondary" onClick={annotateDeck}>自動標註重音</button>
       </div>
+      {annotateMsg && <p className="hint">{annotateMsg}</p>}
 
       {editingId !== null && (
         <div className="note-form">
@@ -115,6 +162,16 @@ export default function DeckDetail() {
             onChange={(e) => setForm({ ...form, reading: e.target.value })} />
           <input placeholder="意思" value={form.meaning}
             onChange={(e) => setForm({ ...form, meaning: e.target.value })} />
+          <div className="accent-field">
+            <input placeholder="重音(如 0、2、0,3;可空)" value={form.accent}
+              onChange={(e) => setForm({ ...form, accent: e.target.value })} />
+            <button type="button" className="btn secondary" disabled={looking} onClick={lookupOne}>
+              {looking ? '查詢中…' : '自動查詢'}
+            </button>
+          </div>
+          {form.reading.trim() !== '' && form.accent.trim() !== '' && isValidAccent(form.accent.trim()) && (
+            <div className="accent-preview"><PitchAccent reading={form.reading.trim()} accent={form.accent.trim()} /></div>
+          )}
           <label><input type="checkbox" checked={form.reversed}
             onChange={(e) => setForm({ ...form, reversed: e.target.checked })} /> 反向卡(意思→單字)</label>
           <div className="form-actions">
@@ -135,7 +192,7 @@ export default function DeckDetail() {
             </div>
             <button className="link" onClick={() => {
               setEditingId(n.id)
-              setForm({ expression: n.expression, reading: n.reading, meaning: n.meaning, reversed: n.reversed === 1 })
+              setForm({ expression: n.expression, reading: n.reading, meaning: n.meaning, reversed: n.reversed === 1, accent: n.accent ?? '' })
             }}>編輯</button>
             <button className="link danger" onClick={async () => {
               if (busy.current) return
