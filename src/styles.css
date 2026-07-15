@@ -241,7 +241,10 @@ textarea { resize: vertical; }
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 18px; display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; box-shadow: var(--shadow-sm);
 }
-.import-form label, .settings-block label { display: flex; gap: 8px; align-items: center; }
+.import-form label { display: flex; gap: 8px; align-items: center; }
+/* 設定頁的 label(如「還原備份:」+ 檔案選擇)在窄螢幕改直向堆疊,避免文字被擠成一字一行、檔案輸入溢出卡片 */
+.settings-block label { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+input[type="file"] { border: none; padding: 0; background: none; max-width: 100%; }
 .mapping { display: flex; gap: 12px; flex-wrap: wrap; }
 .preview { width: 100%; border-collapse: collapse; font-size: 14px; overflow: hidden; border-radius: var(--radius-sm); }
 .preview th, .preview td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; }
