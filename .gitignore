@@ -2,3 +2,5 @@ node_modules/
 dist/
 .wrangler/
 node_modules/.tsbuild/
+scripts/accents.txt
+scripts/accent-dict.sql
