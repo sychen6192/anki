@@ -179,6 +179,15 @@ textarea { resize: vertical; }
 .pitch-morae .mora.drop { border-right: 2px solid currentColor; }
 .pitch-num { font-size: 0.66em; opacity: 0.6; font-variant-numeric: tabular-nums; }
 .meaning { font-size: 20px; color: var(--muted); text-align: center; }
+.speak-btn {
+  border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
+  border-radius: 999px; width: 42px; height: 42px; font-size: 18px; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  transition: background .15s ease, border-color .15s ease, transform .06s ease;
+}
+.speak-btn:hover { background: var(--surface-2); border-color: var(--muted); }
+.speak-btn:active { transform: translateY(1px); }
+.speak-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .show-answer { width: 100%; padding: 15px; font-size: 15px; }
 
 .ratings { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; width: 100%; }

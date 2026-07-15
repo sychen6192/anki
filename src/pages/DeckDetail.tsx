@@ -9,6 +9,7 @@ import { exportCsv } from '../lib/csv'
 import { download } from '../lib/download'
 import { fillMissingAccents, isValidAccent, lookupAccents } from '../lib/accent'
 import { PitchAccent } from '../components/PitchAccent'
+import { isSpeechSupported, speak } from '../lib/speak'
 
 const EMPTY: NoteInput = { expression: '', reading: '', meaning: '', reversed: false, accent: '' }
 
@@ -158,8 +159,14 @@ export default function DeckDetail() {
         <div className="note-form">
           <input placeholder="單字" value={form.expression}
             onChange={(e) => setForm({ ...form, expression: e.target.value })} />
-          <input placeholder="讀音(可空)" value={form.reading}
-            onChange={(e) => setForm({ ...form, reading: e.target.value })} />
+          <div className="accent-field">
+            <input placeholder="讀音(可空)" value={form.reading}
+              onChange={(e) => setForm({ ...form, reading: e.target.value })} />
+            {isSpeechSupported() && (
+              <button type="button" className="speak-btn" aria-label="播放發音"
+                onClick={() => speak(form.reading || form.expression)}>🔊</button>
+            )}
+          </div>
           <input placeholder="意思" value={form.meaning}
             onChange={(e) => setForm({ ...form, meaning: e.target.value })} />
           <div className="accent-field">

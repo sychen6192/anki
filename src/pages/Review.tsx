@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { PitchAccent } from '../components/PitchAccent'
+import { isSpeechSupported, speak } from '../lib/speak'
 import { db } from '../db/db'
 import { applyReview } from '../db/repo'
 import { formatInterval, previewIntervals, rate, type RatingValue } from '../lib/fsrs'
@@ -116,6 +117,13 @@ export default function Review() {
             <p className="expression">{note.expression}</p>
             {note.reading !== '' && <PitchAccent reading={note.reading} accent={note.accent} />}
             <p className="meaning">{note.meaning}</p>
+            {isSpeechSupported() && (
+              <button
+                className="speak-btn"
+                aria-label="播放發音"
+                onClick={(e) => { e.stopPropagation(); speak(note.reading || note.expression) }}
+              >🔊</button>
+            )}
           </>
         )}
       </div>
