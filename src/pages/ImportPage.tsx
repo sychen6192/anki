@@ -6,6 +6,7 @@ import {
   autoMapHeaders, dedupeRows, mapRows, noteKey, parseCsv,
   type CsvMapping, type ParsedRow,
 } from '../lib/csv'
+import { fillMissingAccents } from '../lib/accent'
 
 const FIELD_LABELS = [['expression', '單字'], ['reading', '讀音'], ['meaning', '意思']] as const
 
@@ -16,7 +17,7 @@ export default function ImportPage() {
   const [text, setText] = useState('')
   const [mapping, setMapping] = useState<CsvMapping | null>(null)
   const [hasHeader, setHasHeader] = useState(false)
-  const [summary, setSummary] = useState<{ imported: number; skipped: ParsedRow[] } | null>(null)
+  const [summary, setSummary] = useState<{ imported: number; skipped: ParsedRow[]; annotated: number; missed: number; annotateSkipped: boolean } | null>(null)
   const [busy, setBusy] = useState(false)
   const [errMsg, setErrMsg] = useState('')
 
@@ -48,8 +49,23 @@ export default function ImportPage() {
       const existing = await db.notes.where('deck_id').equals(targetId).filter((n) => !n.deleted).toArray()
       const keys = new Set(existing.map((n) => noteKey(n.expression, n.reading)))
       const { toImport, skipped } = dedupeRows(parsed, keys)
-      await createNotes(targetId, toImport.map((r) => ({ ...r, reversed: false, accent: '' })))
-      setSummary({ imported: toImport.length, skipped })
+
+      // 自動標註:對 CSV 沒帶重音的列查字典;離線或 API 失敗時照常匯入(留空),不中斷。
+      let rows = toImport
+      let annotated = 0, missed = 0, annotateSkipped = false
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        annotateSkipped = true
+      } else {
+        try {
+          const res = await fillMissingAccents(toImport)
+          rows = res.rows; annotated = res.filled; missed = res.missed
+        } catch {
+          annotateSkipped = true
+        }
+      }
+
+      await createNotes(targetId, rows.map((r) => ({ ...r, reversed: false })))
+      setSummary({ imported: rows.length, skipped, annotated, missed, annotateSkipped })
       setErrMsg('')
     } catch (e) {
       setSummary(null)
@@ -118,6 +134,9 @@ export default function ImportPage() {
         {summary && (
           <div className="summary">
             <p>✓ 匯入 {summary.imported} 筆,跳過重複 {summary.skipped.length} 筆</p>
+            {summary.annotateSkipped
+              ? <p className="hint">離線或字典查詢失敗,未自動標註重音(可稍後在牌組頁按「自動標註重音」)</p>
+              : <p className="hint">自動標註重音 {summary.annotated} 筆,查無 {summary.missed} 筆</p>}
             {summary.skipped.length > 0 && (
               <ul>{summary.skipped.map((r, i) => (
                 <li key={i}>{r.expression}{r.reading && `(${r.reading})`} — {r.meaning}</li>
