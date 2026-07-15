@@ -34,6 +34,7 @@ export default function ImportPage() {
       expression: 0,
       reading: first.length > 2 ? 1 : null,
       meaning: first.length > 2 ? 2 : 1,
+      accent: null,
     })
     setHasHeader(auto !== null)
   }
