@@ -12,8 +12,8 @@ export default defineConfig({
         short_name: '字卡',
         lang: 'zh-TW',
         display: 'standalone',
-        theme_color: '#4f46e5',
-        background_color: '#f5f5f4',
+        theme_color: '#5b57d6',
+        background_color: '#f5f5f6',
         icons: [
           { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
           { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },

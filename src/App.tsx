@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom'
 import { setupAutoSync } from './lib/sync'
 import DeckList from './pages/DeckList'
 import DeckDetail from './pages/DeckDetail'
@@ -13,10 +13,10 @@ export default function App() {
   return (
     <BrowserRouter>
       <nav className="topnav">
-        <Link to="/">牌組</Link>
-        <Link to="/import">匯入</Link>
-        <Link to="/stats">統計</Link>
-        <Link to="/settings">設定</Link>
+        <NavLink to="/" end>牌組</NavLink>
+        <NavLink to="/import">匯入</NavLink>
+        <NavLink to="/stats">統計</NavLink>
+        <NavLink to="/settings">設定</NavLink>
       </nav>
       <main className="page">
         <Routes>
