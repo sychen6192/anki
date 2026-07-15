@@ -32,7 +32,7 @@ describe('deck', () => {
 
   it('softDeleteDeck 連帶墓碑 notes 與 cards', async () => {
     const deck = await createDeck('A')
-    await createNote(deck.id, { expression: '猫', reading: 'ねこ', meaning: '貓', reversed: true })
+    await createNote(deck.id, { expression: '猫', reading: 'ねこ', meaning: '貓', reversed: true, accent: '' })
     await softDeleteDeck(deck.id)
     expect((await db.decks.get(deck.id))!.deleted).toBe(1)
     for (const n of await db.notes.toArray()) expect(n.deleted).toBe(1)
@@ -43,7 +43,7 @@ describe('deck', () => {
 describe('note 與卡片生成', () => {
   it('一般 note 產 1 張 forward 卡', async () => {
     const deck = await createDeck('A')
-    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false })
+    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
     const cards = await db.cards.where('note_id').equals(note.id).toArray()
     expect(cards).toHaveLength(1)
     expect(cards[0]).toMatchObject({ direction: 'forward', deck_id: deck.id, deleted: 0, dirty: 1 })
@@ -51,14 +51,14 @@ describe('note 與卡片生成', () => {
 
   it('reversed note 產 forward+reverse 兩張卡', async () => {
     const deck = await createDeck('A')
-    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: true })
+    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: true, accent: '' })
     const dirs = (await db.cards.where('note_id').equals(note.id).toArray()).map((c) => c.direction).sort()
     expect(dirs).toEqual(['forward', 'reverse'])
   })
 
   it('updateNote 開關 reversed 會補卡/墓碑反向卡', async () => {
     const deck = await createDeck('A')
-    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false })
+    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
     await updateNote(note.id, { reversed: true })
     let cards = await db.cards.where('note_id').equals(note.id).toArray()
     expect(cards.filter((c) => c.direction === 'reverse' && !c.deleted)).toHaveLength(1)
@@ -69,7 +69,7 @@ describe('note 與卡片生成', () => {
 
   it('softDeleteNote 墓碑 note 與其卡片', async () => {
     const deck = await createDeck('A')
-    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: true })
+    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: true, accent: '' })
     await softDeleteNote(note.id)
     expect((await db.notes.get(note.id))!.deleted).toBe(1)
     for (const c of await db.cards.where('note_id').equals(note.id).toArray()) expect(c.deleted).toBe(1)
@@ -78,9 +78,9 @@ describe('note 與卡片生成', () => {
   it('createNotes 批次建立 3 筆(1 筆 reversed)→ 3 notes + 4 cards,皆 dirty=1', async () => {
     const deck = await createDeck('A')
     const notes = await createNotes(deck.id, [
-      { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false },
-      { expression: '猫', reading: 'ねこ', meaning: '貓', reversed: true },
-      { expression: '鳥', reading: 'とり', meaning: '鳥', reversed: false },
+      { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' },
+      { expression: '猫', reading: 'ねこ', meaning: '貓', reversed: true, accent: '' },
+      { expression: '鳥', reading: 'とり', meaning: '鳥', reversed: false, accent: '' },
     ])
     expect(notes).toHaveLength(3)
     for (const n of notes) expect(n).toMatchObject({ deck_id: deck.id, deleted: 0, dirty: 1 })
@@ -88,12 +88,20 @@ describe('note 與卡片生成', () => {
     expect(allCards).toHaveLength(4)
     for (const c of allCards) expect(c.dirty).toBe(1)
   })
+
+  it('createNote 儲存 accent;updateNote 可更新 accent', async () => {
+    const deck = await createDeck('A')
+    const note = await createNote(deck.id, { expression: '食べる', reading: 'たべる', meaning: '吃', reversed: false, accent: '2' })
+    expect((await db.notes.get(note.id))!.accent).toBe('2')
+    await updateNote(note.id, { accent: '0,3' })
+    expect((await db.notes.get(note.id))!.accent).toBe('0,3')
+  })
 })
 
 describe('applyReview', () => {
   it('更新卡片 FSRS 欄位並新增 review_log', async () => {
     const deck = await createDeck('A')
-    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false })
+    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
     const card = (await db.cards.where('note_id').equals(note.id).toArray())[0]
     const { fields, log } = rate(card, 3)
     await applyReview(card, fields, log)

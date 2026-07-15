@@ -41,7 +41,7 @@ function makeFakeDeckServer() {
 describe('backup', () => {
   it('匯出→清空→還原 roundtrip,還原後全部 dirty=1 且 cursor 歸零', async () => {
     const deck = await createDeck('A')
-    await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: true })
+    await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: true, accent: '' })
     await db.meta.put({ key: 'sync_cursor', value: 42 })
     const json = await exportBackup()
 

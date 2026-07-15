@@ -87,4 +87,15 @@ describe('/api/sync', () => {
     expect(new Set(out.decks.map((d: { id: string }) => d.id)).size).toBe(60)
     expect(new Set(out.notes.map((n: { id: string }) => n.id)).size).toBe(60)
   })
+
+  it('note 的 accent 會 round-trip;缺 accent 的舊 push 補成空字串', async () => {
+    await push({ ...empty, notes: [
+      { id: 'n1', deck_id: 'd1', expression: '食べる', reading: 'たべる', meaning: '吃', accent: '2', reversed: 0, updated_at: 1000, deleted: 0 },
+      { id: 'n2', deck_id: 'd1', expression: '犬', reading: 'いぬ', meaning: '狗', reversed: 0, updated_at: 1000, deleted: 0 }, // 故意不含 accent
+    ] })
+    const out = await pull(0)
+    const byId = Object.fromEntries(out.notes.map((n: { id: string }) => [n.id, n]))
+    expect(byId.n1.accent).toBe('2')
+    expect(byId.n2.accent).toBe('')
+  })
 })

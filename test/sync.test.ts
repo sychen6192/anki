@@ -95,7 +95,7 @@ describe('syncNow', () => {
     const t = Date.now()
     const notes = Array.from({ length: 250 }, (_, i) => ({
       id: crypto.randomUUID(), deck_id: deck.id, expression: `w${i}`, reading: '', meaning: `m${i}`,
-      reversed: 0 as const, updated_at: t, deleted: 0 as const, dirty: 1 as const,
+      accent: '', reversed: 0 as const, updated_at: t, deleted: 0 as const, dirty: 1 as const,
     }))
     await db.notes.bulkAdd(notes)
 
@@ -132,7 +132,7 @@ describe('syncNow', () => {
     const t = Date.now()
     const notes = Array.from({ length: 150 }, (_, i) => ({
       id: crypto.randomUUID(), deck_id: deck.id, expression: `w${i}`, reading: '', meaning: `m${i}`,
-      reversed: 0 as const, updated_at: t, deleted: 0 as const, dirty: 1 as const,
+      accent: '', reversed: 0 as const, updated_at: t, deleted: 0 as const, dirty: 1 as const,
     }))
     await db.notes.bulkAdd(notes)
     const cards = Array.from({ length: 100 }, (_, i) => ({

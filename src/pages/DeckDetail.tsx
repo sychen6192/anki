@@ -8,7 +8,7 @@ import {
 import { exportCsv } from '../lib/csv'
 import { download } from '../lib/download'
 
-const EMPTY: NoteInput = { expression: '', reading: '', meaning: '', reversed: false }
+const EMPTY: NoteInput = { expression: '', reading: '', meaning: '', reversed: false, accent: '' }
 
 export default function DeckDetail() {
   const { deckId } = useParams()
@@ -135,7 +135,7 @@ export default function DeckDetail() {
             </div>
             <button className="link" onClick={() => {
               setEditingId(n.id)
-              setForm({ expression: n.expression, reading: n.reading, meaning: n.meaning, reversed: n.reversed === 1 })
+              setForm({ expression: n.expression, reading: n.reading, meaning: n.meaning, reversed: n.reversed === 1, accent: n.accent })
             }}>編輯</button>
             <button className="link danger" onClick={async () => {
               if (busy.current) return

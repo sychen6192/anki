@@ -72,8 +72,8 @@ describe('dedupeRows', () => {
 describe('exportCsv', () => {
   it('輸出 單字,讀音,意思 表頭並跳過墓碑', () => {
     const notes = [
-      { id: '1', deck_id: 'd', expression: '犬', reading: 'いぬ', meaning: '狗', reversed: 0, updated_at: 0, deleted: 0 },
-      { id: '2', deck_id: 'd', expression: '猫', reading: 'ねこ', meaning: '貓', reversed: 0, updated_at: 0, deleted: 1 },
+      { id: '1', deck_id: 'd', expression: '犬', reading: 'いぬ', meaning: '狗', accent: '', reversed: 0, updated_at: 0, deleted: 0 },
+      { id: '2', deck_id: 'd', expression: '猫', reading: 'ねこ', meaning: '貓', accent: '', reversed: 0, updated_at: 0, deleted: 1 },
     ] satisfies NoteRecord[]
     const csv = exportCsv(notes)
     expect(csv.split('\n')[0]).toBe('單字,讀音,意思')

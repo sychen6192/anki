@@ -20,6 +20,15 @@ export class AppDB extends Dexie {
       review_logs: 'id, card_id, reviewed_at, dirty',
       meta: 'key',
     })
+    this.version(2).stores({
+      decks: 'id, dirty',
+      notes: 'id, deck_id, dirty',
+      cards: 'id, note_id, deck_id, due, dirty',
+      review_logs: 'id, card_id, reviewed_at, dirty',
+      meta: 'key',
+    }).upgrade(async (tx) => {
+      await tx.table('notes').toCollection().modify((n: { accent?: string }) => { n.accent = '' })
+    })
   }
 }
 

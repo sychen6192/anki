@@ -47,7 +47,7 @@ export default function ImportPage() {
       const existing = await db.notes.where('deck_id').equals(targetId).filter((n) => !n.deleted).toArray()
       const keys = new Set(existing.map((n) => noteKey(n.expression, n.reading)))
       const { toImport, skipped } = dedupeRows(parsed, keys)
-      await createNotes(targetId, toImport.map((r) => ({ ...r, reversed: false })))
+      await createNotes(targetId, toImport.map((r) => ({ ...r, reversed: false, accent: '' })))
       setSummary({ imported: toImport.length, skipped })
       setErrMsg('')
     } catch (e) {

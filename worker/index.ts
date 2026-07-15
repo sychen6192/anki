@@ -14,13 +14,19 @@ app.get('/api/health', (c) => c.json({ ok: true }))
 
 const TABLE_COLS = {
   decks: ['id', 'name', 'new_per_day', 'updated_at', 'deleted'],
-  notes: ['id', 'deck_id', 'expression', 'reading', 'meaning', 'reversed', 'updated_at', 'deleted'],
+  notes: ['id', 'deck_id', 'expression', 'reading', 'meaning', 'accent', 'reversed', 'updated_at', 'deleted'],
   cards: ['id', 'note_id', 'deck_id', 'direction', 'due', 'stability', 'difficulty',
     'elapsed_days', 'scheduled_days', 'learning_steps', 'reps', 'lapses', 'state',
     'last_review', 'updated_at', 'deleted'],
   review_logs: ['id', 'card_id', 'rating', 'state', 'due', 'stability', 'difficulty',
     'elapsed_days', 'last_elapsed_days', 'scheduled_days', 'reviewed_at'],
 } as const
+
+// 舊 client 不會送 accent;缺欄位的 note 以 '' 補上(notes.accent 是 NOT NULL)。
+// 其餘欄位缺值仍走 null(例如 cards.last_review 本來就可 null)。
+const COL_DEFAULTS: Partial<Record<TableName, Record<string, unknown>>> = {
+  notes: { accent: '' },
+}
 
 type TableName = keyof typeof TABLE_COLS
 
@@ -45,7 +51,12 @@ function buildRowStatements(
   const cols = TABLE_COLS[table]
   const allCols = [...cols, 'server_seq']
   const colPlaceholders = cols.map(() => '?').join(', ')
-  const values = cols.map((c) => (row[c] === undefined ? null : row[c]))
+  const values = cols.map((c) => {
+    const v = row[c]
+    if (v !== undefined) return v
+    const def = COL_DEFAULTS[table]?.[c]
+    return def !== undefined ? def : null
+  })
 
   if (table === 'review_logs') {
     // review_logs are immutable events keyed by id: atomic no-op on duplicate id.
