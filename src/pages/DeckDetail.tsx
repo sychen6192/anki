@@ -10,6 +10,7 @@ import { download } from '../lib/download'
 import { fillMissingAccents, isValidAccent, lookupAccents } from '../lib/accent'
 import { PitchAccent } from '../components/PitchAccent'
 import { isSpeechSupported, speak } from '../lib/speak'
+import { SpeakerIcon } from '../components/SpeakerIcon'
 
 const EMPTY: NoteInput = { expression: '', reading: '', meaning: '', reversed: false, accent: '' }
 
@@ -164,7 +165,7 @@ export default function DeckDetail() {
               onChange={(e) => setForm({ ...form, reading: e.target.value })} />
             {isSpeechSupported() && (
               <button type="button" className="speak-btn" aria-label="播放發音"
-                onClick={() => speak(form.reading || form.expression)}>🔊</button>
+                onClick={() => speak(form.reading || form.expression)}><SpeakerIcon /></button>
             )}
           </div>
           <input placeholder="意思" value={form.meaning}

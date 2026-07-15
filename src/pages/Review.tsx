@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { PitchAccent } from '../components/PitchAccent'
 import { isSpeechSupported, speak } from '../lib/speak'
+import { SpeakerIcon } from '../components/SpeakerIcon'
 import { db } from '../db/db'
 import { applyReview } from '../db/repo'
 import { formatInterval, previewIntervals, rate, type RatingValue } from '../lib/fsrs'
@@ -122,7 +123,7 @@ export default function Review() {
                 className="speak-btn"
                 aria-label="播放發音"
                 onClick={(e) => { e.stopPropagation(); speak(note.reading || note.expression) }}
-              >🔊</button>
+              ><SpeakerIcon /></button>
             )}
           </>
         )}
