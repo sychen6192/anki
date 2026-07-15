@@ -30,7 +30,7 @@ export async function fillMissingAccents<T extends { expression: string; reading
 ): Promise<{ rows: T[]; filled: number; missed: number }> {
   const targets: number[] = []
   rows.forEach((r, i) => { if (r.accent === '') targets.push(i) })
-  if (targets.length === 0) return { rows, filled: 0, missed: 0 }
+  if (targets.length === 0) return { rows: rows.map((r) => ({ ...r })), filled: 0, missed: 0 }
 
   const results = await lookupAccents(
     targets.map((i) => ({ expression: rows[i].expression, reading: rows[i].reading })), fetchFn,

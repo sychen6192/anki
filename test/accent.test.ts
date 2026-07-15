@@ -70,8 +70,11 @@ describe('fillMissingAccents', () => {
   })
   it('沒有缺空的列時不呼叫 fetch', async () => {
     const spy = vi.fn()
-    const res = await fillMissingAccents([{ expression: 'a', reading: 'b', accent: '0' }], spy as unknown as typeof fetch)
+    const rows = [{ expression: 'a', reading: 'b', accent: '0' }]
+    const res = await fillMissingAccents(rows, spy as unknown as typeof fetch)
     expect(spy).not.toHaveBeenCalled()
     expect(res).toMatchObject({ filled: 0, missed: 0 })
+    expect(res.rows).not.toBe(rows)
+    expect(res.rows[0]).not.toBe(rows[0])
   })
 })
