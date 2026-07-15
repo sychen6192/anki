@@ -4,15 +4,37 @@ import { db } from '../db/db'
 import { exportBackup, importBackup } from '../lib/backup'
 import { download } from '../lib/download'
 import { syncNow } from '../lib/sync'
+import { getSyncSpace, setSyncSpace, clearLocalData } from '../lib/space'
 
 export default function SettingsPage() {
   const lastSync = useLiveQuery(() => db.meta.get('last_sync_at'), [])
+  const currentSpace = useLiveQuery(() => getSyncSpace(), [])
   const [msg, setMsg] = useState('')
+  const [keyInput, setKeyInput] = useState<string | null>(null)
 
   const doSync = async () => {
     setMsg('同步中…')
     const r = await syncNow()
     setMsg(r.ok ? '✓ 同步完成' : r.skipped ? '目前離線,已跳過' : `同步失敗:${r.error}`)
+  }
+
+  const saveKey = async () => {
+    const key = (keyInput ?? currentSpace ?? '').trim()
+    if (key !== (currentSpace ?? '') &&
+        !confirm('換金鑰會先清空本機資料(雲端不受影響),再以新金鑰重新同步。確定?')) return
+    await setSyncSpace(key)
+    setKeyInput(null)
+    setMsg('金鑰已更新,同步中…')
+    const r = await syncNow()
+    setMsg(r.ok ? '✓ 已切換空間並同步完成' : r.skipped ? '金鑰已更新(目前離線)' : `同步失敗:${r.error}`)
+  }
+
+  const doClearLocal = async () => {
+    if (!confirm('清空本機所有牌組/卡片/複習紀錄(雲端不受影響),之後可用目前金鑰重新同步取回。確定?')) return
+    await clearLocalData()
+    setMsg('本機已清空,重新同步中…')
+    const r = await syncNow()
+    setMsg(r.ok ? '✓ 已清空並重新同步' : r.skipped ? '本機已清空(目前離線)' : `同步失敗:${r.error}`)
   }
 
   return (
@@ -26,6 +48,24 @@ export default function SettingsPage() {
         <button className="btn" onClick={doSync}>立即同步</button>
         {msg && <p>{msg}</p>}
       </div>
+
+      <h2>同步金鑰</h2>
+      <div className="settings-block">
+        <label>金鑰(空白 = 預設空間)
+          <input value={keyInput ?? currentSpace ?? ''} placeholder="例如一串不好猜的字"
+            onChange={(e) => setKeyInput(e.target.value)} />
+        </label>
+        <div className="form-actions">
+          <button className="btn" onClick={saveKey}>儲存金鑰</button>
+          <button className="btn danger" onClick={doClearLocal}>清空本機資料</button>
+        </div>
+        <p className="hint">
+          不同金鑰 = 不同的獨立資料空間,可分給朋友各自使用。
+          金鑰形同該空間的密碼、經公開網路傳送,並非登入驗證 —— 請用不同且不好猜的金鑰。
+          換金鑰時會自動先清空本機(雲端不受影響)再重新同步,以確保各空間隔離。
+        </p>
+      </div>
+
       <h2>備份</h2>
       <div className="settings-block">
         <button className="btn secondary" onClick={async () =>
