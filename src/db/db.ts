@@ -2,7 +2,7 @@ import Dexie, { type Table } from 'dexie'
 import type { DeckRecord, NoteRecord, CardRecord, ReviewLogRecord } from '../../shared/types'
 
 export type Local<T> = T & { dirty: 0 | 1 }
-export interface MetaRow { key: string; value: number }
+export interface MetaRow { key: string; value: number | string }
 
 export class AppDB extends Dexie {
   decks!: Table<Local<DeckRecord>, string>
