@@ -221,4 +221,20 @@ describe('sync namespace / space', () => {
     expect(await db.meta.get('sync_cursor')).toBeUndefined()
     expect(await getSyncSpace()).toBe('keepme')
   })
+
+  it('同步中途換金鑰:不把舊空間的 pull 併入新空間', async () => {
+    await setSyncSpace('old')
+    const fetchFn = (async (_input: unknown, init?: RequestInit) => {
+      if (init?.method === 'POST') return new Response(JSON.stringify({ ok: true }))
+      // 模擬 pull 進行中金鑰被切換到 'new'(會清空本機並改 key)
+      await setSyncSpace('new')
+      return new Response(JSON.stringify({
+        decks: [{ id: 'x', name: '舊空間', new_per_day: 20, updated_at: 1000, deleted: 0 }],
+        notes: [], cards: [], review_logs: [], seq: 5,
+      }))
+    }) as unknown as typeof fetch
+
+    await syncNow(fetchFn)
+    expect(await db.decks.get('x')).toBeUndefined() // 舊空間資料未被併入 new 空間
+  })
 })

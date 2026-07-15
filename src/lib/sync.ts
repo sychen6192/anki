@@ -119,6 +119,8 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
     const res = await fetchFn(`/api/sync?since=${since}`, { headers: { 'x-sync-space': space } })
     if (!res.ok) throw new Error(`pull failed: ${res.status}`)
     const data: SyncPullResponse = await res.json()
+    // 同步進行中若金鑰被切換(換空間會清空本機),放棄把舊空間的 pull 併入新空間
+    if ((await getSyncSpace()) !== space) return { ok: false, skipped: true }
     await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.meta], async () => {
       await mergeTable(db.decks, data.decks)
       await mergeTable(db.notes, data.notes)
