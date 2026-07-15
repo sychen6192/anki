@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { PitchAccent } from '../components/PitchAccent'
 import { db } from '../db/db'
 import { applyReview } from '../db/repo'
 import { formatInterval, previewIntervals, rate, type RatingValue } from '../lib/fsrs'
@@ -113,7 +114,7 @@ export default function Review() {
         ) : (
           <>
             <p className="expression">{note.expression}</p>
-            {note.reading !== '' && <p className="reading">{note.reading}</p>}
+            {note.reading !== '' && <PitchAccent reading={note.reading} accent={note.accent} />}
             <p className="meaning">{note.meaning}</p>
           </>
         )}
