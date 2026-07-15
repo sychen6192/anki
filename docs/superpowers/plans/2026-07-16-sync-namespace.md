@@ -14,7 +14,7 @@
 - 使用者寫入走 repo;同步/備份/本設定為既有例外。conventional commits,結尾 `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`。
 - **namespace 只在伺服器**:客戶端本地(Dexie)不新增欄位、不儲存 namespace。
 - 金鑰經 HTTP header **`x-sync-space`** 傳送;空或未帶 = namespace `''`(預設空間)。伺服器為權威方:push 一律以 header 值覆蓋每列 namespace(忽略 client 送的值);pull 依 header 值過濾並**剝除 `namespace` 與 `server_seq`**。
-- 金鑰存客戶端 `meta`,key = `sync_space`(字串)。**換金鑰要重置 `sync_cursor`**(游標歸零、下次全量重拉)。
+- 金鑰存客戶端 `meta`,key = `sync_space`(字串)。**換金鑰要「強制清空本機四表 + 重置 `sync_cursor`」**(游標歸零、下次全量重拉)——這是隔離的客戶端保證:清空後本機無舊 id,不會把舊空間的 id 推進新空間(審查裁定採此客戶端強制清空,而非改資料庫主鍵)。
 - `accent_dict` 不分區、不動。全域 `server_seq` 計數器維持共用、單調遞增(跨 namespace 的 gap 無害)。
 - 同一 namespace 內:LWW upsert(較新蓋較舊、同/舊時間戳忽略)、review_logs 以 id 冪等(`INSERT OR IGNORE`)—— 語意皆不變。
 - 既有 worker 測試單一已知/可接受的 miniflare compat-date 警告以外,輸出須乾淨。
@@ -222,7 +222,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Consumes: Task 1 的 `x-sync-space` 協定。
 - Produces:
   - `getSyncSpace(): Promise<string>` — 讀 `meta.sync_space`,無則 `''`。
-  - `setSyncSpace(key: string): Promise<void>` — 寫入 `meta.sync_space`(trim),並刪除 `meta.sync_cursor`(游標歸零)。
+  - `setSyncSpace(key: string): Promise<void>` — 若 trim 後金鑰**與目前不同**:強制清空本機四表 + 刪除 `meta.sync_cursor` + 寫入新 `meta.sync_space`;若相同則 no-op(不動本機)。
   - `clearLocalData(): Promise<void>` — 清空 decks/notes/cards/review_logs 與 `meta.sync_cursor`,**保留 `meta.sync_space`**。
   - `syncNow` 的 push POST 與 pull GET 都帶 header `x-sync-space: <目前金鑰>`。
 
@@ -255,11 +255,23 @@ describe('sync namespace / space', () => {
     expect(get?.space).toBe('space1')
   })
 
-  it('setSyncSpace 寫入金鑰並把 sync_cursor 歸零', async () => {
+  it('setSyncSpace 換金鑰:清空本機四表、重置游標、寫入新金鑰(trim)', async () => {
+    const deck = await createDeck('A')
+    await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
     await db.meta.put({ key: 'sync_cursor', value: 42 })
     await setSyncSpace('  mykey  ')
     expect(await getSyncSpace()).toBe('mykey') // 有 trim
+    expect(await db.decks.count()).toBe(0)
+    expect(await db.notes.count()).toBe(0)
+    expect(await db.cards.count()).toBe(0)
     expect(await db.meta.get('sync_cursor')).toBeUndefined()
+  })
+
+  it('setSyncSpace 同金鑰:no-op,不動本機資料', async () => {
+    await setSyncSpace('same')
+    await createDeck('A')
+    await setSyncSpace('same') // 與目前相同
+    expect(await db.decks.count()).toBe(1)
   })
 
   it('clearLocalData 清空四表與游標,但保留金鑰', async () => {
@@ -306,14 +318,6 @@ export async function getSyncSpace(): Promise<string> {
   return typeof row?.value === 'string' ? row.value : ''
 }
 
-/** 設定同步金鑰並把同步游標歸零(下次全量重拉新空間)。 */
-export async function setSyncSpace(key: string): Promise<void> {
-  await db.transaction('rw', [db.meta], async () => {
-    await db.meta.put({ key: 'sync_space', value: key.trim() })
-    await db.meta.delete('sync_cursor')
-  })
-}
-
 /** 清空本機四張資料表與同步游標,保留金鑰;之後重新同步取得該金鑰空間資料。 */
 export async function clearLocalData(): Promise<void> {
   await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.meta], async () => {
@@ -323,6 +327,17 @@ export async function clearLocalData(): Promise<void> {
     await db.review_logs.clear()
     await db.meta.delete('sync_cursor')
   })
+}
+
+/**
+ * 設定同步金鑰。換金鑰 = 換空間:強制先清空本機(避免舊空間的 id 混入新空間)、
+ * 游標歸零,再寫入新金鑰。金鑰與目前相同則不動本機(no-op)。
+ */
+export async function setSyncSpace(key: string): Promise<void> {
+  const next = key.trim()
+  if (next === (await getSyncSpace())) return
+  await clearLocalData()
+  await db.meta.put({ key: 'sync_space', value: next })
 }
 ```
 
@@ -420,6 +435,8 @@ export default function SettingsPage() {
 
   const saveKey = async () => {
     const key = (keyInput ?? currentSpace ?? '').trim()
+    if (key !== (currentSpace ?? '') &&
+        !confirm('換金鑰會先清空本機資料(雲端不受影響),再以新金鑰重新同步。確定?')) return
     await setSyncSpace(key)
     setKeyInput(null)
     setMsg('金鑰已更新,同步中…')
@@ -460,7 +477,7 @@ export default function SettingsPage() {
         <p className="hint">
           不同金鑰 = 不同的獨立資料空間,可分給朋友各自使用。
           金鑰形同該空間的密碼、經公開網路傳送,並非登入驗證 —— 請用不同且不好猜的金鑰。
-          在已有資料的裝置上換金鑰前,建議先「清空本機資料」,避免舊資料混進新空間。
+          換金鑰時會自動先清空本機(雲端不受影響)再重新同步,以確保各空間隔離。
         </p>
       </div>
 
