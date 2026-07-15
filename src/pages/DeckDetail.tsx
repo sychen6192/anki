@@ -7,7 +7,7 @@ import {
 } from '../db/repo'
 import { exportCsv } from '../lib/csv'
 import { download } from '../lib/download'
-import { isValidAccent, lookupAccents } from '../lib/accent'
+import { fillMissingAccents, isValidAccent, lookupAccents } from '../lib/accent'
 import { PitchAccent } from '../components/PitchAccent'
 
 const EMPTY: NoteInput = { expression: '', reading: '', meaning: '', reversed: false, accent: '' }
@@ -27,6 +27,7 @@ export default function DeckDetail() {
   const busy = useRef(false)
   const [errMsg, setErrMsg] = useState<string | null>(null)
   const [looking, setLooking] = useState(false)
+  const [annotateMsg, setAnnotateMsg] = useState<string | null>(null)
 
   if (!deck || !notes) return null
   if (deck.deleted) return <p>牌組已刪除</p>
@@ -46,6 +47,29 @@ export default function DeckDetail() {
       setErrMsg(`查詢失敗:${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setLooking(false)
+    }
+  }
+
+  const annotateDeck = async () => {
+    if (busy.current) return
+    const blanks = notes.filter((n) => !n.accent)
+    if (blanks.length === 0) { setAnnotateMsg('這副牌組沒有待標註的卡片'); return }
+    busy.current = true
+    setAnnotateMsg(`標註中…(${blanks.length} 筆)`)
+    try {
+      const { rows, filled, missed } = await fillMissingAccents(
+        blanks.map((n) => ({ id: n.id, expression: n.expression, reading: n.reading, accent: n.accent ?? '' })),
+      )
+      for (const r of rows) {
+        if (r.accent !== '') await updateNote(r.id, { accent: r.accent })
+      }
+      setAnnotateMsg(`完成:標註 ${filled} 筆,查無 ${missed} 筆`)
+      setErrMsg(null)
+    } catch (e) {
+      setAnnotateMsg(null)
+      setErrMsg(`自動標註失敗:${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      busy.current = false
     }
   }
 
@@ -126,7 +150,9 @@ export default function DeckDetail() {
           匯出 CSV
         </button>
         <button className="btn secondary" onClick={() => { setEditingId('new'); setForm(EMPTY) }}>＋新增卡片</button>
+        <button className="btn secondary" onClick={annotateDeck}>自動標註重音</button>
       </div>
+      {annotateMsg && <p className="hint">{annotateMsg}</p>}
 
       {editingId !== null && (
         <div className="note-form">
