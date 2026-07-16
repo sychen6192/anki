@@ -24,6 +24,13 @@ export async function clearLocalData(): Promise<void> {
 export async function setSyncSpace(key: string): Promise<void> {
   const next = key.trim()
   if (next === (await getSyncSpace())) return
-  await clearLocalData()
-  await db.meta.put({ key: 'sync_space', value: next })
+  // 換空間:清空本機四表 + 游標歸零 + 寫新金鑰,全部同一交易(與 syncNow 的併入交易互斥,杜絕競態)
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.meta], async () => {
+    await db.decks.clear()
+    await db.notes.clear()
+    await db.cards.clear()
+    await db.review_logs.clear()
+    await db.meta.delete('sync_cursor')
+    await db.meta.put({ key: 'sync_space', value: next })
+  })
 }
