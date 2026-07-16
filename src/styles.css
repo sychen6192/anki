@@ -109,7 +109,7 @@ body {
   border-radius: 8px;
   transition: color .15s ease, background .15s ease;
 }
-.topnav a:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
+@media (hover: hover) { .topnav a:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); } }
 .topnav a.active { color: var(--primary); background: var(--primary-weak); }
 
 /* ---------- 版面 ---------- */
@@ -126,13 +126,13 @@ h2 { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; color: var(--mu
   cursor: pointer; text-decoration: none;
   transition: background .15s ease, transform .06s ease, box-shadow .15s ease;
 }
-.btn:hover { background: var(--primary-hover); }
+@media (hover: hover) { .btn:hover { background: var(--primary-hover); } }
 .btn:active { transform: translateY(1px); }
 .btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .btn.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); }
-.btn.secondary:hover { background: var(--surface-2); border-color: var(--muted); }
+@media (hover: hover) { .btn.secondary:hover { background: var(--surface-2); border-color: var(--muted); } }
 .btn.danger { background: var(--danger); }
-.btn.danger:hover { background: color-mix(in srgb, var(--danger) 85%, black); }
+@media (hover: hover) { .btn.danger:hover { background: color-mix(in srgb, var(--danger) 85%, black); } }
 .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
 
 /* ---------- 表單元件 ---------- */
@@ -155,7 +155,7 @@ textarea { resize: vertical; }
   padding: 16px 18px; margin-bottom: 10px; box-shadow: var(--shadow-sm);
   transition: transform .12s ease, box-shadow .15s ease, border-color .15s ease;
 }
-.deck-row:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+@media (hover: hover) { .deck-row:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); border-color: var(--border-strong); } }
 .deck-name { flex: 1; color: inherit; text-decoration: none; font-weight: 600; font-size: 16px; letter-spacing: -0.01em; }
 .counts { font-variant-numeric: tabular-nums; color: var(--faint); font-size: 14px; font-weight: 550; }
 .c-new { color: #3b7cf0; } .c-learn { color: var(--rate-again); } .c-due { color: var(--good); }
@@ -190,7 +190,7 @@ textarea { resize: vertical; }
   display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
   transition: background .15s ease, border-color .15s ease, transform .06s ease;
 }
-.speak-btn:hover { background: var(--surface-2); border-color: var(--muted); }
+@media (hover: hover) { .speak-btn:hover { background: var(--surface-2); border-color: var(--muted); } }
 .speak-btn:active { transform: translateY(1px); }
 .speak-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .show-answer { width: 100%; padding: 15px; font-size: 15px; }
@@ -200,7 +200,7 @@ textarea { resize: vertical; }
 .ratings small { opacity: 0.9; font-size: 11.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .rating-1 { background: var(--rate-again); } .rating-2 { background: var(--rate-hard); }
 .rating-3 { background: var(--rate-good); } .rating-4 { background: var(--rate-easy); }
-.rating-1:hover, .rating-2:hover, .rating-3:hover, .rating-4:hover { filter: brightness(1.06); background-image: none; }
+@media (hover: hover) { .rating-1:hover, .rating-2:hover, .rating-3:hover, .rating-4:hover { filter: brightness(1.06); background-image: none; } }
 .review-done { text-align: center; display: flex; flex-direction: column; gap: 16px; align-items: center; padding-top: 56px; }
 .review-done h1 { font-size: 30px; }
 .err { color: var(--danger); font-size: 14px; }
@@ -222,7 +222,7 @@ textarea { resize: vertical; }
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 12px 15px; margin-bottom: 7px; transition: border-color .15s ease, background .15s ease;
 }
-.note-row:hover { border-color: var(--border-strong); background: var(--surface-2); }
+@media (hover: hover) { .note-row:hover { border-color: var(--border-strong); background: var(--surface-2); } }
 .note-text { flex: 1; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
 .note-text b { font-weight: 600; font-size: 15.5px; }
 .reading-inline { color: var(--primary); font-size: 13.5px; font-weight: 550; }
@@ -230,9 +230,9 @@ textarea { resize: vertical; }
   background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13.5px;
   font-weight: 550; padding: 4px 6px; border-radius: 6px; transition: color .15s ease, background .15s ease;
 }
-.link:hover { color: var(--primary); background: var(--primary-weak); }
+@media (hover: hover) { .link:hover { color: var(--primary); background: var(--primary-weak); } }
 .link.danger { color: var(--faint); }
-.link.danger:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+@media (hover: hover) { .link.danger:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); } }
 .hint { color: var(--faint); font-size: 13px; margin: 10px 0 24px; }
 
 .deck-settings {
