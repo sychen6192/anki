@@ -69,7 +69,12 @@
   }
 }
 
-* { box-sizing: border-box; margin: 0; touch-action: manipulation; }
+* { box-sizing: border-box; margin: 0; }
+
+/* 只在可點擊元件上關掉雙擊縮放(保留捲動與雙指縮放);避免對所有元素套用 touch-action */
+a, button, .btn, .link, .speak-btn, .flashcard, input, select, textarea, label {
+  touch-action: manipulation;
+}
 
 html { -webkit-text-size-adjust: 100%; }
 
