@@ -98,4 +98,64 @@ describe('/api/sync', () => {
     expect(byId.n1.accent).toBe('2')
     expect(byId.n2.accent).toBe('')
   })
+
+  // 帶 x-sync-space header 的 push/pull
+  async function pushNs(space: string, body: unknown) {
+    const res = await app.request('/api/sync', {
+      method: 'POST', body: JSON.stringify(body),
+      headers: { 'content-type': 'application/json', 'x-sync-space': space },
+    }, env)
+    expect(res.status).toBe(200)
+  }
+  async function pullNs(space: string, since = 0): Promise<any> {
+    const res = await app.request(`/api/sync?since=${since}`, { headers: { 'x-sync-space': space } }, env)
+    expect(res.status).toBe(200)
+    return res.json()
+  }
+
+  it('namespace 隔離:A 空間 push 的資料,B 空間與預設空間都看不到', async () => {
+    await pushNs('spaceA', { ...empty, decks: [deck({ id: 'da', name: 'A的牌組' })] })
+    await pushNs('spaceB', { ...empty, decks: [deck({ id: 'db', name: 'B的牌組' })] })
+
+    const outA = await pullNs('spaceA')
+    const outB = await pullNs('spaceB')
+    const outDefault = await pull(0) // 無 header = 預設空間 ''
+
+    expect(outA.decks.map((d: { id: string }) => d.id)).toEqual(['da'])
+    expect(outB.decks.map((d: { id: string }) => d.id)).toEqual(['db'])
+    expect(outDefault.decks).toHaveLength(0)
+  })
+
+  it('pull 回傳的列不含 namespace(內部欄位不外洩)', async () => {
+    await pushNs('spaceA', { ...empty, decks: [deck({ id: 'da' })] })
+    const outA = await pullNs('spaceA')
+    expect(outA.decks[0].namespace).toBeUndefined()
+    expect(outA.decks[0].server_seq).toBeUndefined()
+  })
+
+  it('同一 namespace 內 LWW 仍正確', async () => {
+    await pushNs('spaceA', { ...empty, decks: [deck({ id: 'da', updated_at: 1000, name: 'old' })] })
+    await pushNs('spaceA', { ...empty, decks: [deck({ id: 'da', updated_at: 2000, name: 'new' })] })
+    await pushNs('spaceA', { ...empty, decks: [deck({ id: 'da', updated_at: 1500, name: 'stale' })] })
+    const outA = await pullNs('spaceA')
+    expect(outA.decks).toHaveLength(1)
+    expect(outA.decks[0].name).toBe('new')
+  })
+
+  it('push 忽略 client 送的 namespace,一律以 header 為準', async () => {
+    await pushNs('real', { ...empty, decks: [deck({ id: 'dx', namespace: 'spoofed' })] })
+    expect((await pullNs('real')).decks.map((d: { id: string }) => d.id)).toEqual(['dx'])
+    expect((await pullNs('spoofed')).decks).toHaveLength(0)
+  })
+
+  // 已知限制(可接受):namespace 不在 upsert 的 conflict target(id 為全表唯一 PK)。
+  // 同一 id 跨 namespace 以較新時間戳推送會「搬移」該列,而非各自獨立。實務上不會發生:
+  // 客戶端 id 為全域唯一 UUID,且「換金鑰」會強制清空本機(見 Task 2/3 的 space.ts)。
+  // 此測試釘住並記錄此行為,使限制可見。
+  it('已知限制:同 id 跨 namespace 以較新時間戳推送會搬移該列', async () => {
+    await pushNs('A', { ...empty, decks: [deck({ id: 'shared', updated_at: 1000 })] })
+    await pushNs('B', { ...empty, decks: [deck({ id: 'shared', updated_at: 2000 })] })
+    expect((await pullNs('A')).decks).toHaveLength(0)
+    expect((await pullNs('B')).decks.map((d: { id: string }) => d.id)).toEqual(['shared'])
+  })
 })

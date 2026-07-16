@@ -3,6 +3,7 @@ import { db, type Local } from '../db/db'
 import type {
   CardRecord, DeckRecord, NoteRecord, ReviewLogRecord, SyncPush, SyncPullResponse,
 } from '../../shared/types'
+import { getSyncSpace } from './space'
 
 export interface SyncResult { ok: boolean; skipped?: boolean; error?: string }
 
@@ -83,6 +84,7 @@ async function mergeTable<T extends { id: string; updated_at: number }>(
 
 export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return { ok: false, skipped: true }
+  const space = await getSyncSpace()
   try {
     // --- push ---
     const dirtyDecks = await db.decks.where('dirty').equals(1).toArray()
@@ -101,7 +103,9 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
           cards: stripDirty(chunk.cards), review_logs: stripDirty(chunk.review_logs),
         }
         const res = await fetchFn('/api/sync', {
-          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-sync-space': space },
+          body: JSON.stringify(body),
         })
         if (!res.ok) throw new Error(`push failed: ${res.status}`)
         await clearPushedDirty(db.decks, chunk.decks)
@@ -112,10 +116,15 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
     }
     // --- pull ---
     const since = (await db.meta.get('sync_cursor'))?.value ?? 0
-    const res = await fetchFn(`/api/sync?since=${since}`)
+    const res = await fetchFn(`/api/sync?since=${since}`, { headers: { 'x-sync-space': space } })
     if (!res.ok) throw new Error(`pull failed: ${res.status}`)
     const data: SyncPullResponse = await res.json()
+    let switched = false
     await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.meta], async () => {
+      // 同步進行中若金鑰被切換(換空間會清空本機),放棄把舊空間的 pull 併入新空間。
+      // 在交易內讀 sync_space,與 setSyncSpace 的清空/換鑰交易互斥,杜絕競態。
+      const cur = await db.meta.get('sync_space')
+      if ((typeof cur?.value === 'string' ? cur.value : '') !== space) { switched = true; return }
       await mergeTable(db.decks, data.decks)
       await mergeTable(db.notes, data.notes)
       await mergeTable(db.cards, data.cards)
@@ -125,6 +134,7 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
       await db.meta.put({ key: 'sync_cursor', value: data.seq })
       await db.meta.put({ key: 'last_sync_at', value: Date.now() })
     })
+    if (switched) return { ok: false, skipped: true }
     return { ok: true }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }

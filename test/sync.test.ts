@@ -1,8 +1,9 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, it, expect, vi, afterEach } from 'vitest'
 import { db } from '../src/db/db'
-import { createDeck } from '../src/db/repo'
+import { createDeck, createNote } from '../src/db/repo'
 import { syncNow } from '../src/lib/sync'
+import { getSyncSpace, setSyncSpace, clearLocalData } from '../src/lib/space'
 
 type Row = Record<string, any>
 
@@ -162,5 +163,78 @@ describe('syncNow', () => {
     expect(server.tables.cards.size).toBe(100)
     expect(await db.notes.where('dirty').equals(1).count()).toBe(0)
     expect(await db.cards.where('dirty').equals(1).count()).toBe(0)
+  })
+})
+
+describe('sync namespace / space', () => {
+  it('syncNow 會在 push 與 pull 都帶上 x-sync-space header', async () => {
+    await setSyncSpace('space1')
+    await createDeck('要推送的牌組') // 造一筆 dirty 資料,強制 push
+
+    const seen: { url: string; space: string | null }[] = []
+    const fetchFn = (async (input: unknown, init?: RequestInit) => {
+      const headers = new Headers(init?.headers)
+      seen.push({ url: String(input), space: headers.get('x-sync-space') })
+      if (init?.method === 'POST') return new Response(JSON.stringify({ ok: true }))
+      return new Response(JSON.stringify({ decks: [], notes: [], cards: [], review_logs: [], seq: 0 }))
+    }) as unknown as typeof fetch
+
+    const r = await syncNow(fetchFn)
+    expect(r.ok).toBe(true)
+    const post = seen.find((s) => s.url === '/api/sync')
+    const get = seen.find((s) => s.url.startsWith('/api/sync?since='))
+    expect(post?.space).toBe('space1')
+    expect(get?.space).toBe('space1')
+  })
+
+  it('setSyncSpace 換金鑰:清空本機四表、重置游標、寫入新金鑰(trim)', async () => {
+    const deck = await createDeck('A')
+    await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
+    await db.meta.put({ key: 'sync_cursor', value: 42 })
+    await setSyncSpace('  mykey  ')
+    expect(await getSyncSpace()).toBe('mykey') // 有 trim
+    expect(await db.decks.count()).toBe(0)
+    expect(await db.notes.count()).toBe(0)
+    expect(await db.cards.count()).toBe(0)
+    expect(await db.meta.get('sync_cursor')).toBeUndefined()
+  })
+
+  it('setSyncSpace 同金鑰:no-op,不動本機資料', async () => {
+    await setSyncSpace('same')
+    await createDeck('A')
+    await setSyncSpace('same') // 與目前相同
+    expect(await db.decks.count()).toBe(1)
+  })
+
+  it('clearLocalData 清空四表與游標,但保留金鑰', async () => {
+    await setSyncSpace('keepme')
+    const deck = await createDeck('A')
+    await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
+    await db.meta.put({ key: 'sync_cursor', value: 7 })
+
+    await clearLocalData()
+
+    expect(await db.decks.count()).toBe(0)
+    expect(await db.notes.count()).toBe(0)
+    expect(await db.cards.count()).toBe(0)
+    expect(await db.review_logs.count()).toBe(0)
+    expect(await db.meta.get('sync_cursor')).toBeUndefined()
+    expect(await getSyncSpace()).toBe('keepme')
+  })
+
+  it('同步中途換金鑰:不把舊空間的 pull 併入新空間', async () => {
+    await setSyncSpace('old')
+    const fetchFn = (async (_input: unknown, init?: RequestInit) => {
+      if (init?.method === 'POST') return new Response(JSON.stringify({ ok: true }))
+      // 模擬 pull 進行中金鑰被切換到 'new'(會清空本機並改 key)
+      await setSyncSpace('new')
+      return new Response(JSON.stringify({
+        decks: [{ id: 'x', name: '舊空間', new_per_day: 20, updated_at: 1000, deleted: 0 }],
+        notes: [], cards: [], review_logs: [], seq: 5,
+      }))
+    }) as unknown as typeof fetch
+
+    await syncNow(fetchFn)
+    expect(await db.decks.get('x')).toBeUndefined() // 舊空間資料未被併入 new 空間
   })
 })

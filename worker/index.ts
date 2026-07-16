@@ -13,13 +13,13 @@ const app = new Hono<{ Bindings: Env }>()
 app.get('/api/health', (c) => c.json({ ok: true }))
 
 const TABLE_COLS = {
-  decks: ['id', 'name', 'new_per_day', 'updated_at', 'deleted'],
-  notes: ['id', 'deck_id', 'expression', 'reading', 'meaning', 'accent', 'reversed', 'updated_at', 'deleted'],
+  decks: ['id', 'name', 'new_per_day', 'updated_at', 'deleted', 'namespace'],
+  notes: ['id', 'deck_id', 'expression', 'reading', 'meaning', 'accent', 'reversed', 'updated_at', 'deleted', 'namespace'],
   cards: ['id', 'note_id', 'deck_id', 'direction', 'due', 'stability', 'difficulty',
     'elapsed_days', 'scheduled_days', 'learning_steps', 'reps', 'lapses', 'state',
-    'last_review', 'updated_at', 'deleted'],
+    'last_review', 'updated_at', 'deleted', 'namespace'],
   review_logs: ['id', 'card_id', 'rating', 'state', 'due', 'stability', 'difficulty',
-    'elapsed_days', 'last_elapsed_days', 'scheduled_days', 'reviewed_at'],
+    'elapsed_days', 'last_elapsed_days', 'scheduled_days', 'reviewed_at', 'namespace'],
 } as const
 
 // 舊 client 不會送 accent;缺欄位的 note 以 '' 補上(notes.accent 是 NOT NULL)。
@@ -44,6 +44,10 @@ const BUMP_SEQ_SQL = "UPDATE meta SET value = value + 1 WHERE key = 'seq'"
 // will end up ignoring) leaves a harmless gap in server_seq — pull's cursor
 // semantics only rely on server_seq being monotonically increasing, not
 // contiguous, so gaps are safe.
+//
+// 注意:namespace 不在 upsert 的 conflict target —— conflict 仍以 id(全表唯一 PK)為準。
+// 跨 namespace 的隔離因此仰賴「id 全域唯一(UUID)」+「換金鑰時客戶端強制清空本機」。
+// 這是刻意的輕量設計(非安全邊界);見 spec 2026-07-16-sync-namespace-design.md「安全」。
 function buildRowStatements(
   db: D1Database, table: TableName, row: Record<string, unknown>,
 ): [D1PreparedStatement, D1PreparedStatement] {
@@ -96,11 +100,13 @@ if (STATEMENTS_PER_BATCH % 2 !== 0) throw new Error('STATEMENTS_PER_BATCH must b
 
 app.post('/api/sync', async (c) => {
   const body = await c.req.json<SyncPush>()
+  const space = c.req.header('x-sync-space') ?? ''
   const db = c.env.DB
   const statements: D1PreparedStatement[] = []
   for (const t of ['decks', 'notes', 'cards', 'review_logs'] as const) {
     for (const row of body[t] ?? []) {
-      statements.push(...buildRowStatements(db, t, row as unknown as Record<string, unknown>))
+      const r = { ...(row as unknown as Record<string, unknown>), namespace: space }
+      statements.push(...buildRowStatements(db, t, r))
     }
   }
   for (let i = 0; i < statements.length; i += STATEMENTS_PER_BATCH) {
@@ -112,11 +118,12 @@ app.post('/api/sync', async (c) => {
 app.get('/api/sync', async (c) => {
   const since = Number(c.req.query('since') ?? '0')
   if (Number.isNaN(since) || since < 0) return c.json({ error: 'invalid since' }, 400)
+  const space = c.req.header('x-sync-space') ?? ''
   const db = c.env.DB
   const pullTable = async <T>(table: TableName): Promise<T[]> => {
-    const res = await db.prepare(`SELECT * FROM ${table} WHERE server_seq > ?`).bind(since)
-      .all<T & { server_seq: number }>()
-    return res.results.map(({ server_seq: _s, ...rest }) => rest as unknown as T)
+    const res = await db.prepare(`SELECT * FROM ${table} WHERE namespace = ? AND server_seq > ?`)
+      .bind(space, since).all<T & { server_seq: number; namespace: string }>()
+    return res.results.map(({ server_seq: _s, namespace: _n, ...rest }) => rest as unknown as T)
   }
   const seqRow = await db.prepare("SELECT value FROM meta WHERE key = 'seq'").first<{ value: number }>()
   const resp: SyncPullResponse = {
