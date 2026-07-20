@@ -6,24 +6,63 @@ import {
   autoMapHeaders, dedupeRows, mapRows, noteKey, parseCsv,
   type CsvMapping, type ParsedRow,
 } from '../lib/csv'
+import { parseApkg, type ApkgParse } from '../lib/apkg'
+import { autoMapFields, mapApkgNotes, type ApkgMapping } from '../lib/apkgMap'
 import { fillMissingAccents } from '../lib/accent'
 
-const FIELD_LABELS = [['expression', '單字'], ['reading', '讀音'], ['meaning', '意思']] as const
+type MappingField = keyof ApkgMapping
+const FIELD_LABELS: readonly (readonly [MappingField, string])[] =
+  [['expression', '單字'], ['reading', '讀音'], ['meaning', '意思']]
+const APKG_FIELD_LABELS: readonly (readonly [MappingField, string])[] =
+  [...FIELD_LABELS, ['accent', '重音']]
+const OPTIONAL_FIELDS = new Set<MappingField>(['reading', 'accent'])
+// 解壓 + wasm heap 的峰值約為原始 DB 的 2~3 倍,手機瀏覽器撐不住更大的檔案
+const MAX_APKG_BYTES = 60 * 1024 * 1024
+
+interface Summary {
+  imported: number; skipped: ParsedRow[]; otherSkipped: number
+  annotated: number; missed: number; annotateSkipped: boolean
+}
 
 export default function ImportPage() {
   const decks = useLiveQuery(() => db.decks.filter((d) => !d.deleted).toArray(), [])
+  const [mode, setMode] = useState<'csv' | 'apkg'>('csv')
   const [deckId, setDeckId] = useState('new')
   const [newDeckName, setNewDeckName] = useState('')
-  const [text, setText] = useState('')
-  const [mapping, setMapping] = useState<CsvMapping | null>(null)
-  const [hasHeader, setHasHeader] = useState(false)
-  const [summary, setSummary] = useState<{ imported: number; skipped: ParsedRow[]; annotated: number; missed: number; annotateSkipped: boolean } | null>(null)
+  const [summary, setSummary] = useState<Summary | null>(null)
   const [busy, setBusy] = useState(false)
   const [errMsg, setErrMsg] = useState('')
 
+  const [text, setText] = useState('')
+  const [mapping, setMapping] = useState<CsvMapping | null>(null)
+  const [hasHeader, setHasHeader] = useState(false)
+
+  const [apkg, setApkg] = useState<ApkgParse | null>(null)
+  const [notetypeId, setNotetypeId] = useState('')
+  const [apkgMapping, setApkgMapping] = useState<ApkgMapping | null>(null)
+  const [parsing, setParsing] = useState(false)
+
   const rows = useMemo(() => (text.trim() ? parseCsv(text) : []), [text])
   const dataRows = hasHeader ? rows.slice(1) : rows
-  const parsed = mapping ? mapRows(dataRows, mapping) : []
+  const csvParsed = mapping ? mapRows(dataRows, mapping) : []
+
+  const notetype = apkg?.notetypes.find((t) => t.id === notetypeId) ?? null
+  const apkgParsed = useMemo(
+    () => (apkg && apkgMapping ? mapApkgNotes(apkg.notes.filter((n) => n.notetypeId === notetypeId), apkgMapping) : []),
+    [apkg, notetypeId, apkgMapping],
+  )
+  const otherNoteCount = apkg ? apkg.notes.length - (notetype?.noteCount ?? 0) : 0
+
+  const parsed = mode === 'csv' ? csvParsed : apkgParsed
+  const activeMapping: CsvMapping | ApkgMapping | null = mode === 'csv' ? mapping : apkgMapping
+  const fieldOptions = mode === 'csv' ? (rows[0] ?? []) : (notetype?.fieldNames ?? [])
+  const labels = mode === 'csv' ? FIELD_LABELS : APKG_FIELD_LABELS
+
+  const switchMode = (next: 'csv' | 'apkg') => {
+    setMode(next)
+    setSummary(null)
+    setErrMsg('')
+  }
 
   const onTextLoaded = (t: string) => {
     setText(t)
@@ -40,8 +79,41 @@ export default function ImportPage() {
     setHasHeader(auto !== null)
   }
 
+  const onApkgFile = async (file: File) => {
+    setSummary(null)
+    setErrMsg('')
+    setApkg(null)
+    if (file.size > MAX_APKG_BYTES) {
+      setErrMsg(`檔案太大(${(file.size / 1024 / 1024).toFixed(0)} MB),目前上限 60 MB`)
+      return
+    }
+    setParsing(true)
+    try {
+      const result = await parseApkg(new Uint8Array(await file.arrayBuffer()))
+      if (result.notetypes.length === 0) throw new Error('這個牌組裡沒有可匯入的 note')
+      setApkg(result)
+      selectNotetype(result, result.notetypes[0].id)
+      if (deckId === 'new' && newDeckName.trim() === '' && result.deckName) setNewDeckName(result.deckName)
+    } catch (e) {
+      setErrMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setParsing(false)
+    }
+  }
+
+  const selectNotetype = (source: ApkgParse, id: string) => {
+    setNotetypeId(id)
+    const t = source.notetypes.find((n) => n.id === id)
+    setApkgMapping(autoMapFields(t?.fieldNames ?? []))
+  }
+
+  const setMappingField = (field: MappingField, value: number | null) => {
+    if (mode === 'csv') setMapping((m) => (m ? { ...m, [field]: value } : m))
+    else setApkgMapping((m) => (m ? { ...m, [field]: value } : m))
+  }
+
   const doImport = async () => {
-    if (!mapping || parsed.length === 0 || busy) return
+    if (parsed.length === 0 || busy) return
     setBusy(true)
     try {
       let targetId = deckId
@@ -50,22 +122,25 @@ export default function ImportPage() {
       const keys = new Set(existing.map((n) => noteKey(n.expression, n.reading)))
       const { toImport, skipped } = dedupeRows(parsed, keys)
 
-      // 自動標註:對 CSV 沒帶重音的列查字典;離線或 API 失敗時照常匯入(留空),不中斷。
-      let rows = toImport
+      // 自動標註:對沒帶重音的列查字典;離線或 API 失敗時照常匯入(留空),不中斷。
+      let toCreate = toImport
       let annotated = 0, missed = 0, annotateSkipped = false
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         annotateSkipped = true
       } else {
         try {
           const res = await fillMissingAccents(toImport)
-          rows = res.rows; annotated = res.filled; missed = res.missed
+          toCreate = res.rows; annotated = res.filled; missed = res.missed
         } catch {
           annotateSkipped = true
         }
       }
 
-      await createNotes(targetId, rows.map((r) => ({ ...r, reversed: false })))
-      setSummary({ imported: rows.length, skipped, annotated, missed, annotateSkipped })
+      await createNotes(targetId, toCreate.map((r) => ({ ...r, reversed: false })))
+      setSummary({
+        imported: toCreate.length, skipped, annotated, missed, annotateSkipped,
+        otherSkipped: mode === 'apkg' ? otherNoteCount : 0,
+      })
       setErrMsg('')
     } catch (e) {
       setSummary(null)
@@ -79,7 +154,12 @@ export default function ImportPage() {
 
   return (
     <div>
-      <h1>匯入 CSV</h1>
+      <h1>匯入</h1>
+      <div className="tabs">
+        <button className={`tab${mode === 'csv' ? ' active' : ''}`} onClick={() => switchMode('csv')}>CSV</button>
+        <button className={`tab${mode === 'apkg' ? ' active' : ''}`} onClick={() => switchMode('apkg')}>Anki 牌組</button>
+      </div>
+
       <div className="import-form">
         <label>目標牌組
           <select value={deckId} onChange={(e) => setDeckId(e.target.value)}>
@@ -90,27 +170,52 @@ export default function ImportPage() {
         {deckId === 'new' && (
           <input placeholder="新牌組名稱" value={newDeckName} onChange={(e) => setNewDeckName(e.target.value)} />
         )}
-        <input type="file" accept=".csv,text/csv"
-          onChange={async (e) => { const f = e.target.files?.[0]; if (f) onTextLoaded(await f.text()) }} />
-        <textarea rows={5} placeholder="或直接貼上 CSV 內容" value={text}
-          onChange={(e) => onTextLoaded(e.target.value)} />
 
-        {rows.length > 0 && mapping && (
+        {mode === 'csv' ? (
           <>
-            <label><input type="checkbox" checked={hasHeader}
-              onChange={(e) => setHasHeader(e.target.checked)} /> 第一列是表頭</label>
+            <input type="file" accept=".csv,text/csv"
+              onChange={async (e) => { const f = e.target.files?.[0]; if (f) onTextLoaded(await f.text()) }} />
+            <textarea rows={5} placeholder="或直接貼上 CSV 內容" value={text}
+              onChange={(e) => onTextLoaded(e.target.value)} />
+            {rows.length > 0 && mapping && (
+              <label><input type="checkbox" checked={hasHeader}
+                onChange={(e) => setHasHeader(e.target.checked)} /> 第一列是表頭</label>
+            )}
+          </>
+        ) : (
+          <>
+            <input type="file" accept=".apkg,.colpkg"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void onApkgFile(f) }} />
+            <p className="hint">
+              從 Anki 或 AnkiWeb 下載的 .apkg 檔。只會匯入文字內容,卡片一律從新卡開始排程;
+              排程進度、圖片與音檔不會匯入。
+            </p>
+            {parsing && <p className="hint">解析中…</p>}
+            {apkg && apkg.notetypes.length > 1 && (
+              <label>樣板
+                <select value={notetypeId} onChange={(e) => selectNotetype(apkg, e.target.value)}>
+                  {apkg.notetypes.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}({t.noteCount} 筆)</option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </>
+        )}
+
+        {activeMapping && fieldOptions.length > 0 && (
+          <>
             <div className="mapping">
-              {FIELD_LABELS.map(([field, label]) => (
+              {labels.map(([field, label]) => (
                 <label key={field}>{label}
                   <select
-                    value={mapping[field] === null ? '' : String(mapping[field])}
-                    onChange={(e) => setMapping({
-                      ...mapping,
-                      [field]: e.target.value === '' ? null : Number(e.target.value),
-                    })}>
-                    {field === 'reading' && <option value="">(無)</option>}
-                    {rows[0].map((cell, i) => (
-                      <option key={i} value={i}>第 {i + 1} 欄({cell}…)</option>
+                    value={activeMapping[field] === null ? '' : String(activeMapping[field])}
+                    onChange={(e) => setMappingField(field, e.target.value === '' ? null : Number(e.target.value))}>
+                    {OPTIONAL_FIELDS.has(field) && <option value="">(無)</option>}
+                    {fieldOptions.map((cell, i) => (
+                      <option key={i} value={i}>
+                        {mode === 'csv' ? `第 ${i + 1} 欄(${cell}…)` : cell || `欄位 ${i + 1}`}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -124,8 +229,11 @@ export default function ImportPage() {
                 ))}
               </tbody>
             </table>
-            <p className="hint">共 {parsed.length} 筆有效資料</p>
-            <button className="btn" disabled={busy} onClick={doImport}>
+            <p className="hint">
+              共 {parsed.length} 筆有效資料
+              {mode === 'apkg' && otherNoteCount > 0 && `,另有 ${otherNoteCount} 筆屬於其他樣板不會匯入`}
+            </p>
+            <button className="btn" disabled={busy || parsed.length === 0} onClick={doImport}>
               {busy ? '匯入中…' : `匯入 ${parsed.length} 筆`}
             </button>
           </>
@@ -133,7 +241,8 @@ export default function ImportPage() {
 
         {summary && (
           <div className="summary">
-            <p>✓ 匯入 {summary.imported} 筆,跳過重複 {summary.skipped.length} 筆</p>
+            <p>✓ 匯入 {summary.imported} 筆,跳過重複 {summary.skipped.length} 筆
+              {summary.otherSkipped > 0 && `,略過其他樣板 ${summary.otherSkipped} 筆`}</p>
             {summary.annotateSkipped
               ? <p className="hint">離線或字典查詢失敗,未自動標註重音(可稍後在牌組頁按「自動標註重音」)</p>
               : <p className="hint">自動標註重音 {summary.annotated} 筆,查無 {summary.missed} 筆</p>}

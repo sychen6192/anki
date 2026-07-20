@@ -7,6 +7,7 @@
 - 牌組 / 卡片 / 複習(FSRS 排程,含正向與反向卡)
 - 日文重音(ピッチアクセント):自動標註(kanjium 字典)、卡片與編輯器以高低線圖顯示
 - CSV 匯入(自動欄位對應、預覽、跳過重複)與匯出
+- Anki 牌組匯入(`.apkg`,只取文字內容,卡片從新卡開始排程)
 - 完整資料 JSON 備份與還原
 - 背景同步(push/pull、Last-Write-Wins 合併)
 - 同步金鑰:同一部署上以金鑰切分獨立資料空間,可分給不同人各自使用
@@ -43,6 +44,18 @@ npm run deploy
 若要部署到自己的 Cloudflare 帳號,先 `npx wrangler d1 create anki-pwa` 並把回傳的 `database_id` 填入 `wrangler.jsonc`(本 repo 已填入原作者的 id),接著 `npx wrangler d1 migrations apply anki-pwa --remote` 套用資料庫結構。
 
 部署完成後 wrangler 會印出 `https://anki-pwa.<account>.workers.dev`,可用 `curl <URL>/api/health` 確認回傳 `{"ok":true}`。
+
+## 匯入 Anki 牌組(.apkg)
+
+匯入頁的「Anki 牌組」分頁可直接讀 Anki / AnkiWeb 的 `.apkg`(新版 zstd 格式與舊版都支援)。
+
+- 只匯入 note 的文字;排程進度、媒體檔與 tags 不會匯入,卡片一律從新卡開始由 FSRS 排程
+- 檔案內若有多個樣板(note type),選一個匯入,其餘在摘要中回報為「略過其他樣板」
+- 欄位依名稱自動對應(`Expression`/`単語`、`Reading`/`読み`、`Meaning`/`意味`、`Pitch`/`アクセント` 等),可手動改
+- 欄位內容會清掉 HTML、`[sound:]`、cloze 標記;沒有讀音欄時會從 `漢字[かんじ]` 這種 furigana 寫法拆出讀音
+- 牌組名稱預設帶入 apkg 內卡片最多的牌組(子牌組會併成同一個牌組)
+- 讀 SQLite 用的 sql.js wasm 約 1.2MB,不進 precache,第一次匯入時才下載(需連線),之後離線也能用
+- 檔案大小上限 60MB
 
 ## CSV 格式說明
 

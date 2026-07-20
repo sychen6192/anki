@@ -20,8 +20,18 @@ export default defineConfig({
           { src: 'maskable-icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      // 關鍵:API 請求不可被 SPA fallback 攔截,否則離線時 sync 錯誤會被 sw 吃掉
-      workbox: { navigateFallbackDenylist: [/^\/api\//] },
+      workbox: {
+        // 關鍵:API 請求不可被 SPA fallback 攔截,否則離線時 sync 錯誤會被 sw 吃掉
+        navigateFallbackDenylist: [/^\/api\//],
+        // sql.js 的 wasm 約 1.2MB,只有匯入 .apkg 才用得到 — 不進 precache,
+        // 改成第一次用到時才抓、抓過就留著(之後離線也能匯入)
+        globIgnores: ['**/*.wasm'],
+        runtimeCaching: [{
+          urlPattern: /\.wasm$/,
+          handler: 'CacheFirst',
+          options: { cacheName: 'wasm-cache', expiration: { maxEntries: 4 } },
+        }],
+      },
     }),
   ],
   server: { proxy: { '/api': 'http://localhost:8787' } },

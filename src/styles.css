@@ -242,6 +242,14 @@ textarea { resize: vertical; }
 .deck-settings label { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
 
 /* ---------- 匯入 / 設定 ---------- */
+.tabs { display: flex; gap: 6px; margin-bottom: 18px; }
+.tab {
+  flex: 1; padding: 9px 12px; font-size: 14px; font-weight: 600; font-family: inherit;
+  color: var(--muted); background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); cursor: pointer;
+}
+.tab.active { color: var(--primary); background: var(--primary-weak); border-color: var(--primary); }
+
 .import-form, .settings-block {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 18px; display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; box-shadow: var(--shadow-sm);

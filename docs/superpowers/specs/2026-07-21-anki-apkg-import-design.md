@@ -73,7 +73,7 @@ parseApkg(bytes: Uint8Array): Promise<ApkgParse>
 **`src/lib/apkgMap.ts`** — 把解析結果映射成既有的 `ParsedRow[]`。
 ```ts
 interface ApkgMapping { expression: number; reading: number | null; meaning: number; accent: number | null }
-autoMapFields(fieldNames: string[]): ApkgMapping | null
+autoMapFields(fieldNames: string[]): ApkgMapping   // 猜不到就退回位置對應,不回 null
 mapApkgNotes(notes: ApkgNote[], mapping: ApkgMapping): ParsedRow[]
 ```
 別名表(比對時忽略大小寫與前後空白):
