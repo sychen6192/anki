@@ -9,8 +9,8 @@
   --surface: #ffffff;
   --surface-2: #fafafa;
   --text: #1b1b1f;
-  --muted: #6b6b74;
-  --faint: #9a9aa3;
+  --muted: #5a5a63;
+  --faint: #6f6f7a; /* 4.5:1 on --bg;提示文字要看得見,--muted 再暗一階維持層次 */
   --border: #ececef;
   --border-strong: #dedee2;
 
@@ -23,10 +23,11 @@
   --good-weak: #eaf7f0;
   --danger: #d64545;
 
-  --rate-again: #dd5a5f;
-  --rate-hard: #cf983f;
-  --rate-good: #3a9d64;
-  --rate-easy: #5079cf;
+  /* 四色都調到白字有 4.5:1 以上 — 這是每天按最多次的按鈕 */
+  --rate-again: #cc4046;
+  --rate-hard: #a76229;
+  --rate-good: #2f8253;
+  --rate-easy: #4a6fc0;
 
   --radius: 12px;
   --radius-sm: 9px;
@@ -46,7 +47,7 @@
     --surface-2: #1c1d22;
     --text: #e8e8ec;
     --muted: #9a9aa6;
-    --faint: #6a6a76;
+    --faint: #8a8a96;
     --border: #262731;
     --border-strong: #33343f;
 
@@ -59,10 +60,10 @@
     --good-weak: #16241d;
     --danger: #e8686a;
 
-    --rate-again: #e0686c;
-    --rate-hard: #d3a458;
-    --rate-good: #4bb37c;
-    --rate-easy: #6f96e0;
+    --rate-again: #c2383e;
+    --rate-hard: #9c5a22;
+    --rate-good: #2a7a4c;
+    --rate-easy: #4566b8;
 
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px rgb(0 0 0 / 0.35);
     --shadow-md: 0 2px 8px rgb(0 0 0 / 0.35), 0 10px 28px rgb(0 0 0 / 0.45);
@@ -166,7 +167,8 @@ textarea { resize: vertical; }
 
 /* ---------- 複習 ---------- */
 .review { display: flex; flex-direction: column; align-items: center; gap: 18px; }
-.remaining { color: var(--faint); font-size: 13px; font-weight: 550; align-self: flex-end; font-variant-numeric: tabular-nums; }
+.review-head { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 28px; }
+.remaining { color: var(--faint); font-size: 13px; font-weight: 550; font-variant-numeric: tabular-nums; }
 .flashcard {
   width: 100%; min-height: 300px; background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius-lg);
@@ -182,7 +184,7 @@ textarea { resize: vertical; }
 .pitch-morae .mora { border-top: 2px solid transparent; line-height: 2; padding: 0 1px; }
 .pitch-morae .mora.high { border-top-color: currentColor; }
 .pitch-morae .mora.drop { border-right: 2px solid currentColor; }
-.pitch-num { font-size: 0.66em; opacity: 0.6; font-variant-numeric: tabular-nums; }
+.pitch-num { font-size: 0.66em; opacity: 0.85; font-variant-numeric: tabular-nums; }
 .meaning { font-size: 20px; color: var(--muted); text-align: center; }
 .speak-btn {
   border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
@@ -204,6 +206,13 @@ textarea { resize: vertical; }
 .review-done { text-align: center; display: flex; flex-direction: column; gap: 16px; align-items: center; padding-top: 56px; }
 .review-done h1 { font-size: 30px; }
 .err { color: var(--danger); font-size: 14px; }
+
+.crash { display: flex; flex-direction: column; gap: 12px; padding-top: 40px; }
+.crash h1 { font-size: 26px; }
+.crash-detail {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 12px; font-size: 13px; color: var(--muted); overflow-x: auto; white-space: pre-wrap;
+}
 
 /* ---------- 牌組詳情 / 卡片編輯 ---------- */
 .toolbar { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }

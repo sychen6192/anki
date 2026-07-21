@@ -99,11 +99,33 @@ export async function softDeleteNote(id: string): Promise<void> {
   })
 }
 
+/** 回傳新增的 review_log id,讓呼叫端可以復原這次評分。 */
 export async function applyReview(
   card: CardRecord, fields: FsrsFields, log: Omit<ReviewLogRecord, 'id' | 'card_id'>,
-): Promise<void> {
+): Promise<string> {
+  const logId = crypto.randomUUID()
   await db.transaction('rw', [db.cards, db.review_logs], async () => {
     await db.cards.update(card.id, { ...fields, updated_at: now(), dirty: 1 })
-    await db.review_logs.add({ id: crypto.randomUUID(), card_id: card.id, ...log, dirty: 1 })
+    await db.review_logs.add({ id: logId, card_id: card.id, ...log, dirty: 1 })
+  })
+  return logId
+}
+
+/**
+ * 復原一次評分:把卡片的排程欄位還原成 `card` 的內容,並刪掉那筆 review_log。
+ * 還原用的是新的 updated_at,所以其他裝置會透過 LWW 收到「還原後」的狀態。
+ * 注意:review_logs 在伺服器端是 append-only(無墓碑),若這筆 log 已經推送過,
+ * 伺服器上的那一列會留著 — 對單人使用只影響「今日新卡數」的統計,不影響排程。
+ */
+export async function undoReview(card: CardRecord, logId: string): Promise<void> {
+  await db.transaction('rw', [db.cards, db.review_logs], async () => {
+    await db.cards.update(card.id, {
+      due: card.due, stability: card.stability, difficulty: card.difficulty,
+      elapsed_days: card.elapsed_days, scheduled_days: card.scheduled_days,
+      learning_steps: card.learning_steps, reps: card.reps, lapses: card.lapses,
+      state: card.state, last_review: card.last_review,
+      updated_at: now(), dirty: 1,
+    })
+    await db.review_logs.delete(logId)
   })
 }

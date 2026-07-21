@@ -1,5 +1,9 @@
 node_modules/
 dist/
+.playwright-mcp/
+/*.png
+# 個人單字資料,不進版控(vocab.csv 是文件用的範例,那個有追蹤)
+/日文單字.csv
 .wrangler/
 node_modules/.tsbuild/
 scripts/accents.txt
