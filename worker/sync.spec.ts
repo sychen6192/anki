@@ -22,6 +22,38 @@ async function pull(since = 0): Promise<any> {
   return res.json()
 }
 
+describe('/api/sync push 的輸入驗證', () => {
+  const pushRaw = (body: string) => app.request('/api/sync', {
+    method: 'POST', body, headers: { 'content-type': 'application/json' },
+  }, env)
+
+  it('無法 bind 的壞資料被跳過並回報,同批的好資料照常寫入', async () => {
+    const res = await pushRaw(JSON.stringify({
+      ...empty,
+      decks: [deck({ id: 'good' }), deck({ id: 'bad', name: { nested: 'object' } })],
+    }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, skipped: ['bad'] })
+
+    const out = await pull(0)
+    expect(out.decks.map((d: { id: string }) => d.id)).toEqual(['good'])
+  })
+
+  it('缺 id 或 updated_at 不是數字的列被跳過', async () => {
+    const res = await pushRaw(JSON.stringify({
+      ...empty,
+      decks: [deck({ id: undefined }), deck({ id: 'x', updated_at: 'not-a-number' })],
+    }))
+    expect(await res.json()).toEqual({ ok: true, skipped: ['', 'x'] })
+    expect((await pull(0)).decks).toHaveLength(0)
+  })
+
+  it('body 不是 JSON 或欄位不是陣列時回 400,而不是丟出未處理的例外', async () => {
+    expect((await pushRaw('not json at all')).status).toBe(400)
+    expect((await pushRaw(JSON.stringify({ ...empty, decks: 'nope' }))).status).toBe(400)
+  })
+})
+
 describe('/api/sync', () => {
   it('push 後 pull 拿得到記錄與遞增 seq', async () => {
     await push({ ...empty, decks: [deck()] })

@@ -98,21 +98,48 @@ const STATEMENTS_PER_BATCH = 100
 // once at module load instead of re-deriving/trusting it at every call site.
 if (STATEMENTS_PER_BATCH % 2 !== 0) throw new Error('STATEMENTS_PER_BATCH must be even')
 
+/**
+ * 只放行能安全 bind 進 D1 的資料:每個欄位必須是字串/數字/null。
+ * 一筆壞掉的資料(欄位是物件或陣列)會讓 .bind() 當場拋錯,整個 push 失敗;
+ * 而客戶端的 push 迴圈一失敗就不會走到 pull,那台裝置的同步會**永久卡住**,
+ * 每次重試都在同一筆壞資料上死。所以壞的那筆在這裡跳過,不連累其他列。
+ */
+function isStorableRow(table: TableName, row: Record<string, unknown>): boolean {
+  if (typeof row.id !== 'string' || row.id === '') return false
+  const stamp = table === 'review_logs' ? row.reviewed_at : row.updated_at
+  if (typeof stamp !== 'number' || !Number.isFinite(stamp)) return false
+  return TABLE_COLS[table].every((col) => {
+    const v = row[col]
+    return v === undefined || v === null || typeof v === 'string'
+      || (typeof v === 'number' && Number.isFinite(v))
+  })
+}
+
 app.post('/api/sync', async (c) => {
-  const body = await c.req.json<SyncPush>()
+  const body = await c.req.json<SyncPush>().catch(() => null)
+  if (body === null || typeof body !== 'object') return c.json({ error: 'invalid body' }, 400)
   const space = c.req.header('x-sync-space') ?? ''
   const db = c.env.DB
   const statements: D1PreparedStatement[] = []
+  // 跳過的列會回報給客戶端,客戶端據此保留 dirty(資料沒被丟掉,只是沒存進去)
+  const skipped: string[] = []
   for (const t of ['decks', 'notes', 'cards', 'review_logs'] as const) {
-    for (const row of body[t] ?? []) {
+    const rows = body[t]
+    if (rows === undefined || rows === null) continue
+    if (!Array.isArray(rows)) return c.json({ error: `invalid ${t}` }, 400)
+    for (const row of rows) {
       const r = { ...(row as unknown as Record<string, unknown>), namespace: space }
+      if (row === null || typeof row !== 'object' || !isStorableRow(t, r)) {
+        skipped.push(typeof (row as { id?: unknown })?.id === 'string' ? (row as { id: string }).id : '')
+        continue
+      }
       statements.push(...buildRowStatements(db, t, r))
     }
   }
   for (let i = 0; i < statements.length; i += STATEMENTS_PER_BATCH) {
     await db.batch(statements.slice(i, i + STATEMENTS_PER_BATCH))
   }
-  return c.json({ ok: true })
+  return c.json({ ok: true, skipped })
 })
 
 app.get('/api/sync', async (c) => {

@@ -1,7 +1,8 @@
 import type { Table, UpdateSpec } from 'dexie'
 import { db, type Local } from '../db/db'
 import type {
-  CardRecord, DeckRecord, NoteRecord, ReviewLogRecord, SyncPush, SyncPullResponse,
+  CardRecord, DeckRecord, NoteRecord, ReviewLogRecord,
+  SyncPush, SyncPullResponse, SyncPushResponse,
 } from '../../shared/types'
 import { getSyncSpace } from './space'
 
@@ -60,9 +61,10 @@ function stripDirty<T>(rows: Local<T>[]): T[] {
 }
 
 async function clearPushedDirty<T extends { id: string; updated_at: number }>(
-  table: Table<Local<T>, string>, pushed: Local<T>[],
+  table: Table<Local<T>, string>, pushed: Local<T>[], skipped: Set<string>,
 ): Promise<void> {
   for (const row of pushed) {
+    if (skipped.has(row.id)) continue // 伺服器沒存下這列,保留 dirty 等下次再試
     const cur = await table.get(row.id)
     // push 期間又被改過(updated_at 變了)就保留 dirty,下次再推
     if (cur && cur.updated_at === row.updated_at) {
@@ -80,6 +82,52 @@ async function mergeTable<T extends { id: string; updated_at: number }>(
       await table.put({ ...row, dirty: 0 } as Local<T>)
     }
   }
+}
+
+const cardKey = (noteId: string, direction: string) => `${noteId}|${direction}`
+
+/**
+ * 合併後的一致性收斂。逐筆 LWW 是各表獨立比對的,不會重新檢查父子關係,
+ * 跨裝置離線編輯因此會留下兩種殘骸:
+ *
+ * 1. A 裝置離線刪了牌組(本機連帶把底下的筆記/卡片下墓碑),B 裝置同時編輯了
+ *    底下的筆記。B 的編輯帶著較新的 updated_at,合併時贏過 A 的墓碑 —— 結果是
+ *    「已刪除的牌組底下還活著卡片」。StatsPage 只看卡片自己的 deleted,
+ *    這些孤兒會永久灌水統計與到期數。
+ * 2. 兩台裝置各自離線勾了同一筆的「反向卡」,各自產生一張 uuid 不同的反向卡。
+ *    id 不同就不會有 LWW 衝突,兩張都存活,之後每次複習都重複一次。
+ *
+ * 收斂用新的 updated_at + dirty 寫回,所以修正本身也會經 LWW 傳播出去。
+ * 判準在每台裝置上都一樣(重複時保留 id 較小者),因此不會互相打架。
+ */
+async function reconcile(): Promise<number> {
+  const t = Date.now()
+  let fixed = 0
+
+  const deletedDecks = new Set((await db.decks.toArray()).filter((d) => d.deleted).map((d) => d.id))
+  const deadNotes = new Set<string>()
+  for (const note of await db.notes.toArray()) {
+    if (note.deleted) { deadNotes.add(note.id); continue }
+    if (deletedDecks.has(note.deck_id)) {
+      await db.notes.update(note.id, { deleted: 1, updated_at: t, dirty: 1 })
+      deadNotes.add(note.id)
+      fixed++
+    }
+  }
+
+  const cards = (await db.cards.toArray()).sort((a, b) => (a.id < b.id ? -1 : 1))
+  const live = new Set<string>()
+  for (const card of cards) {
+    if (card.deleted) continue
+    const key = cardKey(card.note_id, card.direction)
+    if (deadNotes.has(card.note_id) || live.has(key)) {
+      await db.cards.update(card.id, { deleted: 1, updated_at: t, dirty: 1 })
+      fixed++
+      continue
+    }
+    live.add(key)
+  }
+  return fixed
 }
 
 export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult> {
@@ -108,10 +156,15 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
           body: JSON.stringify(body),
         })
         if (!res.ok) throw new Error(`push failed: ${res.status}`)
-        await clearPushedDirty(db.decks, chunk.decks)
-        await clearPushedDirty(db.notes, chunk.notes)
-        await clearPushedDirty(db.cards, chunk.cards)
-        for (const log of chunk.review_logs) await db.review_logs.update(log.id, { dirty: 0 })
+        const pushRes = await res.json().catch(() => null) as SyncPushResponse | null
+        const skipped = new Set(pushRes?.skipped ?? [])
+        if (skipped.size > 0) console.warn('伺服器跳過了無法存下的資料列', [...skipped])
+        await clearPushedDirty(db.decks, chunk.decks, skipped)
+        await clearPushedDirty(db.notes, chunk.notes, skipped)
+        await clearPushedDirty(db.cards, chunk.cards, skipped)
+        for (const log of chunk.review_logs) {
+          if (!skipped.has(log.id)) await db.review_logs.update(log.id, { dirty: 0 })
+        }
       }
     }
     // --- pull ---
@@ -131,6 +184,8 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
       for (const log of data.review_logs) {
         if (!(await db.review_logs.get(log.id))) await db.review_logs.put({ ...log, dirty: 0 })
       }
+      // 只有真的合併到東西才需要收斂,空的 pull 不必掃全表
+      if (data.decks.length + data.notes.length + data.cards.length > 0) await reconcile()
       await db.meta.put({ key: 'sync_cursor', value: data.seq })
       await db.meta.put({ key: 'last_sync_at', value: Date.now() })
     })

@@ -32,3 +32,6 @@ export interface SyncPush {
 }
 
 export type SyncPullResponse = SyncPush & { seq: number }
+
+/** skipped:伺服器無法存下的列 id(欄位型別不合法),客戶端據此保留 dirty */
+export interface SyncPushResponse { ok: true; skipped: string[] }

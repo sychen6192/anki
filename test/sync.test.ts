@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, it, expect, vi, afterEach } from 'vitest'
 import { db } from '../src/db/db'
-import { createDeck, createNote } from '../src/db/repo'
+import { createDeck, createNote, softDeleteDeck } from '../src/db/repo'
 import { syncNow } from '../src/lib/sync'
 import { getSyncSpace, setSyncSpace, clearLocalData } from '../src/lib/space'
 
@@ -80,6 +80,31 @@ describe('syncNow', () => {
     vi.stubGlobal('navigator', { onLine: false })
     const r = await syncNow(makeServer().fetchFn)
     expect(r.skipped).toBe(true)
+  })
+
+  it('伺服器回報存不下的列時,那些列保留 dirty,同批其餘照常清掉,而且不影響 pull', async () => {
+    const deck = await createDeck('A')
+    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
+    let pulled = false
+    const fussyFetch = (async (input: any, init?: any) => {
+      if (init?.method === 'POST') {
+        return new Response(JSON.stringify({ ok: true, skipped: [note.id] }))
+      }
+      pulled = true
+      return new Response(JSON.stringify({ decks: [], notes: [], cards: [], review_logs: [], seq: 7 }))
+    }) as typeof fetch
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const r = await syncNow(fussyFetch)
+    const warned = warn.mock.calls.length
+    warn.mockRestore()
+
+    expect(r.ok).toBe(true)
+    expect(warned).toBe(1) // 有留下線索,不是靜默吞掉
+    expect(pulled).toBe(true) // 壞資料不會讓同步卡在 push 階段
+    expect((await db.notes.get(note.id))!.dirty).toBe(1)
+    expect((await db.decks.get(deck.id))!.dirty).toBe(0)
+    expect((await db.meta.get('sync_cursor'))!.value).toBe(7)
   })
 
   it('server 錯誤時回報 error 且 dirty 保留', async () => {
@@ -163,6 +188,81 @@ describe('syncNow', () => {
     expect(server.tables.cards.size).toBe(100)
     expect(await db.notes.where('dirty').equals(1).count()).toBe(0)
     expect(await db.cards.where('dirty').equals(1).count()).toBe(0)
+  })
+})
+
+describe('合併後的一致性收斂', () => {
+  const fsrsFields = (t: number) => ({
+    due: t, stability: 0, difficulty: 0, elapsed_days: 0, scheduled_days: 0,
+    learning_steps: 0, reps: 0, lapses: 0, state: 0, last_review: null,
+  })
+
+  it('已刪除的牌組底下被另一台裝置改活的筆記與卡片,合併後重新下墓碑', async () => {
+    const server = makeServer()
+    const deck = await createDeck('A')
+    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
+    const card = (await db.cards.where('note_id').equals(note.id).toArray())[0]
+    await syncNow(server.fetchFn)
+
+    // 本機刪掉整個牌組(連帶把筆記與卡片下墓碑)
+    await softDeleteDeck(deck.id)
+    // 另一台裝置不知道牌組被刪了,同時改了這筆筆記 —— 較新的 updated_at 會贏過墓碑
+    const later = Date.now() + 60_000
+    server.inject('notes', {
+      id: note.id, deck_id: deck.id, expression: '犬', reading: 'いぬ', meaning: '狗狗',
+      accent: '', reversed: 0, updated_at: later, deleted: 0,
+    })
+    server.inject('cards', {
+      id: card.id, note_id: note.id, deck_id: deck.id, direction: 'forward',
+      ...fsrsFields(later), updated_at: later, deleted: 0,
+    })
+
+    await syncNow(server.fetchFn)
+
+    const merged = (await db.notes.get(note.id))!
+    expect(merged.meaning).toBe('狗狗') // LWW 確實把較新的內容併進來了
+    expect(merged.deleted).toBe(1)      // 但父牌組已刪,收斂後重新下墓碑
+    expect(merged.dirty).toBe(1)        // 標 dirty,讓修正也傳回其他裝置
+    const mergedCard = (await db.cards.get(card.id))!
+    expect(mergedCard.deleted).toBe(1)
+    expect(mergedCard.dirty).toBe(1)
+  })
+
+  it('兩台裝置各自產生的重複反向卡,只留 id 較小的一張', async () => {
+    const server = makeServer()
+    const deck = await createDeck('A')
+    const note = await createNote(deck.id, { expression: '猫', reading: 'ねこ', meaning: '貓', reversed: true, accent: '' })
+    await syncNow(server.fetchFn)
+    const mine = (await db.cards.where('note_id').equals(note.id).toArray()).find((c) => c.direction === 'reverse')!
+
+    // 另一台裝置離線時也勾了反向卡,產生另一張 uuid 不同的卡
+    const dupId = 'zzzzzzzz-dup'
+    server.inject('cards', {
+      id: dupId, note_id: note.id, deck_id: deck.id, direction: 'reverse',
+      ...fsrsFields(Date.now()), updated_at: Date.now() + 60_000, deleted: 0,
+    })
+
+    await syncNow(server.fetchFn)
+
+    const reverse = (await db.cards.where('note_id').equals(note.id).toArray()).filter((c) => c.direction === 'reverse')
+    expect(reverse).toHaveLength(2) // 兩張都還在(墓碑不物理刪除)
+    const live = reverse.filter((c) => !c.deleted)
+    expect(live).toHaveLength(1)
+    expect(live[0].id).toBe([mine.id, dupId].sort()[0])
+    expect(reverse.find((c) => c.deleted)!.dirty).toBe(1)
+  })
+
+  it('沒有東西可合併時不動任何資料,也不會製造 dirty', async () => {
+    const server = makeServer()
+    const deck = await createDeck('A')
+    await createNote(deck.id, { expression: '本', reading: 'ほん', meaning: '書', reversed: true, accent: '' })
+    await syncNow(server.fetchFn)
+    expect(await db.cards.where('dirty').equals(1).count()).toBe(0)
+
+    await syncNow(server.fetchFn) // 第二次:server 沒有新東西
+    expect(await db.cards.where('dirty').equals(1).count()).toBe(0)
+    expect(await db.notes.where('dirty').equals(1).count()).toBe(0)
+    expect(await db.cards.filter((c) => c.deleted === 1).count()).toBe(0)
   })
 })
 

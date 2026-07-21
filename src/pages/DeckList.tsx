@@ -5,6 +5,7 @@ import { db } from '../db/db'
 import { createDeck } from '../db/repo'
 import { buildQueue, startOfToday } from '../lib/queue'
 import { State } from '../lib/fsrs'
+import { useBusy } from '../lib/useBusy'
 
 export default function DeckList() {
   const decks = useLiveQuery(() => db.decks.filter((d) => !d.deleted).toArray(), [])
@@ -13,14 +14,15 @@ export default function DeckList() {
     () => db.review_logs.where('reviewed_at').aboveOrEqual(startOfToday()).toArray(), [],
   )
   const [name, setName] = useState('')
+  const [adding, runAdd] = useBusy()
 
-  if (!decks || !cards || !todayLogs) return null
-
-  const addDeck = async () => {
+  const addDeck = () => runAdd(async () => {
     if (!name.trim()) return
     await createDeck(name)
     setName('')
-  }
+  })
+
+  if (!decks || !cards || !todayLogs) return null
 
   return (
     <div>
@@ -50,8 +52,8 @@ export default function DeckList() {
       </ul>
       <div className="new-deck">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="新牌組名稱"
-          onKeyDown={(e) => e.key === 'Enter' && addDeck()} />
-        <button className="btn" onClick={addDeck}>建立</button>
+          onKeyDown={(e) => { if (e.key === 'Enter') void addDeck() }} />
+        <button className="btn" disabled={adding} onClick={() => void addDeck()}>建立</button>
       </div>
     </div>
   )

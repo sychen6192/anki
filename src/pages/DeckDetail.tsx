@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
@@ -10,6 +10,7 @@ import { download } from '../lib/download'
 import { fillMissingAccents, isValidAccent, lookupAccents } from '../lib/accent'
 import { PitchAccent } from '../components/PitchAccent'
 import { isSpeechSupported, speak } from '../lib/speak'
+import { useBusy } from '../lib/useBusy'
 import { SpeakerIcon } from '../components/SpeakerIcon'
 
 const EMPTY: NoteInput = { expression: '', reading: '', meaning: '', reversed: false, accent: '' }
@@ -26,7 +27,7 @@ export default function DeckDetail() {
   const [form, setForm] = useState<NoteInput>(EMPTY)
   const [deckName, setDeckName] = useState<string | null>(null)
   const [newPerDay, setNewPerDay] = useState<number | null>(null)
-  const busy = useRef(false)
+  const [busy, run] = useBusy()
   const [errMsg, setErrMsg] = useState<string | null>(null)
   const [looking, setLooking] = useState(false)
   const [annotateMsg, setAnnotateMsg] = useState<string | null>(null)
@@ -52,31 +53,29 @@ export default function DeckDetail() {
     }
   }
 
-  const annotateDeck = async () => {
-    if (busy.current) return
+  const annotateDeck = () => run(async () => {
     const blanks = notes.filter((n) => !n.accent)
     if (blanks.length === 0) { setAnnotateMsg('這副牌組沒有待標註的卡片'); return }
-    busy.current = true
     setAnnotateMsg(`標註中…(${blanks.length} 筆)`)
     try {
       const { rows, filled, missed } = await fillMissingAccents(
         blanks.map((n) => ({ id: n.id, expression: n.expression, reading: n.reading, accent: n.accent ?? '' })),
       )
-      for (const r of rows) {
-        if (r.accent !== '') await updateNote(r.id, { accent: r.accent })
-      }
+      // 幾百筆各開一個交易會慢到看得出來,包成一個交易寫回
+      await db.transaction('rw', [db.notes, db.cards], async () => {
+        for (const r of rows) {
+          if (r.accent !== '') await updateNote(r.id, { accent: r.accent })
+        }
+      })
       setAnnotateMsg(`完成:標註 ${filled} 筆,查無 ${missed} 筆`)
       setErrMsg(null)
     } catch (e) {
       setAnnotateMsg(null)
       setErrMsg(`自動標註失敗:${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      busy.current = false
     }
-  }
+  })
 
-  const saveNote = async () => {
-    if (busy.current) return
+  const saveNote = () => run(async () => {
     if (!form.expression.trim() || !form.meaning.trim()) {
       setErrMsg('單字與意思為必填')
       return
@@ -85,7 +84,6 @@ export default function DeckDetail() {
       setErrMsg('重音格式錯誤(只能是數字,多重音用逗號分隔,如 0 或 0,3)')
       return
     }
-    busy.current = true
     try {
       if (editingId === 'new') await createNote(deck.id, form)
       else if (editingId) await updateNote(editingId, form)
@@ -94,14 +92,10 @@ export default function DeckDetail() {
       setErrMsg(null)
     } catch (e) {
       setErrMsg(`操作失敗:${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      busy.current = false
     }
-  }
+  })
 
-  const saveDeck = async () => {
-    if (busy.current) return
-    busy.current = true
+  const saveDeck = () => run(async () => {
     try {
       const name = (deckName ?? deck.name).trim()
       if (name === '') {
@@ -122,25 +116,29 @@ export default function DeckDetail() {
       setErrMsg(null)
     } catch (e) {
       setErrMsg(`操作失敗:${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      busy.current = false
     }
-  }
+  })
 
-  const removeDeck = async () => {
-    if (busy.current) return
+  const removeDeck = () => run(async () => {
     if (!confirm(`刪除牌組「${deck.name}」與其所有卡片?`)) return
-    busy.current = true
     try {
       await softDeleteDeck(deck.id)
       setErrMsg(null)
       navigate('/')
     } catch (e) {
       setErrMsg(`操作失敗:${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      busy.current = false
     }
-  }
+  })
+
+  const removeNote = (id: string, label: string) => run(async () => {
+    if (!confirm(`刪除「${label}」?`)) return
+    try {
+      await softDeleteNote(id)
+      setErrMsg(null)
+    } catch (e) {
+      setErrMsg(`操作失敗:${e instanceof Error ? e.message : String(e)}`)
+    }
+  })
 
   return (
     <div>
@@ -152,7 +150,7 @@ export default function DeckDetail() {
           匯出 CSV
         </button>
         <button className="btn secondary" onClick={() => { setEditingId('new'); setForm(EMPTY) }}>＋新增卡片</button>
-        <button className="btn secondary" onClick={annotateDeck}>自動標註重音</button>
+        <button className="btn secondary" disabled={busy} onClick={() => void annotateDeck()}>自動標註重音</button>
       </div>
       {annotateMsg && <p className="hint">{annotateMsg}</p>}
 
@@ -183,7 +181,7 @@ export default function DeckDetail() {
           <label><input type="checkbox" checked={form.reversed}
             onChange={(e) => setForm({ ...form, reversed: e.target.checked })} /> 反向卡(意思→單字)</label>
           <div className="form-actions">
-            <button className="btn" onClick={saveNote}>儲存</button>
+            <button className="btn" disabled={busy} onClick={() => void saveNote()}>儲存</button>
             <button className="btn secondary" onClick={() => setEditingId(null)}>取消</button>
           </div>
         </div>
@@ -202,20 +200,8 @@ export default function DeckDetail() {
               setEditingId(n.id)
               setForm({ expression: n.expression, reading: n.reading, meaning: n.meaning, reversed: n.reversed === 1, accent: n.accent ?? '' })
             }}>編輯</button>
-            <button className="link danger" onClick={async () => {
-              if (busy.current) return
-              if (confirm(`刪除「${n.expression}」?`)) {
-                busy.current = true
-                try {
-                  await softDeleteNote(n.id)
-                  setErrMsg(null)
-                } catch (e) {
-                  setErrMsg(`操作失敗:${e instanceof Error ? e.message : String(e)}`)
-                } finally {
-                  busy.current = false
-                }
-              }
-            }}>刪除</button>
+            <button className="link danger" disabled={busy}
+              onClick={() => void removeNote(n.id, n.expression)}>刪除</button>
           </li>
         ))}
       </ul>
@@ -228,8 +214,8 @@ export default function DeckDetail() {
           value={newPerDay !== null && Number.isNaN(newPerDay) ? '' : newPerDay ?? deck.new_per_day}
           onChange={(e) => setNewPerDay(e.target.value === '' ? NaN : Number(e.target.value))} /></label>
         <div className="form-actions">
-          <button className="btn" onClick={saveDeck}>儲存設定</button>
-          <button className="btn danger" onClick={removeDeck}>刪除牌組</button>
+          <button className="btn" disabled={busy} onClick={() => void saveDeck()}>儲存設定</button>
+          <button className="btn danger" disabled={busy} onClick={() => void removeDeck()}>刪除牌組</button>
         </div>
       </div>
     </div>

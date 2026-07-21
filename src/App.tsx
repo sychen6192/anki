@@ -1,13 +1,17 @@
-import { useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Link, NavLink, Route, Routes } from 'react-router-dom'
 import { setupAutoSync } from './lib/sync'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import DeckList from './pages/DeckList'
-import DeckDetail from './pages/DeckDetail'
 import Review from './pages/Review'
-import ImportPage from './pages/ImportPage'
-import StatsPage from './pages/StatsPage'
-import SettingsPage from './pages/SettingsPage'
+
+// 牌組列表與複習是每天都會用到的,直接打包進主 chunk。
+// 其餘頁面(統計頁帶著 recharts、匯入頁帶著 apkg 解析)按需載入,
+// 免得每天開 app 都得先下載一份用不到的圖表函式庫。
+const DeckDetail = lazy(() => import('./pages/DeckDetail'))
+const ImportPage = lazy(() => import('./pages/ImportPage'))
+const StatsPage = lazy(() => import('./pages/StatsPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 
 function NotFound() {
   return (
@@ -30,15 +34,17 @@ export default function App() {
       </nav>
       <main className="page">
         <ErrorBoundary>
-          <Routes>
-            <Route path="/" element={<DeckList />} />
-            <Route path="/deck/:deckId" element={<DeckDetail />} />
-            <Route path="/review/:deckId" element={<Review />} />
-            <Route path="/import" element={<ImportPage />} />
-            <Route path="/stats" element={<StatsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          <Suspense fallback={<p className="hint">載入中…</p>}>
+            <Routes>
+              <Route path="/" element={<DeckList />} />
+              <Route path="/deck/:deckId" element={<DeckDetail />} />
+              <Route path="/review/:deckId" element={<Review />} />
+              <Route path="/import" element={<ImportPage />} />
+              <Route path="/stats" element={<StatsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
         </ErrorBoundary>
       </main>
     </BrowserRouter>
