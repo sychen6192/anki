@@ -12,7 +12,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # 需要 npm 11:wrangler 對 @cloudflare/workers-types 有一條 ^4 的
+          # optional peer dependency,而本專案用的是 v5。npm 10 會想額外裝一份
+          # 4.x 來滿足它,發現 lock 裡沒有就讓 `npm ci` 失敗;npm 11 不會。
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run typecheck
