@@ -12,6 +12,7 @@ export default function SettingsPage() {
   const currentSpace = useLiveQuery(() => getSyncSpace(), [])
   const [msg, setMsg] = useState('')
   const [keyInput, setKeyInput] = useState<string | null>(null)
+  const [showKey, setShowKey] = useState(false)
   // 三個動作共用一把鎖:其中兩個會清空本機資料,不該在另一個跑到一半時插隊
   const [busy, run] = useBusy()
 
@@ -59,14 +60,20 @@ export default function SettingsPage() {
           上次同步:{lastSync ? new Date(lastSync.value).toLocaleString('zh-TW') : '從未'}
         </p>
         <button className="btn" disabled={busy} onClick={() => void doSync()}>立即同步</button>
-        {msg && <p>{msg}</p>}
+        {msg && <p role="status" aria-live="polite">{msg}</p>}
       </div>
 
       <h2>同步金鑰</h2>
       <div className="settings-block">
         <label>金鑰(空白 = 預設空間)
-          <input value={keyInput ?? currentSpace ?? ''} placeholder="例如一串不好猜的字"
-            onChange={(e) => setKeyInput(e.target.value)} />
+          <span className="key-field">
+            <input type={showKey ? 'text' : 'password'} autoComplete="off"
+              value={keyInput ?? currentSpace ?? ''} placeholder="例如一串不好猜的字"
+              onChange={(e) => setKeyInput(e.target.value)} />
+            <button type="button" className="link" onClick={() => setShowKey(!showKey)}>
+              {showKey ? '隱藏' : '顯示'}
+            </button>
+          </span>
         </label>
         <div className="form-actions">
           <button className="btn" disabled={busy} onClick={() => void saveKey()}>儲存金鑰</button>

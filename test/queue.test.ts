@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildQueue, countTodayNew, startOfToday } from '../src/lib/queue'
+import { buildQueue, countTodayNew, deckQueue, startOfToday, DAY_START_HOUR } from '../src/lib/queue'
 import { newCardFields, State } from '../src/lib/fsrs'
 import type { CardRecord, ReviewLogRecord } from '../shared/types'
 
@@ -69,5 +69,58 @@ describe('buildQueue', () => {
 
   it('沒有未到期學習卡時 nextLearningDue 為 null', () => {
     expect(buildQueue([], [], 20, NOW).nextLearningDue).toBeNull()
+  })
+})
+
+describe('startOfToday(換日時間)', () => {
+  const at = (h: number, m = 0) => new Date(2026, 6, 21, h, m).getTime()
+
+  it('凌晨 4 點前算前一天 —— 半夜複習不該重新發一份新卡額度', () => {
+    const lateNight = startOfToday(at(1, 30))
+    expect(new Date(lateNight).getDate()).toBe(20)
+    expect(new Date(lateNight).getHours()).toBe(DAY_START_HOUR)
+  })
+
+  it('凌晨 4 點後算當天', () => {
+    const morning = startOfToday(at(4, 1))
+    expect(new Date(morning).getDate()).toBe(21)
+    expect(new Date(morning).getHours()).toBe(DAY_START_HOUR)
+  })
+
+  it('同一個複習夜(23:00 與隔天 01:00)屬於同一天', () => {
+    expect(startOfToday(new Date(2026, 6, 21, 23).getTime()))
+      .toBe(startOfToday(new Date(2026, 6, 22, 1).getTime()))
+  })
+
+  it('跨過換日點就是不同天', () => {
+    expect(startOfToday(at(3, 59))).not.toBe(startOfToday(at(4, 1)))
+  })
+})
+
+describe('deckQueue', () => {
+  const card = (over: Partial<CardRecord>): CardRecord => ({
+    id: 'c', note_id: 'n', deck_id: 'd1', direction: 'forward',
+    due: NOW, stability: 0, difficulty: 0, elapsed_days: 0, scheduled_days: 0,
+    learning_steps: 0, reps: 0, lapses: 0, state: State.New, last_review: null,
+    updated_at: 1, deleted: 0, ...over,
+  })
+
+  it('只算指定牌組的卡片,別的牌組不影響額度', () => {
+    const cards = [
+      card({ id: 'a', deck_id: 'd1' }),
+      card({ id: 'b', deck_id: 'd2' }),
+      card({ id: 'c', deck_id: 'd1' }),
+    ]
+    const { queue } = deckQueue('d1', 20, cards, [], NOW)
+    expect(queue.map((c) => c.id)).toEqual(['a', 'c'])
+  })
+
+  it('今日新卡數只計入這副牌組自己的紀錄', () => {
+    const cards = [card({ id: 'a', deck_id: 'd1' }), card({ id: 'other', deck_id: 'd2' })]
+    const logs = [
+      { card_id: 'other', state: State.New, reviewed_at: NOW } as ReviewLogRecord, // 別副的,不該扣額度
+    ]
+    expect(deckQueue('d1', 1, cards, logs, NOW).newRemaining).toBe(1)
+    expect(deckQueue('d2', 1, cards, logs, NOW).newRemaining).toBe(0)
   })
 })

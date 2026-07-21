@@ -8,6 +8,20 @@ import { startOfToday } from '../lib/queue'
 import { Loading } from '../components/Loading'
 
 const DAY = 86400_000
+// 圖表顏色走設計 token,深色模式才有對應的變體(SVG 的 fill 支援 var())
+const C_REVIEWS = 'var(--chart-reviews)'
+const C_DUE = 'var(--chart-due)'
+const DIST_COLORS = ['var(--c-new)', 'var(--c-learn)', 'var(--c-due-count)']
+
+/** 把資料一次分桶,不要每天各掃一遍全部紀錄(30 天 × 全部紀錄) */
+function bucketByDay(timestamps: number[], firstDayStart: number, days: number): number[] {
+  const counts = new Array<number>(days).fill(0)
+  for (const ts of timestamps) {
+    const i = Math.floor((ts - firstDayStart) / DAY)
+    if (i >= 0 && i < days) counts[i] += 1
+  }
+  return counts
+}
 
 function dayLabel(ts: number): string {
   const d = new Date(ts)
@@ -21,28 +35,25 @@ export default function StatsPage() {
 
   const today = startOfToday()
 
-  const past = Array.from({ length: 30 }, (_, i) => {
-    const start = today - (29 - i) * DAY
-    return {
-      day: dayLabel(start),
-      count: logs.filter((l) => l.reviewed_at >= start && l.reviewed_at < start + DAY).length,
-    }
-  })
+  const pastStart = today - 29 * DAY
+  const pastCounts = bucketByDay(logs.map((l) => l.reviewed_at), pastStart, 30)
+  const past = pastCounts.map((count, i) => ({ day: dayLabel(pastStart + i * DAY), count }))
 
+  // 已逾期的卡一律算在今天(把 due 夾到今天以後再分桶)
   const scheduled = cards.filter((c) => c.state !== State.New)
-  const forecast = Array.from({ length: 30 }, (_, i) => {
-    const start = today + i * DAY
-    return {
-      day: dayLabel(start),
-      // 已逾期的卡算在今天
-      count: scheduled.filter((c) => (i === 0 ? c.due < start + DAY : c.due >= start && c.due < start + DAY)).length,
-    }
-  })
+  const forecastCounts = bucketByDay(scheduled.map((c) => Math.max(c.due, today)), today, 30)
+  const forecast = forecastCounts.map((count, i) => ({ day: dayLabel(today + i * DAY), count }))
 
+  let news = 0, learning = 0, review = 0
+  for (const c of cards) {
+    if (c.state === State.New) news += 1
+    else if (c.state === State.Learning || c.state === State.Relearning) learning += 1
+    else if (c.state === State.Review) review += 1
+  }
   const dist = [
-    { name: '新卡', value: cards.filter((c) => c.state === State.New).length, color: '#2563eb' },
-    { name: '學習中', value: cards.filter((c) => c.state === State.Learning || c.state === State.Relearning).length, color: '#dc2626' },
-    { name: '複習中', value: cards.filter((c) => c.state === State.Review).length, color: '#16a34a' },
+    { name: '新卡', value: news, color: DIST_COLORS[0] },
+    { name: '學習中', value: learning, color: DIST_COLORS[1] },
+    { name: '複習中', value: review, color: DIST_COLORS[2] },
   ]
 
   return (
@@ -56,7 +67,7 @@ export default function StatsPage() {
             <XAxis dataKey="day" interval={6} tickLine={false} />
             <YAxis allowDecimals={false} width={32} tickLine={false} axisLine={false} />
             <Tooltip />
-            <Bar dataKey="count" name="複習數" fill="#4f46e5" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="count" name="複習數" fill={C_REVIEWS} radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -68,7 +79,7 @@ export default function StatsPage() {
             <XAxis dataKey="day" interval={6} tickLine={false} />
             <YAxis allowDecimals={false} width={32} tickLine={false} axisLine={false} />
             <Tooltip />
-            <Bar dataKey="count" name="到期數" fill="#16a34a" radius={[3, 3, 0, 0]} />
+            <Bar dataKey="count" name="到期數" fill={C_DUE} radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>

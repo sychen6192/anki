@@ -11,9 +11,14 @@ export default defineConfig({
       // 否則舊 HTML 會配上新 precache,分割出去的 chunk 就抓不到了
       injectRegister: null,
       manifest: {
+        // id 固定住已安裝 app 的身分,之後改 start_url 或圖示也不會被當成另一個 app
+        id: '/',
         name: '字卡',
         short_name: '字卡',
+        description: '以 FSRS 排程的日文單字閃卡,離線可用、跨裝置同步',
         lang: 'zh-TW',
+        start_url: '/',
+        scope: '/',
         display: 'standalone',
         theme_color: '#5b57d6',
         background_color: '#f5f5f6',

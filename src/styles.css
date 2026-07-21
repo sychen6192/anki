@@ -23,6 +23,13 @@
   --good-weak: #eaf7f0;
   --danger: #d64545;
 
+  /* 計數與圖表共用同一組語意色,牌組列表與統計頁才不會各講各的 */
+  --c-new: #2f62c8;
+  --c-learn: #cc4046;
+  --c-due-count: #2f8253;
+  --chart-reviews: #5b57d6;
+  --chart-due: #2f8253;
+
   /* 四色都調到白字有 4.5:1 以上 — 這是每天按最多次的按鈕 */
   --rate-again: #cc4046;
   --rate-hard: #a76229;
@@ -59,6 +66,12 @@
     --good: #4bb37c;
     --good-weak: #16241d;
     --danger: #e8686a;
+
+    --c-new: #7ea6ff;
+    --c-learn: #e0686c;
+    --c-due-count: #4bb37c;
+    --chart-reviews: #8683f0;
+    --chart-due: #4bb37c;
 
     --rate-again: #c2383e;
     --rate-hard: #9c5a22;
@@ -159,7 +172,7 @@ textarea { resize: vertical; }
 @media (hover: hover) { .deck-row:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); border-color: var(--border-strong); } }
 .deck-name { flex: 1; color: inherit; text-decoration: none; font-weight: 600; font-size: 16px; letter-spacing: -0.01em; }
 .counts { font-variant-numeric: tabular-nums; color: var(--faint); font-size: 14px; font-weight: 550; }
-.c-new { color: #3b7cf0; } .c-learn { color: var(--rate-again); } .c-due { color: var(--good); }
+.c-new { color: var(--c-new); } .c-learn { color: var(--c-learn); } .c-due { color: var(--c-due-count); }
 .done-mark { color: var(--good); padding: 0 12px; }
 .empty { color: var(--faint); padding: 40px 0; text-align: center; }
 .new-deck { display: flex; gap: 8px; margin-top: 20px; }
@@ -203,6 +216,10 @@ textarea { resize: vertical; }
 .rating-1 { background: var(--rate-again); } .rating-2 { background: var(--rate-hard); }
 .rating-3 { background: var(--rate-good); } .rating-4 { background: var(--rate-easy); }
 @media (hover: hover) { .rating-1:hover, .rating-2:hover, .rating-3:hover, .rating-4:hover { filter: brightness(1.06); background-image: none; } }
+.card-actions { display: flex; gap: 18px; justify-content: center; width: 100%; }
+.card-actions .link { min-height: 44px; display: inline-flex; align-items: center; }
+.review .note-form { width: 100%; text-align: left; }
+
 .review-done { text-align: center; display: flex; flex-direction: column; gap: 16px; align-items: center; padding-top: 56px; }
 .review-done h1 { font-size: 30px; }
 .err { color: var(--danger); font-size: 14px; }
@@ -241,6 +258,10 @@ textarea { resize: vertical; }
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 18px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; box-shadow: var(--shadow-sm);
 }
+.key-field { display: flex; gap: 8px; align-items: center; width: 100%; }
+.key-field input { flex: 1; }
+.legend { display: flex; gap: 10px; align-items: center; margin-top: 4px; }
+
 .field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--muted); font-weight: 550; }
 .field input { font-size: 16px; }
 .accent-field { display: flex; gap: 8px; align-items: flex-end; }

@@ -175,7 +175,11 @@ export default function ImportPage() {
         {mode === 'csv' ? (
           <>
             <input type="file" accept=".csv,text/csv"
-              onChange={async (e) => { const f = e.target.files?.[0]; if (f) onTextLoaded(await f.text()) }} />
+              onChange={async (e) => {
+                const f = e.target.files?.[0]
+                e.target.value = '' // 清掉選檔紀錄,否則選同一個檔案第二次不會觸發
+                if (f) onTextLoaded(await f.text())
+              }} />
             <textarea rows={5} placeholder="或直接貼上 CSV 內容" value={text}
               onChange={(e) => onTextLoaded(e.target.value)} />
             {rows.length > 0 && mapping && (
@@ -186,7 +190,11 @@ export default function ImportPage() {
         ) : (
           <>
             <input type="file" accept=".apkg,.colpkg"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) void onApkgFile(f) }} />
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                e.target.value = ''
+                if (f) void onApkgFile(f)
+              }} />
             <p className="hint">
               從 Anki 或 AnkiWeb 下載的 .apkg 檔。只會匯入文字內容,卡片一律從新卡開始排程;
               排程進度、圖片與音檔不會匯入。
@@ -241,7 +249,7 @@ export default function ImportPage() {
         )}
 
         {summary && (
-          <div className="summary">
+          <div className="summary" role="status" aria-live="polite">
             <p>✓ 匯入 {summary.imported} 筆,跳過重複 {summary.skipped.length} 筆
               {summary.otherSkipped > 0 && `,略過其他樣板 ${summary.otherSkipped} 筆`}</p>
             {summary.annotateSkipped
@@ -254,7 +262,7 @@ export default function ImportPage() {
             )}
           </div>
         )}
-        {errMsg && <p className="err">匯入失敗:{errMsg}</p>}
+        {errMsg && <p className="err" role="alert">匯入失敗:{errMsg}</p>}
       </div>
     </div>
   )

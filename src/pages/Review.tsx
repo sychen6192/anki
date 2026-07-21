@@ -5,9 +5,9 @@ import { isSpeechSupported, speak } from '../lib/speak'
 import { SpeakerIcon } from '../components/SpeakerIcon'
 import { Loading } from '../components/Loading'
 import { db } from '../db/db'
-import { applyReview, undoReview } from '../db/repo'
+import { applyReview, undoReview, updateNote } from '../db/repo'
 import { formatInterval, previewIntervals, rate, type RatingValue } from '../lib/fsrs'
-import { buildQueue, startOfToday } from '../lib/queue'
+import { deckQueue, startOfToday } from '../lib/queue'
 import { syncNow } from '../lib/sync'
 import type { CardRecord, NoteRecord } from '../../shared/types'
 
@@ -26,17 +26,21 @@ export default function Review() {
   const [errMsg, setErrMsg] = useState<string | null>(null)
   const [undoable, setUndoable] = useState<{ card: CardRecord; logId: string } | null>(null)
   const [tick, setTick] = useState(() => Date.now())
+  const [editing, setEditing] = useState<{ expression: string; reading: string; meaning: string; accent: string } | null>(null)
   const answering = useRef(false)
+  // 這次 session 裡跳過的卡片。只存在記憶體,離開複習畫面就重來 —— 跳過是
+  // 「現在不想看」,不是 Anki 的 bury,不該寫進資料庫影響排程。
+  const skipped = useRef(new Set<string>())
 
   /** preferCardId:復原時用,讓剛還原的那張卡直接回到眼前,而不是排到佇列尾端 */
   const loadNext = useCallback(async (preferCardId?: string) => {
     const deck = await db.decks.get(deckId!)
     if (!deck || deck.deleted) { setMissing(true); return }
     const cards = await db.cards.where('deck_id').equals(deckId!).toArray()
-    const ids = new Set(cards.map((c) => c.id))
-    const logs = (await db.review_logs.where('reviewed_at').aboveOrEqual(startOfToday()).toArray())
-      .filter((l) => ids.has(l.card_id))
-    const { queue, nextLearningDue } = buildQueue(cards, logs, deck.new_per_day)
+    const logs = await db.review_logs.where('reviewed_at').aboveOrEqual(startOfToday()).toArray()
+    const built = deckQueue(deckId!, deck.new_per_day, cards, logs)
+    const nextLearningDue = built.nextLearningDue
+    const queue = built.queue.filter((c) => !skipped.current.has(c.id))
     if (queue.length === 0) {
       setCurrent(null)
       setDone(true)
@@ -87,6 +91,34 @@ export default function Review() {
     }
   }, [current, loadNext])
 
+  const skip = useCallback(async () => {
+    if (!current || answering.current) return
+    skipped.current.add(current.card.id)
+    await loadNext()
+  }, [current, loadNext])
+
+  const saveEdit = useCallback(async () => {
+    if (!current || !editing || answering.current) return
+    answering.current = true
+    try {
+      // 只改文字,不動「反向卡」—— 複習到一半增刪卡片會讓當下的佇列對不上
+      await updateNote(current.note.id, editing)
+      const fresh = await db.notes.get(current.note.id)
+      if (fresh) setCurrent({ card: current.card, note: fresh })
+      setEditing(null)
+      setErrMsg(null)
+    } catch (e) {
+      setErrMsg(`儲存失敗:${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      answering.current = false
+    }
+  }, [current, editing])
+
+  const currentNoteFields = useCallback(() => current === null ? null : {
+    expression: current.note.expression, reading: current.note.reading,
+    meaning: current.note.meaning, accent: current.note.accent,
+  }, [current])
+
   const undo = useCallback(async () => {
     if (!undoable || answering.current) return
     answering.current = true
@@ -104,12 +136,19 @@ export default function Review() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // 編輯中鍵盤要留給輸入框,只保留 Esc 取消
+      if (editing !== null) {
+        if (e.key === 'Escape') setEditing(null)
+        return
+      }
       if (e.key === ' ') { e.preventDefault(); setShowBack(true) }
+      else if (e.key === 'e') { e.preventDefault(); setEditing(currentNoteFields()) }
+      else if (e.key === 's') { e.preventDefault(); void skip() }
       else if (showBack && ['1', '2', '3', '4'].includes(e.key)) void answer(Number(e.key) as RatingValue)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [showBack, answer])
+  }, [showBack, answer, editing, skip, currentNoteFields])
 
   // 完成畫面上的倒數:只在馬上就有卡片到期時每秒更新,到期後自己停掉
   useEffect(() => {
@@ -141,7 +180,7 @@ export default function Review() {
     return (
       <div className="review-done">
         <h1>今日完成 🎉</h1>
-        {errMsg && <p className="err">{errMsg}</p>}
+        {errMsg && <p className="err" role="alert">{errMsg}</p>}
         {waitMs !== null && (waitMs > AUTO_RESUME_WINDOW ? (
           <p>還有學習中的卡片,約 {formatInterval(waitMs)}後到期</p>
         ) : (
@@ -171,7 +210,7 @@ export default function Review() {
           : <span />}
         <p className="remaining">剩 {remaining} 張</p>
       </div>
-      {errMsg && <p className="err">{errMsg}</p>}
+      {errMsg && <p className="err" role="alert">{errMsg}</p>}
       <div className="flashcard" onClick={() => setShowBack(true)}>
         {!showBack ? (
           <p className="expression">{front}</p>
@@ -200,6 +239,36 @@ export default function Review() {
               <small>{preview[r]}</small>
             </button>
           ))}
+        </div>
+      )}
+
+      {editing === null ? (
+        <div className="card-actions">
+          <button className="link" onClick={() => setEditing(currentNoteFields())}>✎ 編輯這張</button>
+          <button className="link" onClick={() => void skip()}>⤼ 跳過</button>
+        </div>
+      ) : (
+        <div className="note-form">
+          <label className="field">單字
+            <input value={editing.expression} autoFocus
+              onChange={(e) => setEditing({ ...editing, expression: e.target.value })} />
+          </label>
+          <label className="field">讀音
+            <input value={editing.reading}
+              onChange={(e) => setEditing({ ...editing, reading: e.target.value })} />
+          </label>
+          <label className="field">意思
+            <input value={editing.meaning}
+              onChange={(e) => setEditing({ ...editing, meaning: e.target.value })} />
+          </label>
+          <label className="field">重音
+            <input value={editing.accent}
+              onChange={(e) => setEditing({ ...editing, accent: e.target.value })} />
+          </label>
+          <div className="form-actions">
+            <button className="btn" onClick={() => void saveEdit()}>儲存</button>
+            <button className="btn secondary" onClick={() => setEditing(null)}>取消(Esc)</button>
+          </div>
         </div>
       )}
     </div>

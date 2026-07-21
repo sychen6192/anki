@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
@@ -15,6 +15,9 @@ import { Loading } from '../components/Loading'
 import { SpeakerIcon } from '../components/SpeakerIcon'
 
 const EMPTY: NoteInput = { expression: '', reading: '', meaning: '', reversed: false, accent: '' }
+// 一次只掛這麼多列到 DOM;捲到底再長出下一批。整副 869 筆全部掛上去時,
+// 光是清空搜尋就要重建近千個節點,在手機上看得出頓挫。
+const PAGE_SIZE = 60
 
 export default function DeckDetail() {
   const { deckId } = useParams()
@@ -29,6 +32,22 @@ export default function DeckDetail() {
   const [deckName, setDeckName] = useState<string | null>(null)
   const [newPerDay, setNewPerDay] = useState<number | null>(null)
   const [busy, run] = useBusy()
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const sentinel = useRef<HTMLDivElement | null>(null)
+
+  // 搜尋條件變了就從頭算起
+  useEffect(() => { setVisibleCount(PAGE_SIZE) }, [search])
+
+  // 捲到列表底部就再多顯示一批
+  useEffect(() => {
+    const el = sentinel.current
+    if (el === null || typeof IntersectionObserver !== 'function') return
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) setVisibleCount((n) => n + PAGE_SIZE)
+    }, { rootMargin: '400px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [notes, search])
   const [errMsg, setErrMsg] = useState<string | null>(null)
   const [looking, setLooking] = useState(false)
   const [annotateMsg, setAnnotateMsg] = useState<string | null>(null)
@@ -46,6 +65,7 @@ export default function DeckDetail() {
   const filtered = search
     ? notes.filter((n) => [n.expression, n.reading, n.meaning].some((s) => s.includes(search)))
     : notes
+  const shown = filtered.slice(0, visibleCount)
 
   const lookupOne = async () => {
     if (!form.expression.trim()) { setErrMsg('請先輸入單字'); return }
@@ -151,7 +171,7 @@ export default function DeckDetail() {
   return (
     <div>
       <h1>{deck.name}</h1>
-      {errMsg && <p className="err">{errMsg}</p>}
+      {errMsg && <p className="err" role="alert">{errMsg}</p>}
       <div className="toolbar">
         <Link to={`/review/${deck.id}`} className="btn">開始複習</Link>
         <button className="btn secondary" onClick={() => download(`${deck.name}.csv`, exportCsv(notes))}>
@@ -160,7 +180,7 @@ export default function DeckDetail() {
         <button className="btn secondary" onClick={() => { setEditingId('new'); setForm(EMPTY) }}>＋新增卡片</button>
         <button className="btn secondary" disabled={busy} onClick={() => void annotateDeck()}>自動標註重音</button>
       </div>
-      {annotateMsg && <p className="hint">{annotateMsg}</p>}
+      {annotateMsg && <p className="hint" role="status" aria-live="polite">{annotateMsg}</p>}
 
       {editingId !== null && (
         <div className="note-form">
@@ -205,7 +225,7 @@ export default function DeckDetail() {
 
       <input className="search" placeholder="搜尋" value={search} onChange={(e) => setSearch(e.target.value)} />
       <ul className="note-list">
-        {filtered.map((n) => (
+        {shown.map((n) => (
           <li key={n.id} className="note-row">
             <div className="note-text">
               <b>{n.expression}</b>
@@ -221,7 +241,13 @@ export default function DeckDetail() {
           </li>
         ))}
       </ul>
-      <p className="hint">{filtered.length} / {notes.length} 筆</p>
+      <div ref={sentinel} />
+      <p className="hint">
+        顯示 {shown.length} / {filtered.length} 筆{filtered.length !== notes.length && `(共 ${notes.length} 筆)`}
+        {shown.length < filtered.length && (
+          <> · <button className="link" onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}>顯示更多</button></>
+        )}
+      </p>
 
       <h2>牌組設定</h2>
       <div className="deck-settings">

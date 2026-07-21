@@ -27,7 +27,11 @@ export class AppDB extends Dexie {
       review_logs: 'id, card_id, reviewed_at, dirty',
       meta: 'key',
     }).upgrade(async (tx) => {
-      await tx.table('notes').toCollection().modify((n: { accent?: string }) => { n.accent = '' })
+      // 只補沒有的,不覆蓋既有值 —— 這個 upgrade 對每個裝置只會跑一次而且不可逆,
+      // 萬一升級當下已經有帶 accent 的資料(例如升級前剛同步進來),不該被清掉。
+      await tx.table('notes').toCollection().modify((n: { accent?: string }) => {
+        if (typeof n.accent !== 'string') n.accent = ''
+      })
     })
   }
 }
