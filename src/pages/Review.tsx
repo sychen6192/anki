@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { PitchAccent } from '../components/PitchAccent'
 import { isSpeechSupported, speak } from '../lib/speak'
 import { SpeakerIcon } from '../components/SpeakerIcon'
+import { Loading } from '../components/Loading'
 import { db } from '../db/db'
 import { applyReview, undoReview } from '../db/repo'
 import { formatInterval, previewIntervals, rate, type RatingValue } from '../lib/fsrs'
@@ -156,7 +157,7 @@ export default function Review() {
       </div>
     )
   }
-  if (!current) return null
+  if (!current) return <Loading />
 
   const { card, note } = current
   const front = card.direction === 'forward' ? note.expression : note.meaning

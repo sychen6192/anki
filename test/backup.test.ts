@@ -55,6 +55,21 @@ describe('backup', () => {
     expect(await db.meta.get('sync_cursor')).toBeUndefined()
   })
 
+  it('壞掉的備份檔在動到本機資料前就被擋下,並說明哪裡不對', async () => {
+    const deck = await createDeck('原本的資料')
+    const survived = async () => (await db.decks.get(deck.id))?.name
+
+    await expect(importBackup('這根本不是 json')).rejects.toThrow('不是有效的 JSON')
+    await expect(importBackup('null')).rejects.toThrow('格式不正確')
+    await expect(importBackup(JSON.stringify({ version: 1, decks: 'nope' }))).rejects.toThrow('decks 不是陣列')
+    await expect(importBackup(JSON.stringify({ version: 1, notes: [{ expression: '沒有 id' }] })))
+      .rejects.toThrow('notes 裡有缺少 id')
+    await expect(importBackup(JSON.stringify({ version: 1, decks: [{ id: 'a', name: 'x' }] })))
+      .rejects.toThrow('new_per_day')
+
+    expect(await survived()).toBe('原本的資料') // 全程沒有清空本機
+  })
+
   it('不支援的版本丟錯誤', async () => {
     await expect(importBackup('{"version":99}')).rejects.toThrow('不支援')
   })

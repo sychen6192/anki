@@ -7,6 +7,9 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // 註冊由 src/lib/sw.ts 自己做:新 SW 接手時要重新載入頁面,
+      // 否則舊 HTML 會配上新 precache,分割出去的 chunk 就抓不到了
+      injectRegister: null,
       manifest: {
         name: '字卡',
         short_name: '字卡',

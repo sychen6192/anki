@@ -5,6 +5,7 @@ import {
 import { db } from '../db/db'
 import { State } from '../lib/fsrs'
 import { startOfToday } from '../lib/queue'
+import { Loading } from '../components/Loading'
 
 const DAY = 86400_000
 
@@ -16,7 +17,7 @@ function dayLabel(ts: number): string {
 export default function StatsPage() {
   const logs = useLiveQuery(() => db.review_logs.toArray(), [])
   const cards = useLiveQuery(() => db.cards.filter((c) => !c.deleted).toArray(), [])
-  if (!logs || !cards) return null
+  if (!logs || !cards) return <Loading />
 
   const today = startOfToday()
 

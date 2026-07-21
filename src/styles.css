@@ -207,6 +207,27 @@ textarea { resize: vertical; }
 .review-done h1 { font-size: 30px; }
 .err { color: var(--danger); font-size: 14px; }
 
+/* 導覽列下的細進度條:點了 tab 但頁面還沒載好時,至少讓人知道點擊有被收到 */
+.route-progress { height: 2px; background: transparent; overflow: hidden; }
+.route-progress.active::after {
+  content: ''; display: block; height: 100%; width: 40%;
+  background: var(--primary); border-radius: 2px;
+  animation: route-slide 0.9s ease-in-out infinite;
+}
+@keyframes route-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+.loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 48px 0; color: var(--faint); font-size: 14px; }
+.spinner {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid var(--border-strong); border-top-color: var(--primary);
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
+
 .crash { display: flex; flex-direction: column; gap: 12px; padding-top: 40px; }
 .crash h1 { font-size: 26px; }
 .crash-detail {
@@ -220,7 +241,10 @@ textarea { resize: vertical; }
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 18px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; box-shadow: var(--shadow-sm);
 }
-.accent-field { display: flex; gap: 8px; align-items: center; }
+.field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--muted); font-weight: 550; }
+.field input { font-size: 16px; }
+.accent-field { display: flex; gap: 8px; align-items: flex-end; }
+.accent-field .field { flex: 1; }
 .accent-field input { flex: 1; }
 .accent-preview { padding: 6px 2px; font-size: 20px; color: var(--primary); }
 .form-actions { display: flex; gap: 8px; margin-top: 4px; }
@@ -235,6 +259,8 @@ textarea { resize: vertical; }
 .note-text { flex: 1; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
 .note-text b { font-weight: 600; font-size: 15.5px; }
 .reading-inline { color: var(--primary); font-size: 13.5px; font-weight: 550; }
+/* 編輯/刪除並排在同一列,誤觸代價不對稱 —— 給足夠的點擊高度 */
+.note-row .link { min-height: 44px; display: inline-flex; align-items: center; }
 .link {
   background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13.5px;
   font-weight: 550; padding: 4px 6px; border-radius: 6px; transition: color .15s ease, background .15s ease;

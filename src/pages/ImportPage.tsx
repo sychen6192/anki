@@ -9,6 +9,7 @@ import {
 import { parseApkg, type ApkgParse } from '../lib/apkg'
 import { autoMapFields, mapApkgNotes, type ApkgMapping } from '../lib/apkgMap'
 import { fillMissingAccents } from '../lib/accent'
+import { Loading } from '../components/Loading'
 
 type MappingField = keyof ApkgMapping
 const FIELD_LABELS: readonly (readonly [MappingField, string])[] =
@@ -150,7 +151,7 @@ export default function ImportPage() {
     }
   }
 
-  if (!decks) return null
+  if (!decks) return <Loading />
 
   return (
     <div>

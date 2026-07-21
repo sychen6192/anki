@@ -11,6 +11,7 @@ import { fillMissingAccents, isValidAccent, lookupAccents } from '../lib/accent'
 import { PitchAccent } from '../components/PitchAccent'
 import { isSpeechSupported, speak } from '../lib/speak'
 import { useBusy } from '../lib/useBusy'
+import { Loading } from '../components/Loading'
 import { SpeakerIcon } from '../components/SpeakerIcon'
 
 const EMPTY: NoteInput = { expression: '', reading: '', meaning: '', reversed: false, accent: '' }
@@ -32,8 +33,15 @@ export default function DeckDetail() {
   const [looking, setLooking] = useState(false)
   const [annotateMsg, setAnnotateMsg] = useState<string | null>(null)
 
-  if (!deck || !notes) return null
-  if (deck.deleted) return <p>牌組已刪除</p>
+  if (!deck || !notes) return <Loading />
+  if (deck.deleted) {
+    return (
+      <div className="review-done">
+        <h1>牌組已刪除</h1>
+        <Link to="/" className="btn">回牌組列表</Link>
+      </div>
+    )
+  }
 
   const filtered = search
     ? notes.filter((n) => [n.expression, n.reading, n.meaning].some((s) => s.includes(search)))
@@ -156,21 +164,29 @@ export default function DeckDetail() {
 
       {editingId !== null && (
         <div className="note-form">
-          <input placeholder="單字" value={form.expression}
-            onChange={(e) => setForm({ ...form, expression: e.target.value })} />
+          <label className="field">單字
+            <input placeholder="例如 勉強" value={form.expression}
+              onChange={(e) => setForm({ ...form, expression: e.target.value })} />
+          </label>
           <div className="accent-field">
-            <input placeholder="讀音(可空)" value={form.reading}
-              onChange={(e) => setForm({ ...form, reading: e.target.value })} />
+            <label className="field">讀音(可空)
+              <input placeholder="例如 べんきょう" value={form.reading}
+                onChange={(e) => setForm({ ...form, reading: e.target.value })} />
+            </label>
             {isSpeechSupported() && (
               <button type="button" className="speak-btn" aria-label="播放發音"
                 onClick={() => speak(form.reading || form.expression)}><SpeakerIcon /></button>
             )}
           </div>
-          <input placeholder="意思" value={form.meaning}
-            onChange={(e) => setForm({ ...form, meaning: e.target.value })} />
+          <label className="field">意思
+            <input placeholder="例如 讀書、用功" value={form.meaning}
+              onChange={(e) => setForm({ ...form, meaning: e.target.value })} />
+          </label>
           <div className="accent-field">
-            <input placeholder="重音(如 0、2、0,3;可空)" value={form.accent}
-              onChange={(e) => setForm({ ...form, accent: e.target.value })} />
+            <label className="field">重音(可空)
+              <input placeholder="如 0、2、0,3" value={form.accent}
+                onChange={(e) => setForm({ ...form, accent: e.target.value })} />
+            </label>
             <button type="button" className="btn secondary" disabled={looking} onClick={lookupOne}>
               {looking ? '查詢中…' : '自動查詢'}
             </button>

@@ -6,6 +6,7 @@ import { createDeck } from '../db/repo'
 import { buildQueue, startOfToday } from '../lib/queue'
 import { State } from '../lib/fsrs'
 import { useBusy } from '../lib/useBusy'
+import { Loading } from '../components/Loading'
 
 export default function DeckList() {
   const decks = useLiveQuery(() => db.decks.filter((d) => !d.deleted).toArray(), [])
@@ -22,7 +23,7 @@ export default function DeckList() {
     setName('')
   })
 
-  if (!decks || !cards || !todayLogs) return null
+  if (!decks || !cards || !todayLogs) return <Loading />
 
   return (
     <div>
