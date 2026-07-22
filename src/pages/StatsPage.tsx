@@ -62,43 +62,57 @@ export default function StatsPage() {
 
       <h2>過去 30 天複習量</h2>
       <div className="chart-block">
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={past}>
-            <XAxis dataKey="day" interval={6} tickLine={false} />
-            <YAxis allowDecimals={false} width={32} tickLine={false} axisLine={false} />
-            <Tooltip />
-            <Bar dataKey="count" name="複習數" fill={C_REVIEWS} radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        {logs.length === 0 ? (
+          <p className="empty">還沒有複習紀錄 —— 完成第一次複習後就會出現</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={past}>
+              <XAxis dataKey="day" interval={6} tickLine={false} />
+              <YAxis allowDecimals={false} width={32} tickLine={false} axisLine={false} />
+              <Tooltip />
+              <Bar dataKey="count" name="複習數" fill={C_REVIEWS} radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       <h2>未來 30 天到期預測</h2>
       <div className="chart-block">
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={forecast}>
-            <XAxis dataKey="day" interval={6} tickLine={false} />
-            <YAxis allowDecimals={false} width={32} tickLine={false} axisLine={false} />
-            <Tooltip />
-            <Bar dataKey="count" name="到期數" fill={C_DUE} radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        {scheduled.length === 0 ? (
+          <p className="empty">沒有已排程的卡片 —— 新卡完成第一次複習後就會進入排程</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={forecast}>
+              <XAxis dataKey="day" interval={6} tickLine={false} />
+              <YAxis allowDecimals={false} width={32} tickLine={false} axisLine={false} />
+              <Tooltip />
+              <Bar dataKey="count" name="到期數" fill={C_DUE} radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       <h2>卡片狀態</h2>
       <div className="chart-block state-dist">
-        <ResponsiveContainer width={200} height={200}>
-          <PieChart>
-            <Pie data={dist} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80}>
-              {dist.map((d) => <Cell key={d.name} fill={d.color} />)}
-            </Pie>
-            <Tooltip />
-          </PieChart>
-        </ResponsiveContainer>
-        <ul className="dist-legend">
-          {dist.map((d) => (
-            <li key={d.name}><span className="dot" style={{ background: d.color }} />{d.name}:{d.value}</li>
-          ))}
-        </ul>
+        {cards.length === 0 ? (
+          <p className="empty">還沒有卡片 —— 到匯入頁或牌組頁新增</p>
+        ) : (
+          <>
+            <ResponsiveContainer width={200} height={200}>
+              <PieChart>
+                <Pie data={dist} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80}>
+                  {dist.map((d) => <Cell key={d.name} fill={d.color} />)}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+            <ul className="dist-legend">
+              {dist.map((d) => (
+                <li key={d.name}><span className="dot" style={{ background: d.color }} />{d.name}:{d.value}</li>
+              ))}
+            </ul>
+          </>
+        )}
       </div>
     </div>
   )

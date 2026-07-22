@@ -223,7 +223,12 @@ export default function DeckDetail() {
         </div>
       )}
 
-      <input className="search" placeholder="搜尋" value={search} onChange={(e) => setSearch(e.target.value)} />
+      <div className="search-wrap">
+        <input className="search" placeholder="搜尋" value={search} onChange={(e) => setSearch(e.target.value)} />
+        {search !== '' && (
+          <button className="search-clear" aria-label="清除搜尋" onClick={() => setSearch('')}>✕</button>
+        )}
+      </div>
       <ul className="note-list">
         {shown.map((n) => (
           <li key={n.id} className="note-row">

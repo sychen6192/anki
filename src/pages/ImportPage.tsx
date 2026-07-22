@@ -27,6 +27,14 @@ interface Summary {
 
 export default function ImportPage() {
   const decks = useLiveQuery(() => db.decks.filter((d) => !d.deleted).toArray(), [])
+  // 同名牌組在下拉選單裡分不出誰是誰,附上筆數當線索
+  const noteCounts = useLiveQuery(async () => {
+    const counts = new Map<string, number>()
+    await db.notes.filter((n) => !n.deleted).each((n) => {
+      counts.set(n.deck_id, (counts.get(n.deck_id) ?? 0) + 1)
+    })
+    return counts
+  }, [])
   const [mode, setMode] = useState<'csv' | 'apkg'>('csv')
   const [deckId, setDeckId] = useState('new')
   const [newDeckName, setNewDeckName] = useState('')
@@ -165,7 +173,9 @@ export default function ImportPage() {
         <label>目標牌組
           <select value={deckId} onChange={(e) => setDeckId(e.target.value)}>
             <option value="new">＋ 建立新牌組</option>
-            {decks.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {decks.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}({noteCounts?.get(d.id) ?? 0} 筆)</option>
+            ))}
           </select>
         </label>
         {deckId === 'new' && (
