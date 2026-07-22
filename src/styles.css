@@ -45,6 +45,10 @@
 
   --font: -apple-system, BlinkMacSystemFont, "PingFang TC", "Hiragino Sans",
     "Noto Sans TC", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  /* 日文內容(單字/讀音)要用日文字型:同一個漢字的中日字形不同(例:直、令、骨),
+     用 PingFang 排日文單字會學到台版字形。標了 lang="ja" 的元素走這組。 */
+  --font-ja: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP",
+    "Yu Gothic", "Meiryo", sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -102,11 +106,13 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+[lang="ja"] { font-family: var(--font-ja); }
+
 /* ---------- 導覽列 ---------- */
 .topnav {
   display: flex;
   gap: 4px;
-  padding: 10px 12px;
+  padding: 6px 12px;
   background: color-mix(in srgb, var(--surface) 82%, transparent);
   backdrop-filter: saturate(180%) blur(12px);
   border-bottom: 1px solid var(--border);
@@ -119,11 +125,17 @@ body {
   text-decoration: none;
   font-weight: 550;
   font-size: 14.5px;
-  padding: 6px 12px;
+  /* 手指的最小落點:44px 高。之前 35px,tab 常常「點不到=沒反應」 */
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 14px;
   border-radius: 8px;
   transition: color .15s ease, background .15s ease;
 }
 @media (hover: hover) { .topnav a:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); } }
+/* 按下去要立刻有感覺 —— 不分滑鼠或觸控 */
+.topnav a:active { color: var(--text); background: color-mix(in srgb, var(--text) 10%, transparent); }
 .topnav a.active { color: var(--primary); background: var(--primary-weak); }
 
 /* ---------- 版面 ---------- */
@@ -170,7 +182,8 @@ textarea { resize: vertical; }
   transition: transform .12s ease, box-shadow .15s ease, border-color .15s ease;
 }
 @media (hover: hover) { .deck-row:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); border-color: var(--border-strong); } }
-.deck-name { flex: 1; color: inherit; text-decoration: none; font-weight: 600; font-size: 16px; letter-spacing: -0.01em; }
+/* 名稱的可點範圍撐滿整列高度(negative margin 抵銷,不改版面),別讓 3/4 的列是死區 */
+.deck-name { flex: 1; color: inherit; text-decoration: none; font-weight: 600; font-size: 16px; letter-spacing: -0.01em; padding: 24px 0; margin: -24px 0; }
 .counts { font-variant-numeric: tabular-nums; color: var(--faint); font-size: 14px; font-weight: 550; }
 .c-new { color: var(--c-new); } .c-learn { color: var(--c-learn); } .c-due { color: var(--c-due-count); }
 .done-mark { color: var(--good); padding: 0 12px; }
@@ -196,7 +209,9 @@ textarea { resize: vertical; }
   animation: card-in .22s ease;
 }
 @keyframes card-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-.expression { font-size: 46px; font-weight: 700; letter-spacing: -0.01em; text-align: center; line-height: 1.25; }
+.expression { font-size: 46px; font-weight: 700; letter-spacing: -0.01em; text-align: center; line-height: 1.25; overflow-wrap: anywhere; }
+/* 反向卡的正面是「意思」,常常是一整句 —— 46px 會爆成三四行,長文降級 */
+.expression.long { font-size: 27px; line-height: 1.45; }
 .reading { font-size: 21px; color: var(--primary); font-weight: 550; }
 .pitch { display: inline-flex; align-items: flex-start; gap: 5px; }
 .pitch-morae { display: inline-flex; }
@@ -204,7 +219,8 @@ textarea { resize: vertical; }
 .pitch-morae .mora.high { border-top-color: currentColor; }
 .pitch-morae .mora.drop { border-right: 2px solid currentColor; }
 .pitch-num { font-size: 0.66em; opacity: 0.85; font-variant-numeric: tabular-nums; }
-.meaning { font-size: 20px; color: var(--muted); text-align: center; }
+/* 意思是這張卡的「答案」,不該是最灰的一層 */
+.meaning { font-size: 20px; color: var(--text); text-align: center; }
 .speak-btn {
   border: 1px solid var(--border-strong); background: var(--surface); color: var(--text);
   border-radius: 999px; width: 42px; height: 42px; font-size: 18px; line-height: 1; cursor: pointer;
@@ -352,6 +368,18 @@ input[type="file"] { border: none; padding: 0; background: none; max-width: 100%
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 18px 10px; margin-bottom: 20px; box-shadow: var(--shadow-sm);
 }
+/* recharts 的 tooltip 是行內樣式寫死的白底灰框,深色模式下很刺眼;
+   用 !important 蓋過行內樣式,跟著設計 token 走 */
+.recharts-default-tooltip {
+  background: var(--surface) !important;
+  border-color: var(--border-strong) !important;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+}
+.recharts-tooltip-label { color: var(--muted) !important; }
+.recharts-default-tooltip .recharts-tooltip-item { color: var(--text) !important; }
+/* hover 時蓋在長條上的游標矩形,預設 #ccc 在深色下是一塊亮斑 */
+.recharts-tooltip-cursor { fill: color-mix(in srgb, var(--text) 8%, transparent); }
 .state-dist { display: flex; align-items: center; gap: 20px; padding: 18px; }
 .dist-legend { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .dist-legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }

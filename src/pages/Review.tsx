@@ -223,10 +223,12 @@ export default function Review() {
       {errMsg && <p className="err" role="alert">{errMsg}</p>}
       <div className="flashcard" onClick={() => setShowBack(true)}>
         {!showBack ? (
-          <p className="expression">{front}</p>
+          // 反向卡的正面是意思(中文),長句降一級字號;正向卡正面是日文單字
+          <p className={`expression${front.length > 12 ? ' long' : ''}`}
+            lang={card.direction === 'forward' ? 'ja' : undefined}>{front}</p>
         ) : (
           <>
-            <p className="expression">{note.expression}</p>
+            <p className="expression" lang="ja">{note.expression}</p>
             {note.reading !== '' && <PitchAccent reading={note.reading} accent={note.accent} />}
             <p className="meaning">{note.meaning}</p>
             {isSpeechSupported() && (
@@ -283,7 +285,7 @@ export default function Review() {
           </label>
           <div className="form-actions">
             <button className="btn" onClick={() => void saveEdit()}>儲存</button>
-            <button className="btn secondary" onClick={() => setEditing(null)}>取消(Esc)</button>
+            <button className="btn secondary" onClick={() => setEditing(null)}>取消<span className="kbd-hint">(Esc)</span></button>
           </div>
         </div>
       )}

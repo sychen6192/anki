@@ -29,6 +29,13 @@ describe('autoMapHeaders', () => {
   it('認不得時回傳 null(首列是資料而非表頭)', () => {
     expect(autoMapHeaders(['0001', 'たった今', 'たったいま', '剛才'])).toBeNull()
   })
+  // Anki 匯出與日文教材最常見的表頭;apkg 匯入認得,CSV 卻不認得 —— 兩邊要一致
+  it('認得日文表頭 単語/読み/意味/アクセント', () => {
+    expect(autoMapHeaders(['単語', '読み', '意味', 'アクセント'])).toEqual({ expression: 0, reading: 1, meaning: 2, accent: 3 })
+  })
+  it('認得語彙/訳 這類 apkg 常見表頭', () => {
+    expect(autoMapHeaders(['語彙', 'よみ', '訳'])).toEqual({ expression: 0, reading: 1, meaning: 2, accent: null })
+  })
 })
 
 describe('mapRows', () => {

@@ -228,8 +228,8 @@ export default function DeckDetail() {
         {shown.map((n) => (
           <li key={n.id} className="note-row">
             <div className="note-text">
-              <b>{n.expression}</b>
-              {n.reading && <span className="reading-inline">{n.reading}</span>}
+              <b lang="ja">{n.expression}</b>
+              {n.reading && <span className="reading-inline" lang="ja">{n.reading}</span>}
               <span>{n.meaning}</span>
             </div>
             <button className="link" onClick={() => {

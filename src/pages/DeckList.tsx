@@ -47,7 +47,12 @@ export default function DeckList() {
             </li>
           )
         })}
-        {decks.length === 0 && <li className="empty">還沒有牌組,先建一個吧</li>}
+        {decks.length === 0 && (
+          <li className="empty">
+            還沒有牌組 —— 在下面建一個,<br />
+            或到<Link to="/import" className="link">匯入</Link>頁貼上 CSV、讀入 Anki 牌組
+          </li>
+        )}
       </ul>
       {decks.length > 0 && (
         <p className="hint legend">

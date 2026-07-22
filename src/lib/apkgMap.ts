@@ -1,14 +1,9 @@
 import type { ApkgNote } from './apkg'
-import type { ParsedRow } from './csv'
+import { ACCENT_ALIASES, EXPRESSION_ALIASES, MEANING_ALIASES, READING_ALIASES, type ParsedRow } from './csv'
 import { splitFurigana, stripAnkiHtml } from './ankiText'
 import { isValidAccent } from './accent'
 
 export interface ApkgMapping { expression: number; reading: number | null; meaning: number; accent: number | null }
-
-const EXPRESSION_ALIASES = ['expression', 'word', 'front', 'vocabulary', 'vocab', 'kanji', 'term', '表面', '単語', '單字', '漢字', '語彙']
-const READING_ALIASES = ['reading', 'kana', 'furigana', 'pronunciation', 'hiragana', '読み', '讀音', '读音', 'よみ', '振り仮名', 'ふりがな', '假名']
-const MEANING_ALIASES = ['meaning', 'back', 'english', 'translation', 'definition', 'gloss', '意味', '意思', '中文', '翻譯', '翻译', '訳']
-const ACCENT_ALIASES = ['pitch', 'pitchaccent', 'accent', 'アクセント', '重音']
 
 const normalize = (s: string) => s.trim().toLowerCase().replace(/[\s_-]/g, '')
 

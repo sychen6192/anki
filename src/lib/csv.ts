@@ -5,10 +5,12 @@ import { isValidAccent } from './accent'
 export interface CsvMapping { expression: number; reading: number | null; meaning: number; accent: number | null }
 export interface ParsedRow { expression: string; reading: string; meaning: string; accent: string }
 
-const EXPRESSION_ALIASES = ['漢字', '單字', '单字', 'expression', 'word', 'front', '正面']
-const READING_ALIASES = ['拼音', '読み', '讀音', '读音', 'reading', 'kana', '假名']
-const MEANING_ALIASES = ['中文翻譯', '中文翻译', '意思', '翻譯', '翻译', 'meaning', 'back', '背面']
-const ACCENT_ALIASES = ['重音', 'アクセント', 'accent', 'pitch']
+// CSV 與 apkg 匯入共用同一份表頭別名(apkgMap.ts 引用這裡),
+// 才不會出現「.apkg 認得 単語/意味、CSV 卻不認得」這種不一致。
+export const EXPRESSION_ALIASES = ['漢字', '單字', '单字', '単語', '語彙', '表面', '正面', 'expression', 'word', 'front', 'vocabulary', 'vocab', 'kanji', 'term']
+export const READING_ALIASES = ['拼音', '読み', 'よみ', '讀音', '读音', '振り仮名', 'ふりがな', '假名', 'reading', 'kana', 'furigana', 'pronunciation', 'hiragana']
+export const MEANING_ALIASES = ['中文翻譯', '中文翻译', '中文', '意味', '意思', '翻譯', '翻译', '訳', '背面', 'meaning', 'back', 'english', 'translation', 'definition', 'gloss']
+export const ACCENT_ALIASES = ['重音', 'アクセント', 'accent', 'pitch', 'pitchaccent']
 
 export function parseCsv(text: string): string[][] {
   return Papa.parse<string[]>(text.trim(), { skipEmptyLines: true }).data
