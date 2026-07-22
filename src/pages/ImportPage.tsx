@@ -14,10 +14,9 @@ import { fillMissingAccents } from '../lib/accent'
 import { Loading } from '../components/Loading'
 
 type MappingField = keyof ApkgMapping
+// CSV 與 apkg 都能對應重音欄(重音一向可匯入,只是之前 CSV 的 UI 沒把它露出來)
 const FIELD_LABELS: readonly (readonly [MappingField, string])[] =
-  [['expression', '單字'], ['reading', '讀音'], ['meaning', '意思']]
-const APKG_FIELD_LABELS: readonly (readonly [MappingField, string])[] =
-  [...FIELD_LABELS, ['accent', '重音']]
+  [['expression', '單字'], ['reading', '讀音'], ['meaning', '意思'], ['accent', '重音']]
 const OPTIONAL_FIELDS = new Set<MappingField>(['reading', 'accent'])
 // 解壓 + wasm heap 的峰值約為原始 DB 的 2~3 倍,手機瀏覽器撐不住更大的檔案
 const MAX_APKG_BYTES = 60 * 1024 * 1024
@@ -77,7 +76,7 @@ export default function ImportPage() {
   const parsed = mode === 'csv' ? csvParsed : apkgParsed
   const activeMapping: CsvMapping | ApkgMapping | null = mode === 'csv' ? mapping : apkgMapping
   const fieldOptions = mode === 'csv' ? (rows[0] ?? []) : mode === 'apkg' ? (notetype?.fieldNames ?? []) : []
-  const labels = mode === 'csv' ? FIELD_LABELS : APKG_FIELD_LABELS
+  const labels = FIELD_LABELS
 
   const switchMode = (next: Mode) => {
     setMode(next)
@@ -300,13 +299,14 @@ export default function ImportPage() {
               ))}
             </div>
             <table className="preview">
-              <thead><tr><th>單字</th><th>讀音</th><th>意思</th></tr></thead>
+              <thead><tr><th>單字</th><th>讀音</th><th>意思</th><th>重音</th></tr></thead>
               <tbody>
                 {parsed.slice(0, 5).map((r, i) => (
-                  <tr key={i}><td>{r.expression}</td><td>{r.reading}</td><td>{r.meaning}</td></tr>
+                  <tr key={i}><td>{r.expression}</td><td>{r.reading}</td><td>{r.meaning}</td><td>{r.accent}</td></tr>
                 ))}
               </tbody>
             </table>
+            <p className="hint">沒對應重音欄或欄位留空的字,匯入時會自動查字典。</p>
             <p className="hint">
               共 {parsed.length} 筆有效資料
               {mode === 'apkg' && otherNoteCount > 0 && `,另有 ${otherNoteCount} 筆屬於其他樣板不會匯入`}
