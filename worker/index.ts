@@ -7,8 +7,22 @@ export type Env = { DB: D1Database }
 
 const app = new Hono<{ Bindings: Env }>()
 
-// 之後要上鎖:`wrangler secret put SYNC_TOKEN` 並取消下行註解(Env 加 SYNC_TOKEN: string)
-// app.use('/api/*', async (c, next) => { if (c.req.header('x-sync-token') !== c.env.SYNC_TOKEN) return c.text('unauthorized', 401); await next() })
+// 不明錯誤回結構化 JSON,別讓 Hono 吐 HTML 500(客戶端要能 parse)
+app.onError((err, c) => {
+  console.error(JSON.stringify({ level: 'error', path: c.req.path, message: err.message }))
+  return c.json({ error: 'internal error' }, 500)
+})
+
+// 之後要上鎖:`wrangler secret put SYNC_TOKEN` 並取消下段註解(Env 加 SYNC_TOKEN: string)。
+// 注意用 timingSafeEqual 而非 !==,避免逐字比對的時間差洩漏。
+// app.use('/api/*', async (c, next) => {
+//   const enc = new TextEncoder()
+//   const got = enc.encode(c.req.header('x-sync-token') ?? '')
+//   const want = enc.encode(c.env.SYNC_TOKEN)
+//   const ok = got.byteLength === want.byteLength && crypto.subtle.timingSafeEqual(got, want)
+//   if (!ok) return c.text('unauthorized', 401)
+//   await next()
+// })
 
 app.get('/api/health', (c) => c.json({ ok: true }))
 
@@ -284,8 +298,13 @@ app.post('/api/share', async (c) => {
   const payload = JSON.stringify(rows)
   if (payload.length > 1_000_000) return c.json({ error: 'payload too large' }, 400)
   const code = genShareCode()
-  await c.env.DB.prepare('INSERT INTO shares (code, name, payload, created_at) VALUES (?, ?, ?, ?)')
-    .bind(code, body.name.trim(), payload, Date.now()).run()
+  // 順手清掉半年前的舊分享,表才不會被匿名寫入無限養大
+  const cutoff = Date.now() - 180 * 86400_000
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM shares WHERE created_at < ?').bind(cutoff),
+    c.env.DB.prepare('INSERT INTO shares (code, name, payload, created_at) VALUES (?, ?, ?, ?)')
+      .bind(code, body.name.trim(), payload, Date.now()),
+  ])
   return c.json({ code })
 })
 

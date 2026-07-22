@@ -13,6 +13,7 @@ export default function SettingsPage() {
   const [msg, setMsg] = useState('')
   const [keyInput, setKeyInput] = useState<string | null>(null)
   const [showKey, setShowKey] = useState(false)
+  const [autoSpeak, setAutoSpeak] = useState(() => localStorage.getItem('auto-speak') === '1')
   // 三個動作共用一把鎖:其中兩個會清空本機資料,不該在另一個跑到一半時插隊
   const [busy, run] = useBusy()
 
@@ -90,6 +91,16 @@ export default function SettingsPage() {
           一組金鑰 = 一個獨立空間;多台裝置填同一組會同步到一起,記得抄下來。
           金鑰就是這個空間的密碼,別用好猜的。換金鑰會先清空本機(雲端不動)再重新同步。
         </p>
+      </div>
+
+      <h2>複習</h2>
+      <div className="settings-block">
+        <label className="check-row">
+          <input type="checkbox" checked={autoSpeak} onChange={(e) => {
+            setAutoSpeak(e.target.checked)
+            localStorage.setItem('auto-speak', e.target.checked ? '1' : '0')
+          }} /> 翻面自動唸讀音
+        </label>
       </div>
 
       <h2>備份</h2>

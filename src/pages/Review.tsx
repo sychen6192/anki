@@ -160,6 +160,14 @@ export default function Review() {
     return () => window.removeEventListener('keydown', onKey)
   }, [showBack, answer, editing, skip, currentNoteFields])
 
+  // 翻面自動唸讀音(設定頁開關;進頁面時讀一次就好)
+  const autoSpeak = useRef(typeof localStorage !== 'undefined' && localStorage.getItem('auto-speak') === '1')
+  useEffect(() => {
+    if (showBack && current !== null && autoSpeak.current && isSpeechSupported()) {
+      speak(current.note.reading || current.note.expression)
+    }
+  }, [showBack, current])
+
   // 完成畫面上的倒數:只在馬上就有卡片到期時每秒更新,到期後自己停掉
   useEffect(() => {
     if (!done || nextDue === null || nextDue - Date.now() > AUTO_RESUME_WINDOW) return
@@ -233,12 +241,15 @@ export default function Review() {
       </div>
       {errMsg && <p className="err" role="alert">{errMsg}</p>}
       <div className="flashcard" onClick={() => setShowBack(true)}>
+        {/* key 換值讓翻面有個短促的進場動畫 */}
         {!showBack ? (
-          // 反向卡的正面是意思(中文),長句降一級字號;正向卡正面是日文單字
-          <p className={`expression${front.length > 12 ? ' long' : ''}`}
-            lang={card.direction === 'forward' ? 'ja' : undefined}>{front}</p>
+          <div className="card-face" key="front">
+            {/* 反向卡的正面是意思(中文),長句降一級字號;正向卡正面是日文單字 */}
+            <p className={`expression${front.length > 12 ? ' long' : ''}`}
+              lang={card.direction === 'forward' ? 'ja' : undefined}>{front}</p>
+          </div>
         ) : (
-          <>
+          <div className="card-face" key="back">
             <p className="expression" lang="ja">{note.expression}</p>
             {note.reading !== '' && <PitchAccent reading={note.reading} accent={note.accent} />}
             <p className="meaning">{note.meaning}</p>
@@ -249,7 +260,7 @@ export default function Review() {
                 onClick={(e) => { e.stopPropagation(); speak(note.reading || note.expression) }}
               ><SpeakerIcon /></button>
             )}
-          </>
+          </div>
         )}
       </div>
       {!showBack ? (

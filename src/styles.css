@@ -112,7 +112,8 @@ body {
 .topnav {
   display: flex;
   gap: 4px;
-  padding: 6px 12px;
+  /* 安裝成 PWA 後內容會頂到瀏海/動態島,導覽列自己讓開 */
+  padding: calc(6px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) 6px calc(12px + env(safe-area-inset-left, 0px));
   background: color-mix(in srgb, var(--surface) 82%, transparent);
   backdrop-filter: saturate(180%) blur(12px);
   border-bottom: 1px solid var(--border);
@@ -139,7 +140,10 @@ body {
 .topnav a.active { color: var(--primary); background: var(--primary-weak); }
 
 /* ---------- 版面 ---------- */
-.page { max-width: 660px; margin: 0 auto; padding: 32px 18px 80px; }
+.page {
+  max-width: 660px; margin: 0 auto;
+  padding: 32px calc(18px + env(safe-area-inset-right, 0px)) calc(80px + env(safe-area-inset-bottom, 0px)) calc(18px + env(safe-area-inset-left, 0px));
+}
 h1 { font-size: 27px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 22px; }
 h2 { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; color: var(--muted); margin: 32px 0 12px; }
 
@@ -209,6 +213,14 @@ textarea { resize: vertical; }
   animation: card-in .22s ease;
 }
 @keyframes card-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.card-face { display: flex; flex-direction: column; align-items: center; gap: 16px; animation: card-in .16s ease; }
+@media (prefers-reduced-motion: reduce) { .flashcard, .card-face { animation: none; } }
+
+/* 牌組列表標題下的今日進度 */
+.today-line { color: var(--muted); margin: -14px 0 18px; font-size: 14px; }
+.today-line b { font-variant-numeric: tabular-nums; }
+
+.settings-block label.check-row { flex-direction: row; align-items: center; }
 .expression { font-size: 46px; font-weight: 700; letter-spacing: -0.01em; text-align: center; line-height: 1.25; overflow-wrap: anywhere; }
 /* 反向卡的正面是「意思」,常常是一整句 —— 46px 會爆成三四行,長文降級 */
 .expression.long { font-size: 27px; line-height: 1.45; }

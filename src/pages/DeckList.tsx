@@ -32,9 +32,20 @@ export default function DeckList() {
 
   if (!decks || !cards || !todayLogs) return <Loading />
 
+  const queues = new Map(decks.map((d) => [d.id, deckQueue(d.id, d.new_per_day, cards, todayLogs).queue]))
+  const totalDue = [...queues.values()].reduce((s, q) => s + q.length, 0)
+
   return (
     <div>
       <h1>牌組</h1>
+      {decks.length > 0 && (
+        <p className="today-line">
+          {totalDue > 0
+            ? <>還有 <b>{totalDue}</b> 張到期</>
+            : todayLogs.length > 0 ? '今天清空了 🎉' : '今天沒有到期的卡'}
+          {todayLogs.length > 0 && <> · 已複習 <b>{todayLogs.length}</b> 張</>}
+        </p>
+      )}
       {space === '' && !keyHintDismissed && (
         <p className="notice">
           <span>還沒設同步金鑰,正在跟別人共用預設空間。</span>
@@ -47,7 +58,7 @@ export default function DeckList() {
       )}
       <ul className="deck-list">
         {decks.map((deck) => {
-          const { queue } = deckQueue(deck.id, deck.new_per_day, cards, todayLogs)
+          const queue = queues.get(deck.id)!
           const news = queue.filter((c) => c.state === State.New).length
           const learn = queue.filter((c) => c.state === State.Learning || c.state === State.Relearning).length
           const rev = queue.length - news - learn
