@@ -351,6 +351,16 @@ textarea { resize: vertical; }
 @media (hover: hover) { .link.danger:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); } }
 .hint { color: var(--faint); font-size: 13px; margin: 10px 0 24px; }
 
+.deck-settings-details { margin-bottom: 16px; }
+.deck-settings-details summary {
+  cursor: pointer; user-select: none;
+  display: flex; align-items: center; min-height: 44px;
+  color: var(--muted); font-weight: 600; font-size: 14.5px;
+}
+/* display:flex 會吃掉原生三角形,自己畫一個 */
+.deck-settings-details summary::before { content: '▸'; color: var(--faint); margin-right: 7px; }
+.deck-settings-details[open] summary::before { content: '▾'; }
+.deck-settings-details[open] summary { margin-bottom: 10px; }
 .deck-settings {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 18px; display: flex; flex-direction: column; gap: 14px; box-shadow: var(--shadow-sm);

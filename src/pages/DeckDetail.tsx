@@ -182,6 +182,21 @@ export default function DeckDetail() {
       </div>
       {annotateMsg && <p className="hint" role="status" aria-live="polite">{annotateMsg}</p>}
 
+      {/* 收合放列表上方:長牌組的列表會越捲越長,放底部根本捲不到 */}
+      <details className="deck-settings-details">
+        <summary>牌組設定</summary>
+        <div className="deck-settings">
+          <label>名稱 <input value={deckName ?? deck.name} onChange={(e) => setDeckName(e.target.value)} /></label>
+          <label>每日新卡上限 <input type="number" min={0}
+            value={newPerDay !== null && Number.isNaN(newPerDay) ? '' : newPerDay ?? deck.new_per_day}
+            onChange={(e) => setNewPerDay(e.target.value === '' ? NaN : Number(e.target.value))} /></label>
+          <div className="form-actions">
+            <button className="btn" disabled={busy} onClick={() => void saveDeck()}>儲存設定</button>
+            <button className="btn danger" disabled={busy} onClick={() => void removeDeck()}>刪除牌組</button>
+          </div>
+        </div>
+      </details>
+
       {editingId !== null && (
         <div className="note-form">
           <label className="field">單字
@@ -254,17 +269,6 @@ export default function DeckDetail() {
         )}
       </p>
 
-      <h2>牌組設定</h2>
-      <div className="deck-settings">
-        <label>名稱 <input value={deckName ?? deck.name} onChange={(e) => setDeckName(e.target.value)} /></label>
-        <label>每日新卡上限 <input type="number" min={0}
-          value={newPerDay !== null && Number.isNaN(newPerDay) ? '' : newPerDay ?? deck.new_per_day}
-          onChange={(e) => setNewPerDay(e.target.value === '' ? NaN : Number(e.target.value))} /></label>
-        <div className="form-actions">
-          <button className="btn" disabled={busy} onClick={() => void saveDeck()}>儲存設定</button>
-          <button className="btn danger" disabled={busy} onClick={() => void removeDeck()}>刪除牌組</button>
-        </div>
-      </div>
     </div>
   )
 }
