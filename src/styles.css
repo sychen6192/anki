@@ -149,7 +149,7 @@ h2 { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; color: var(--mu
   padding: 9px 17px; border: none; border-radius: var(--radius-sm);
   background: var(--primary); color: var(--on-primary);
   font-size: 14.5px; font-weight: 550; font-family: inherit;
-  cursor: pointer; text-decoration: none;
+  cursor: pointer; text-decoration: none; white-space: nowrap;
   transition: background .15s ease, transform .06s ease, box-shadow .15s ease;
 }
 @media (hover: hover) { .btn:hover { background: var(--primary-hover); } }
@@ -319,7 +319,7 @@ textarea { resize: vertical; }
 .accent-field .field { flex: 1; }
 .accent-field input { flex: 1; }
 .accent-preview { padding: 6px 2px; font-size: 20px; color: var(--primary); }
-.form-actions { display: flex; gap: 8px; margin-top: 4px; }
+.form-actions { display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
 .search-wrap { position: relative; margin-bottom: 14px; }
 .search { width: 100%; padding-right: 44px; }
 .search-clear {
@@ -356,6 +356,44 @@ textarea { resize: vertical; }
   padding: 18px; display: flex; flex-direction: column; gap: 14px; box-shadow: var(--shadow-sm);
 }
 .deck-settings label { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+
+/* ---------- 引導 ---------- */
+/* 溫和的提醒條:引導設定金鑰等,不是錯誤也不該長得像錯誤 */
+.notice {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px;
+  background: var(--primary-weak);
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
+  border-radius: var(--radius-sm); padding: 10px 14px;
+  font-size: 13.5px; margin-bottom: 16px;
+}
+.notice .link { padding: 2px 6px; color: var(--primary); }
+
+.guide-steps { margin: 0 0 0 22px; display: flex; flex-direction: column; gap: 8px; }
+.guide-rates { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.guide-rates li { display: flex; align-items: center; gap: 10px; }
+.rate-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 52px; padding: 3px 10px; border-radius: 999px;
+  color: #fff; font-size: 13px; font-weight: 550; flex-shrink: 0;
+}
+.kbd-table { border-collapse: collapse; font-size: 14px; }
+.kbd-table td { padding: 4px 14px 4px 0; }
+kbd {
+  font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12.5px;
+  background: var(--surface-2); border: 1px solid var(--border-strong);
+  border-bottom-width: 2px; border-radius: 5px; padding: 1px 7px;
+}
+/* 鍵盤相關內容只在有實體鍵盤(hover 裝置)顯示 */
+@media (hover: none) { .kbd-only { display: none; } }
+
+.template-card {
+  display: flex; align-items: center; gap: 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 14px 16px; background: var(--surface-2);
+}
+.template-info { flex: 1; min-width: 0; }
+.template-info .hint { margin: 2px 0 0; }
+.template-card .btn { flex-shrink: 0; }
 
 /* ---------- 匯入 / 設定 ---------- */
 .tabs { display: flex; gap: 6px; margin-bottom: 18px; }

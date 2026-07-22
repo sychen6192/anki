@@ -4,7 +4,7 @@ import { db } from '../db/db'
 import { exportBackup, importBackup } from '../lib/backup'
 import { download } from '../lib/download'
 import { syncNow } from '../lib/sync'
-import { getSyncSpace, setSyncSpace, clearLocalData } from '../lib/space'
+import { generateSyncKey, getSyncSpace, setSyncSpace, clearLocalData } from '../lib/space'
 import { useBusy } from '../lib/useBusy'
 
 export default function SettingsPage() {
@@ -65,6 +65,12 @@ export default function SettingsPage() {
 
       <h2>同步金鑰</h2>
       <div className="settings-block">
+        {currentSpace === '' && (
+          <p className="notice">
+            目前用的是<b>公用的預設空間</b>:任何沒設金鑰的人都和你共用同一份資料。
+            建議設一組自己的金鑰 —— 按「產生一組」再儲存即可。
+          </p>
+        )}
         <label>金鑰(空白 = 預設空間)
           <span className="key-field">
             <input type={showKey ? 'text' : 'password'} autoComplete="off"
@@ -76,12 +82,14 @@ export default function SettingsPage() {
           </span>
         </label>
         <div className="form-actions">
+          <button type="button" className="btn secondary" disabled={busy}
+            onClick={() => { setKeyInput(generateSyncKey()); setShowKey(true) }}>產生一組</button>
           <button className="btn" disabled={busy} onClick={() => void saveKey()}>儲存金鑰</button>
           <button className="btn danger" disabled={busy} onClick={() => void doClearLocal()}>清空本機資料</button>
         </div>
         <p className="hint">
-          不同金鑰 = 不同的獨立資料空間,可分給朋友各自使用。
-          金鑰形同該空間的密碼、經公開網路傳送,並非登入驗證 —— 請用不同且不好猜的金鑰。
+          不同金鑰 = 不同的獨立資料空間,可分給朋友各自使用;多台裝置填同一組金鑰就會同步到一起
+          (記得把金鑰抄下來)。金鑰形同該空間的密碼、經公開網路傳送,並非登入驗證。
           換金鑰時會自動先清空本機(雲端不受影響)再重新同步,以確保各空間隔離。
         </p>
       </div>

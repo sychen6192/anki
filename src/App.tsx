@@ -16,17 +16,20 @@ const loadDeckDetail = () => import('./pages/DeckDetail')
 const loadImportPage = () => import('./pages/ImportPage')
 const loadStatsPage = () => import('./pages/StatsPage')
 const loadSettingsPage = () => import('./pages/SettingsPage')
+const loadGuidePage = () => import('./pages/GuidePage')
 
 const DeckDetail = lazyRoute(loadDeckDetail)
 const ImportPage = lazyRoute(loadImportPage)
 const StatsPage = lazyRoute(loadStatsPage)
 const SettingsPage = lazyRoute(loadSettingsPage)
+const GuidePage = lazyRoute(loadGuidePage)
 
 const TABS: Tab[] = [
   { to: '/', label: '牌組' },
   { to: '/import', label: '匯入', prefetch: loadImportPage },
   { to: '/stats', label: '統計', prefetch: loadStatsPage },
   { to: '/settings', label: '設定', prefetch: loadSettingsPage },
+  { to: '/guide', label: '說明', prefetch: loadGuidePage },
 ]
 
 function NotFound() {
@@ -42,7 +45,7 @@ export default function App() {
   useEffect(() => {
     setupAutoSync()
     // 開場閒下來後先把其他頁面抓回來,點 tab 就不用等網路
-    prefetchRoutes([loadDeckDetail, loadImportPage, loadStatsPage, loadSettingsPage])
+    prefetchRoutes([loadDeckDetail, loadImportPage, loadStatsPage, loadSettingsPage, loadGuidePage])
   }, [])
   return (
     <BrowserRouter>
@@ -57,6 +60,7 @@ export default function App() {
               <Route path="/import" element={<ImportPage />} />
               <Route path="/stats" element={<StatsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/guide" element={<GuidePage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

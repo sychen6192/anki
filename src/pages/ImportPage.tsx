@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
 import { createDeck, createNotes } from '../db/repo'
@@ -6,6 +7,7 @@ import {
   autoMapHeaders, dedupeRows, mapRows, noteKey, parseCsv,
   type CsvMapping, type ParsedRow,
 } from '../lib/csv'
+import { DECK_TEMPLATES, type DeckTemplate } from '../data/templates'
 import { parseApkg, type ApkgParse } from '../lib/apkg'
 import { autoMapFields, mapApkgNotes, type ApkgMapping } from '../lib/apkgMap'
 import { fillMissingAccents } from '../lib/accent'
@@ -25,6 +27,12 @@ interface Summary {
   annotated: number; missed: number; annotateSkipped: boolean
 }
 
+type Mode = 'csv' | 'apkg' | 'templates'
+
+/** 範本卡片上的前幾個字,讓人看一眼就知道內容(範本 csv 無引號逗號,直接切) */
+const templatePreview = (t: DeckTemplate): string =>
+  t.csv.split('\n').slice(1, 4).map((l) => l.split(',')[0]).join('、') + '…'
+
 export default function ImportPage() {
   const decks = useLiveQuery(() => db.decks.filter((d) => !d.deleted).toArray(), [])
   // 同名牌組在下拉選單裡分不出誰是誰,附上筆數當線索
@@ -35,7 +43,11 @@ export default function ImportPage() {
     })
     return counts
   }, [])
-  const [mode, setMode] = useState<'csv' | 'apkg'>('csv')
+  const [searchParams] = useSearchParams()
+  // 空牌組列表/說明頁的「從範本開始」直達 ?mode=templates
+  const [mode, setMode] = useState<Mode>(
+    searchParams.get('mode') === 'templates' ? 'templates' : 'csv',
+  )
   const [deckId, setDeckId] = useState('new')
   const [newDeckName, setNewDeckName] = useState('')
   const [summary, setSummary] = useState<Summary | null>(null)
@@ -64,10 +76,10 @@ export default function ImportPage() {
 
   const parsed = mode === 'csv' ? csvParsed : apkgParsed
   const activeMapping: CsvMapping | ApkgMapping | null = mode === 'csv' ? mapping : apkgMapping
-  const fieldOptions = mode === 'csv' ? (rows[0] ?? []) : (notetype?.fieldNames ?? [])
+  const fieldOptions = mode === 'csv' ? (rows[0] ?? []) : mode === 'apkg' ? (notetype?.fieldNames ?? []) : []
   const labels = mode === 'csv' ? FIELD_LABELS : APKG_FIELD_LABELS
 
-  const switchMode = (next: 'csv' | 'apkg') => {
+  const switchMode = (next: Mode) => {
     setMode(next)
     setSummary(null)
     setErrMsg('')
@@ -121,36 +133,56 @@ export default function ImportPage() {
     else setApkgMapping((m) => (m ? { ...m, [field]: value } : m))
   }
 
+  /** 去重 → 自動標重音(離線或失敗照常匯入) → 寫入 → 出摘要;CSV/apkg/範本共用 */
+  const importParsed = async (targetId: string, parsedRows: ParsedRow[], otherSkipped: number) => {
+    const existing = await db.notes.where('deck_id').equals(targetId).filter((n) => !n.deleted).toArray()
+    const keys = new Set(existing.map((n) => noteKey(n.expression, n.reading)))
+    const { toImport, skipped } = dedupeRows(parsedRows, keys)
+
+    let toCreate = toImport
+    let annotated = 0, missed = 0, annotateSkipped = false
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      annotateSkipped = true
+    } else {
+      try {
+        const res = await fillMissingAccents(toImport)
+        toCreate = res.rows; annotated = res.filled; missed = res.missed
+      } catch {
+        annotateSkipped = true
+      }
+    }
+
+    await createNotes(targetId, toCreate.map((r) => ({ ...r, reversed: false })))
+    setSummary({ imported: toCreate.length, skipped, annotated, missed, annotateSkipped, otherSkipped })
+    setErrMsg('')
+  }
+
   const doImport = async () => {
     if (parsed.length === 0 || busy) return
     setBusy(true)
     try {
       let targetId = deckId
       if (targetId === 'new') targetId = (await createDeck(newDeckName.trim() || '新牌組')).id
-      const existing = await db.notes.where('deck_id').equals(targetId).filter((n) => !n.deleted).toArray()
-      const keys = new Set(existing.map((n) => noteKey(n.expression, n.reading)))
-      const { toImport, skipped } = dedupeRows(parsed, keys)
+      await importParsed(targetId, parsed, mode === 'apkg' ? otherNoteCount : 0)
+    } catch (e) {
+      setSummary(null)
+      setErrMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
 
-      // 自動標註:對沒帶重音的列查字典;離線或 API 失敗時照常匯入(留空),不中斷。
-      let toCreate = toImport
-      let annotated = 0, missed = 0, annotateSkipped = false
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        annotateSkipped = true
-      } else {
-        try {
-          const res = await fillMissingAccents(toImport)
-          toCreate = res.rows; annotated = res.filled; missed = res.missed
-        } catch {
-          annotateSkipped = true
-        }
-      }
-
-      await createNotes(targetId, toCreate.map((r) => ({ ...r, reversed: false })))
-      setSummary({
-        imported: toCreate.length, skipped, annotated, missed, annotateSkipped,
-        otherSkipped: mode === 'apkg' ? otherNoteCount : 0,
-      })
-      setErrMsg('')
+  /** 一鍵匯入範本:同名牌組存在就併入(去重),否則建立同名牌組 */
+  const importTemplate = async (t: DeckTemplate) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const tRows = parseCsv(t.csv)
+      const tMapping = autoMapHeaders(tRows[0])
+      if (!tMapping) throw new Error('範本表頭無法解析')
+      const existingDeck = await db.decks.filter((d) => !d.deleted && d.name === t.name).first()
+      const targetId = existingDeck?.id ?? (await createDeck(t.name)).id
+      await importParsed(targetId, mapRows(tRows.slice(1), tMapping), 0)
     } catch (e) {
       setSummary(null)
       setErrMsg(e instanceof Error ? e.message : String(e))
@@ -167,22 +199,48 @@ export default function ImportPage() {
       <div className="tabs">
         <button className={`tab${mode === 'csv' ? ' active' : ''}`} onClick={() => switchMode('csv')}>CSV</button>
         <button className={`tab${mode === 'apkg' ? ' active' : ''}`} onClick={() => switchMode('apkg')}>Anki 牌組</button>
+        <button className={`tab${mode === 'templates' ? ' active' : ''}`} onClick={() => switchMode('templates')}>範本</button>
       </div>
 
       <div className="import-form">
-        <label>目標牌組
-          <select value={deckId} onChange={(e) => setDeckId(e.target.value)}>
-            <option value="new">＋ 建立新牌組</option>
-            {decks.map((d) => (
-              <option key={d.id} value={d.id}>{d.name}({noteCounts?.get(d.id) ?? 0} 筆)</option>
-            ))}
-          </select>
-        </label>
-        {deckId === 'new' && (
-          <input placeholder="新牌組名稱" value={newDeckName} onChange={(e) => setNewDeckName(e.target.value)} />
+        {mode !== 'templates' && (
+          <>
+            <label>目標牌組
+              <select value={deckId} onChange={(e) => setDeckId(e.target.value)}>
+                <option value="new">＋ 建立新牌組</option>
+                {decks.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}({noteCounts?.get(d.id) ?? 0} 筆)</option>
+                ))}
+              </select>
+            </label>
+            {deckId === 'new' && (
+              <input placeholder="新牌組名稱" value={newDeckName} onChange={(e) => setNewDeckName(e.target.value)} />
+            )}
+          </>
         )}
 
-        {mode === 'csv' ? (
+        {mode === 'templates' && (
+          <>
+            <p className="hint">
+              還沒有自己的單字表?選一份直接開始。匯入時會自動標註重音(需連線);
+              重複匯入會自動跳過已有的字,之後隨時可在牌組頁增刪。
+            </p>
+            {DECK_TEMPLATES.map((t) => (
+              <div className="template-card" key={t.id}>
+                <div className="template-info">
+                  <b>{t.name}</b>
+                  <p className="hint">{t.description}</p>
+                  <p className="hint" lang="ja">{templatePreview(t)}</p>
+                </div>
+                <button className="btn" disabled={busy} onClick={() => void importTemplate(t)}>
+                  {busy ? '匯入中…' : `匯入 ${t.count} 筆`}
+                </button>
+              </div>
+            ))}
+          </>
+        )}
+
+        {mode === 'csv' && (
           <>
             <input type="file" accept=".csv,text/csv"
               onChange={async (e) => {
@@ -197,7 +255,8 @@ export default function ImportPage() {
                 onChange={(e) => setHasHeader(e.target.checked)} /> 第一列是表頭</label>
             )}
           </>
-        ) : (
+        )}
+        {mode === 'apkg' && (
           <>
             <input type="file" accept=".apkg,.colpkg"
               onChange={(e) => {

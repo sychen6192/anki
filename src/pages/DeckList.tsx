@@ -5,14 +5,21 @@ import { db } from '../db/db'
 import { createDeck } from '../db/repo'
 import { deckQueue, startOfToday } from '../lib/queue'
 import { State } from '../lib/fsrs'
+import { getSyncSpace } from '../lib/space'
 import { useBusy } from '../lib/useBusy'
 import { Loading } from '../components/Loading'
+
+const KEY_HINT_DISMISSED = 'key-hint-dismissed'
 
 export default function DeckList() {
   const decks = useLiveQuery(() => db.decks.filter((d) => !d.deleted).toArray(), [])
   const cards = useLiveQuery(() => db.cards.toArray(), [])
   const todayLogs = useLiveQuery(
     () => db.review_logs.where('reviewed_at').aboveOrEqual(startOfToday()).toArray(), [],
+  )
+  const space = useLiveQuery(() => getSyncSpace(), [])
+  const [keyHintDismissed, setKeyHintDismissed] = useState(
+    () => localStorage.getItem(KEY_HINT_DISMISSED) === '1',
   )
   const [name, setName] = useState('')
   const [adding, runAdd] = useBusy()
@@ -28,6 +35,16 @@ export default function DeckList() {
   return (
     <div>
       <h1>牌組</h1>
+      {space === '' && !keyHintDismissed && (
+        <p className="notice">
+          <span>還沒設同步金鑰,目前和其他未設金鑰的人共用預設空間。</span>
+          <Link to="/settings" className="link">前往設定</Link>
+          <button className="link" onClick={() => {
+            localStorage.setItem(KEY_HINT_DISMISSED, '1')
+            setKeyHintDismissed(true)
+          }}>知道了</button>
+        </p>
+      )}
       <ul className="deck-list">
         {decks.map((deck) => {
           const { queue } = deckQueue(deck.id, deck.new_per_day, cards, todayLogs)
@@ -49,8 +66,8 @@ export default function DeckList() {
         })}
         {decks.length === 0 && (
           <li className="empty">
-            還沒有牌組 —— 在下面建一個,<br />
-            或到<Link to="/import" className="link">匯入</Link>頁貼上 CSV、讀入 Anki 牌組
+            還沒有牌組 —— 從<Link to="/import?mode=templates" className="link">現成範本</Link>挑一份直接開始,<br />
+            或在下面自己建一個。第一次用?先看<Link to="/guide" className="link">說明</Link>。
           </li>
         )}
       </ul>
