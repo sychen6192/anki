@@ -27,6 +27,7 @@ export default function Review() {
   const [errMsg, setErrMsg] = useState<string | null>(null)
   const [undoable, setUndoable] = useState<{ card: CardRecord; logId: string } | null>(null)
   const [tick, setTick] = useState(() => Date.now())
+  const [doneStats, setDoneStats] = useState<{ count: number; correct: number } | null>(null)
   const [editing, setEditing] = useState<{ expression: string; reading: string; meaning: string; accent: string } | null>(null)
   const answering = useRef(false)
   // 這次 session 裡跳過的卡片。只存在記憶體,離開複習畫面就重來 —— 跳過是
@@ -46,6 +47,10 @@ export default function Review() {
     const nextLearningDue = built.nextLearningDue
     const queue = built.queue.filter((c) => !skipped.current.has(c.id))
     if (queue.length === 0) {
+      // 完成畫面的今日成績:這副牌組今天複習幾張、一次就答對的比例
+      const cardIds = new Set(cards.map((c) => c.id))
+      const deckLogs = logs.filter((l) => cardIds.has(l.card_id))
+      setDoneStats({ count: deckLogs.length, correct: deckLogs.filter((l) => l.rating > 1).length })
       setCurrent(null)
       setDone(true)
       setNextDue(nextLearningDue)
@@ -185,6 +190,11 @@ export default function Review() {
     return (
       <div className="review-done">
         <h1>今日完成 🎉</h1>
+        {doneStats !== null && doneStats.count > 0 && (
+          <p className="done-stats">
+            今天複習 <b>{doneStats.count}</b> 張,一次答對 <b>{Math.round((doneStats.correct / doneStats.count) * 100)}%</b>
+          </p>
+        )}
         {errMsg && <p className="err" role="alert">{errMsg}</p>}
         {waitMs !== null && (waitMs > AUTO_RESUME_WINDOW ? (
           <p>還有學習中的卡片,約 {formatInterval(waitMs)}後到期</p>

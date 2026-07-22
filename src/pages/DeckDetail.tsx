@@ -51,6 +51,7 @@ export default function DeckDetail() {
   const [errMsg, setErrMsg] = useState<string | null>(null)
   const [looking, setLooking] = useState(false)
   const [annotateMsg, setAnnotateMsg] = useState<string | null>(null)
+  const [shareMsg, setShareMsg] = useState<string | null>(null)
 
   if (!deck || !notes) return <Loading />
   if (deck.deleted) {
@@ -147,6 +148,36 @@ export default function DeckDetail() {
     }
   })
 
+  /** 產生分享連結:內容上傳到 /api/share,拿 code 組網址;手機開分享面板、桌機複製 */
+  const shareDeck = () => run(async () => {
+    try {
+      setShareMsg('建立分享連結…')
+      const rows = notes.map((n) => ({
+        expression: n.expression, reading: n.reading, meaning: n.meaning, accent: n.accent ?? '',
+      }))
+      const res = await fetch('/api/share', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: deck.name, rows }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const { code } = await res.json() as { code: string }
+      const url = `${location.origin}/import?share=${code}`
+      if (typeof navigator.share === 'function') {
+        await navigator.share({ title: `字卡牌組:${deck.name}`, url })
+        setShareMsg('已分享')
+      } else {
+        await navigator.clipboard.writeText(url)
+        setShareMsg('連結已複製,貼給朋友就能匯入')
+      }
+      setErrMsg(null)
+    } catch (e) {
+      setShareMsg(null)
+      // 使用者自己關掉分享面板不是錯誤
+      if (e instanceof DOMException && e.name === 'AbortError') return
+      setErrMsg(`分享失敗:${e instanceof Error ? e.message : String(e)}`)
+    }
+  })
+
   const removeDeck = () => run(async () => {
     if (!confirm(`刪除牌組「${deck.name}」與其所有卡片?`)) return
     try {
@@ -179,8 +210,10 @@ export default function DeckDetail() {
         </button>
         <button className="btn secondary" onClick={() => { setEditingId('new'); setForm(EMPTY) }}>＋新增卡片</button>
         <button className="btn secondary" disabled={busy} onClick={() => void annotateDeck()}>自動標註重音</button>
+        <button className="btn secondary" disabled={busy || notes.length === 0} onClick={() => void shareDeck()}>分享牌組</button>
       </div>
       {annotateMsg && <p className="hint" role="status" aria-live="polite">{annotateMsg}</p>}
+      {shareMsg && <p className="hint" role="status" aria-live="polite">{shareMsg}</p>}
 
       {/* 收合放列表上方:長牌組的列表會越捲越長,放底部根本捲不到 */}
       <details className="deck-settings-details">

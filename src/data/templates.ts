@@ -16,7 +16,7 @@ export const DECK_TEMPLATES: DeckTemplate[] = [
   {
     id: 'n5-verbs',
     name: 'N5 動詞 50',
-    description: '最常用的基礎動詞,辭書形。從「吃、喝、去、來」開始。',
+    description: '吃、喝、去、來 —— 最常用的動詞,辭書形。',
     count: 50,
     csv: `單字,讀音,意思
 食べる,たべる,吃
@@ -74,7 +74,7 @@ export const DECK_TEMPLATES: DeckTemplate[] = [
   {
     id: 'n5-adjectives',
     name: 'N5 形容詞 45',
-    description: '大小、長短、冷熱、心情 —— 描述世界的第一批詞。',
+    description: '大小、冷熱、顏色、心情,基本形容詞。',
     count: 45,
     csv: `單字,讀音,意思
 大きい,おおきい,大的
@@ -127,7 +127,7 @@ export const DECK_TEMPLATES: DeckTemplate[] = [
   {
     id: 'numbers-time',
     name: '數字與時間 40',
-    description: '數字、星期、今天明天 —— 生活對話一定用得到。',
+    description: '數字、星期、今天明天。',
     count: 40,
     csv: `單字,讀音,意思
 一,いち,1

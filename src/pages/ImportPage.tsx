@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
@@ -61,6 +61,24 @@ export default function ImportPage() {
   const [notetypeId, setNotetypeId] = useState('')
   const [apkgMapping, setApkgMapping] = useState<ApkgMapping | null>(null)
   const [parsing, setParsing] = useState(false)
+
+  // 開分享連結(/import?share=code)進來:抓分享內容,顯示一鍵匯入卡
+  const shareCode = searchParams.get('share')
+  const [shared, setShared] = useState<{ name: string; rows: ParsedRow[] } | null>(null)
+  const [shareErr, setShareErr] = useState('')
+  useEffect(() => {
+    if (shareCode === null) return
+    let cancelled = false
+    fetch(`/api/share/${shareCode}`)
+      .then(async (res) => {
+        if (res.status === 404) throw new Error('找不到這個分享,連結可能貼錯了')
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json() as Promise<{ name: string; rows: ParsedRow[] }>
+      })
+      .then((d) => { if (!cancelled) setShared(d) })
+      .catch((e: unknown) => { if (!cancelled) setShareErr(e instanceof Error ? e.message : String(e)) })
+    return () => { cancelled = true }
+  }, [shareCode])
 
   const rows = useMemo(() => (text.trim() ? parseCsv(text) : []), [text])
   const dataRows = hasHeader ? rows.slice(1) : rows
@@ -171,17 +189,14 @@ export default function ImportPage() {
     }
   }
 
-  /** 一鍵匯入範本:同名牌組存在就併入(去重),否則建立同名牌組 */
-  const importTemplate = async (t: DeckTemplate) => {
+  /** 匯入到「以名字找到或新建」的牌組;範本與分享共用 */
+  const importNamed = async (name: string, parsedRows: ParsedRow[]) => {
     if (busy) return
     setBusy(true)
     try {
-      const tRows = parseCsv(t.csv)
-      const tMapping = autoMapHeaders(tRows[0])
-      if (!tMapping) throw new Error('範本表頭無法解析')
-      const existingDeck = await db.decks.filter((d) => !d.deleted && d.name === t.name).first()
-      const targetId = existingDeck?.id ?? (await createDeck(t.name)).id
-      await importParsed(targetId, mapRows(tRows.slice(1), tMapping), 0)
+      const existingDeck = await db.decks.filter((d) => !d.deleted && d.name === name).first()
+      const targetId = existingDeck?.id ?? (await createDeck(name)).id
+      await importParsed(targetId, parsedRows, 0)
     } catch (e) {
       setSummary(null)
       setErrMsg(e instanceof Error ? e.message : String(e))
@@ -190,11 +205,51 @@ export default function ImportPage() {
     }
   }
 
+  const importTemplate = async (t: DeckTemplate) => {
+    const tRows = parseCsv(t.csv)
+    const tMapping = autoMapHeaders(tRows[0])
+    if (!tMapping) { setErrMsg('範本表頭無法解析'); return }
+    await importNamed(t.name, mapRows(tRows.slice(1), tMapping))
+  }
+
+  const importShared = async () => {
+    if (shared === null) return
+    // 伺服器驗過形狀,這裡再過一次 mapRows 等級的清理(修剪、丟缺欄的列)
+    const rows = shared.rows
+      .map((r) => ({
+        expression: (r.expression ?? '').trim(),
+        reading: (r.reading ?? '').trim(),
+        meaning: (r.meaning ?? '').trim(),
+        accent: (r.accent ?? '').trim(),
+      }))
+      .filter((r) => r.expression !== '' && r.meaning !== '')
+    await importNamed(shared.name, rows)
+  }
+
   if (!decks) return <Loading />
 
   return (
     <div>
       <h1>匯入</h1>
+
+      {shareCode !== null && (
+        <div className="template-card">
+          {shared === null && shareErr === '' && <p className="hint">讀取分享內容…</p>}
+          {shareErr !== '' && <p className="err" role="alert">{shareErr}</p>}
+          {shared !== null && (
+            <>
+              <div className="template-info">
+                <b>{shared.name}</b>
+                <p className="hint">朋友分享的牌組,{shared.rows.length} 筆</p>
+              </div>
+              <button className="btn" disabled={busy} onClick={() => void importShared()}>
+                {busy ? '匯入中…' : '匯入'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="tabs">
         <button className={`tab${mode === 'csv' ? ' active' : ''}`} onClick={() => switchMode('csv')}>CSV</button>
         <button className={`tab${mode === 'apkg' ? ' active' : ''}`} onClick={() => switchMode('apkg')}>Anki 牌組</button>
@@ -220,10 +275,7 @@ export default function ImportPage() {
 
         {mode === 'templates' && (
           <>
-            <p className="hint">
-              還沒有自己的單字表?選一份直接開始。匯入時會自動標註重音(需連線);
-              重複匯入會自動跳過已有的字,之後隨時可在牌組頁增刪。
-            </p>
+            <p className="hint">選一份直接開始。重音自動標;重複匯入只補新字,不會重複。</p>
             {DECK_TEMPLATES.map((t) => (
               <div className="template-card" key={t.id}>
                 <div className="template-info">
@@ -263,10 +315,7 @@ export default function ImportPage() {
                 e.target.value = ''
                 if (f) void onApkgFile(f)
               }} />
-            <p className="hint">
-              從 Anki 或 AnkiWeb 下載的 .apkg 檔。只會匯入文字內容,卡片一律從新卡開始排程;
-              排程進度、圖片與音檔不會匯入。
-            </p>
+            <p className="hint">讀 Anki / AnkiWeb 的 .apkg。只拿文字;進度、圖片、音檔不帶,全部當新卡重排。</p>
             {parsing && <p className="hint">解析中…</p>}
             {apkg && apkg.notetypes.length > 1 && (
               <label>樣板
@@ -306,7 +355,7 @@ export default function ImportPage() {
                 ))}
               </tbody>
             </table>
-            <p className="hint">沒對應重音欄或欄位留空的字,匯入時會自動查字典。</p>
+            <p className="hint">重音留空的字,匯入時自動查字典。</p>
             <p className="hint">
               共 {parsed.length} 筆有效資料
               {mode === 'apkg' && otherNoteCount > 0 && `,另有 ${otherNoteCount} 筆屬於其他樣板不會匯入`}
@@ -322,7 +371,7 @@ export default function ImportPage() {
             <p>✓ 匯入 {summary.imported} 筆,跳過重複 {summary.skipped.length} 筆
               {summary.otherSkipped > 0 && `,略過其他樣板 ${summary.otherSkipped} 筆`}</p>
             {summary.annotateSkipped
-              ? <p className="hint">離線或字典查詢失敗,未自動標註重音(可稍後在牌組頁按「自動標註重音」)</p>
+              ? <p className="hint">沒連上字典,重音先空著;之後在牌組頁按「自動標註重音」補。</p>
               : <p className="hint">自動標註重音 {summary.annotated} 筆,查無 {summary.missed} 筆</p>}
             {summary.skipped.length > 0 && (
               <ul>{summary.skipped.map((r, i) => (

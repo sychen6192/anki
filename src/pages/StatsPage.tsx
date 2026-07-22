@@ -5,7 +5,16 @@ import {
 import { db } from '../db/db'
 import { State } from '../lib/fsrs'
 import { startOfToday } from '../lib/queue'
+import { lastNDays, streakDays } from '../lib/stats'
 import { Loading } from '../components/Loading'
+
+/** 熱力圖顏色:單一色相由淺到深(0 張另外用底色) */
+function heatColor(count: number): string {
+  if (count === 0) return 'var(--surface-2)'
+  const pct = count < 5 ? 30 : count < 15 ? 55 : count < 30 ? 78 : 100
+  return `color-mix(in srgb, var(--primary) ${pct}%, var(--surface))`
+}
+const HEAT_WEEKS = 17
 
 const DAY = 86400_000
 // 圖表顏色走設計 token,深色模式才有對應的變體(SVG 的 fill 支援 var())
@@ -56,9 +65,41 @@ export default function StatsPage() {
     { name: '複習中', value: review, color: DIST_COLORS[2] },
   ]
 
+  const stamps = logs.map((l) => l.reviewed_at)
+  const todayCount = stamps.filter((ts) => ts >= today).length
+  const streak = streakDays(stamps, today)
+  const heatDays = lastNDays(stamps, today, HEAT_WEEKS * 7)
+  // 讓格子照星期對齊:第一天不是週日就先塞空格
+  const heatPad = new Date(heatDays[0].start).getDay()
+
   return (
     <div>
       <h1>統計</h1>
+
+      <div className="stat-row">
+        <div className="stat-tile"><b>{todayCount}</b><span>今日複習</span></div>
+        <div className="stat-tile"><b>{streak}</b><span>連續天數</span></div>
+        <div className="stat-tile"><b>{logs.length}</b><span>累計複習</span></div>
+      </div>
+
+      <h2>複習熱力圖</h2>
+      <div className="chart-block">
+        <div className="heatmap" role="img" aria-label={`過去 ${HEAT_WEEKS} 週每日複習量`}>
+          {Array.from({ length: heatPad }, (_, i) => <span key={`pad-${i}`} className="heat-cell pad" />)}
+          {heatDays.map((d) => {
+            const dt = new Date(d.start)
+            return (
+              <span key={d.start} className="heat-cell" style={{ background: heatColor(d.count) }}
+                title={`${dt.getMonth() + 1}/${dt.getDate()}:${d.count} 張`} />
+            )
+          })}
+        </div>
+        <div className="heat-legend" aria-hidden="true">
+          少
+          {[0, 3, 8, 20, 40].map((n) => <span key={n} className="heat-cell" style={{ background: heatColor(n) }} />)}
+          多
+        </div>
+      </div>
 
       <h2>過去 30 天複習量</h2>
       <div className="chart-block">

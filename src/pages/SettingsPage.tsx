@@ -67,8 +67,7 @@ export default function SettingsPage() {
       <div className="settings-block">
         {currentSpace === '' && (
           <p className="notice">
-            目前用的是<b>公用的預設空間</b>:任何沒設金鑰的人都和你共用同一份資料。
-            建議設一組自己的金鑰 —— 按「產生一組」再儲存即可。
+            你在<b>公用的預設空間</b>,跟其他沒設金鑰的人共用資料。按「產生一組」再儲存,就有自己的空間。
           </p>
         )}
         <label>金鑰(空白 = 預設空間)
@@ -88,9 +87,8 @@ export default function SettingsPage() {
           <button className="btn danger" disabled={busy} onClick={() => void doClearLocal()}>清空本機資料</button>
         </div>
         <p className="hint">
-          不同金鑰 = 不同的獨立資料空間,可分給朋友各自使用;多台裝置填同一組金鑰就會同步到一起
-          (記得把金鑰抄下來)。金鑰形同該空間的密碼、經公開網路傳送,並非登入驗證。
-          換金鑰時會自動先清空本機(雲端不受影響)再重新同步,以確保各空間隔離。
+          一組金鑰 = 一個獨立空間;多台裝置填同一組會同步到一起,記得抄下來。
+          金鑰就是這個空間的密碼,別用好猜的。換金鑰會先清空本機(雲端不動)再重新同步。
         </p>
       </div>
 

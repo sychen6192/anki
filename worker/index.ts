@@ -245,4 +245,55 @@ app.post('/api/accent/lookup', async (c) => {
   return c.json({ results })
 })
 
+// ---------- 一鍵分享牌組 ----------
+// 一份分享 = 一個隨機 code。內容是純單字列(不含排程),誰拿到連結誰就能匯入,
+// 與同步空間無關。code 8 字 × 31 種 ≈ 2^40,夠擋亂猜。
+
+const SHARE_MAX_ROWS = 5000
+const SHARE_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789'
+
+function genShareCode(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(8))
+  return Array.from(bytes, (b) => SHARE_ALPHABET[b % SHARE_ALPHABET.length]).join('')
+}
+
+interface ShareRow { expression: string; reading: string; meaning: string; accent: string }
+
+app.post('/api/share', async (c) => {
+  const body = await c.req.json<{ name?: unknown; rows?: unknown }>().catch(() => null)
+  if (body === null || typeof body.name !== 'string' || body.name.trim() === '') {
+    return c.json({ error: 'name is required' }, 400)
+  }
+  if (!Array.isArray(body.rows) || body.rows.length === 0 || body.rows.length > SHARE_MAX_ROWS) {
+    return c.json({ error: `rows must be 1..${SHARE_MAX_ROWS}` }, 400)
+  }
+  const rows: ShareRow[] = []
+  for (const r of body.rows as Record<string, unknown>[]) {
+    if (r === null || typeof r !== 'object') return c.json({ error: 'invalid row' }, 400)
+    const { expression, reading, meaning, accent } = r
+    if (typeof expression !== 'string' || expression === '' || typeof meaning !== 'string' || meaning === '') {
+      return c.json({ error: 'each row needs expression and meaning' }, 400)
+    }
+    rows.push({
+      expression,
+      reading: typeof reading === 'string' ? reading : '',
+      meaning,
+      accent: typeof accent === 'string' ? accent : '',
+    })
+  }
+  const payload = JSON.stringify(rows)
+  if (payload.length > 1_000_000) return c.json({ error: 'payload too large' }, 400)
+  const code = genShareCode()
+  await c.env.DB.prepare('INSERT INTO shares (code, name, payload, created_at) VALUES (?, ?, ?, ?)')
+    .bind(code, body.name.trim(), payload, Date.now()).run()
+  return c.json({ code })
+})
+
+app.get('/api/share/:code', async (c) => {
+  const row = await c.env.DB.prepare('SELECT name, payload FROM shares WHERE code = ?')
+    .bind(c.req.param('code')).first<{ name: string; payload: string }>()
+  if (row === null) return c.json({ error: 'not found' }, 404)
+  return c.json({ name: row.name, rows: JSON.parse(row.payload) })
+})
+
 export default app

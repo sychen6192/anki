@@ -37,7 +37,7 @@ export default function DeckList() {
       <h1>牌組</h1>
       {space === '' && !keyHintDismissed && (
         <p className="notice">
-          <span>還沒設同步金鑰,目前和其他未設金鑰的人共用預設空間。</span>
+          <span>還沒設同步金鑰,正在跟別人共用預設空間。</span>
           <Link to="/settings" className="link">前往設定</Link>
           <button className="link" onClick={() => {
             localStorage.setItem(KEY_HINT_DISMISSED, '1')
@@ -66,8 +66,8 @@ export default function DeckList() {
         })}
         {decks.length === 0 && (
           <li className="empty">
-            還沒有牌組 —— 從<Link to="/import?mode=templates" className="link">現成範本</Link>挑一份直接開始,<br />
-            或在下面自己建一個。第一次用?先看<Link to="/guide" className="link">說明</Link>。
+            還沒有牌組。從<Link to="/import?mode=templates" className="link">範本</Link>挑一份,
+            或在下面自己建;<br />第一次用先看<Link to="/guide" className="link">說明</Link>。
           </li>
         )}
       </ul>
