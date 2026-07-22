@@ -6,6 +6,7 @@ export interface SwWorker {
 export interface SwRegistration {
   waiting: SwWorker | null
   installing: SwWorker | null
+  update: () => Promise<unknown>
   addEventListener: (type: 'updatefound', fn: () => void) => void
 }
 export interface SwDeps {
@@ -15,6 +16,8 @@ export interface SwDeps {
   reload: () => void
   /** 有新版在等待時呼叫,傳入「套用更新」的動作讓 UI 綁到按鈕 */
   onUpdateReady: (apply: () => void) => void
+  /** 註冊「該檢查更新了」的時機(回到前景、定時);時機到會去問伺服器有沒有新版 */
+  onCheckForUpdates: (check: () => void) => void
 }
 
 /**
@@ -35,6 +38,11 @@ export async function setupServiceWorker(deps: SwDeps): Promise<void> {
 
   const reg = await deps.register()
   if (reg === null) return
+
+  // 瀏覽器只在「整頁導航」時檢查 sw.js 有沒有新版;安裝在手機上的 PWA
+  // 常常一開就是好幾天不重載,等於永遠不會發現新版、也就永遠看不到更新提示。
+  // 所以回到前景與定時都主動問一次。離線時 update() 會失敗,安靜跳過即可。
+  deps.onCheckForUpdates(() => { void reg.update().catch(() => {}) })
 
   const announce = (waiting: SwWorker) => {
     deps.onUpdateReady(() => {
@@ -92,5 +100,18 @@ export function setupServiceWorkerInBrowser(): void {
     onControllerChange: (fn) => navigator.serviceWorker.addEventListener('controllerchange', fn),
     reload: () => window.location.reload(),
     onUpdateReady: (apply) => publishUpdate(apply),
+    onCheckForUpdates: (check) => {
+      // 切分頁/切 app 會讓 visibilitychange 連發,60 秒內只問一次就好
+      let lastAsk = 0
+      const guarded = () => {
+        if (Date.now() - lastAsk < 60_000) return
+        lastAsk = Date.now()
+        check()
+      }
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') guarded()
+      })
+      setInterval(guarded, 60 * 60 * 1000)
+    },
   })
 }
