@@ -238,8 +238,17 @@ textarea { resize: vertical; }
 .rating-1 { background: var(--rate-again); } .rating-2 { background: var(--rate-hard); }
 .rating-3 { background: var(--rate-good); } .rating-4 { background: var(--rate-easy); }
 @media (hover: hover) { .rating-1:hover, .rating-2:hover, .rating-3:hover, .rating-4:hover { filter: brightness(1.06); background-image: none; } }
-.card-actions { display: flex; gap: 18px; justify-content: center; width: 100%; }
-.card-actions .link { min-height: 44px; display: inline-flex; align-items: center; }
+.card-actions { display: flex; gap: 12px; justify-content: center; width: 100%; }
+/* 編輯/跳過每天都會用到,之前是灰字+文字符號,幾乎看不出可以按 —— 給膠囊外框 */
+.card-actions .link {
+  min-height: 42px; display: inline-flex; align-items: center; gap: 7px;
+  padding: 0 18px; font-size: 14px;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 999px;
+}
+@media (hover: hover) { .card-actions .link:hover { color: var(--text); background: var(--surface-2); border-color: var(--muted); } }
+.card-actions .link:active { transform: translateY(1px); }
+.icon-link { display: inline-flex; align-items: center; gap: 6px; }
+.icon-link svg { flex-shrink: 0; }
 .review .note-form { width: 100%; text-align: left; }
 
 .review-done { text-align: center; display: flex; flex-direction: column; gap: 16px; align-items: center; padding-top: 56px; }

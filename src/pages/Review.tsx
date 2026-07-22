@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { PitchAccent } from '../components/PitchAccent'
 import { isSpeechSupported, speak } from '../lib/speak'
 import { SpeakerIcon } from '../components/SpeakerIcon'
+import { PencilIcon, SkipIcon, UndoIcon } from '../components/icons'
 import { Loading } from '../components/Loading'
 import { db } from '../db/db'
 import { applyReview, undoReview, updateNote } from '../db/repo'
@@ -216,7 +217,7 @@ export default function Review() {
       </div>
       <div className="review-head">
         {undoable
-          ? <button className="link" onClick={() => void undo()}>↩ 復原上一張</button>
+          ? <button className="link icon-link" onClick={() => void undo()}><UndoIcon size={15} />復原上一張</button>
           : <span />}
         <p className="remaining">剩 {remaining} 張</p>
       </div>
@@ -258,11 +259,11 @@ export default function Review() {
 
       {editing === null ? (
         <div className="card-actions">
-          <button className="link" onClick={() => setEditing(currentNoteFields())}>
-            ✎ 編輯這張<span className="kbd-hint"> (E)</span>
+          <button className="link icon-link" onClick={() => setEditing(currentNoteFields())}>
+            <PencilIcon size={15} />編輯這張<span className="kbd-hint">(E)</span>
           </button>
-          <button className="link" onClick={() => void skip()}>
-            ⤼ 跳過<span className="kbd-hint"> (S)</span>
+          <button className="link icon-link" onClick={() => void skip()}>
+            <SkipIcon size={15} />跳過<span className="kbd-hint">(S)</span>
           </button>
         </div>
       ) : (
