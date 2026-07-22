@@ -31,6 +31,9 @@ export default function Review() {
   // 這次 session 裡跳過的卡片。只存在記憶體,離開複習畫面就重來 —— 跳過是
   // 「現在不想看」,不是 Anki 的 bury,不該寫進資料庫影響排程。
   const skipped = useRef(new Set<string>())
+  // 進度條用:記住這次 session 見過的最大待複習數。按「重來」會讓待複習數
+  // 回升,取最大值當分母,進度條就不會倒退。
+  const [sessionMax, setSessionMax] = useState(0)
 
   /** preferCardId:復原時用,讓剛還原的那張卡直接回到眼前,而不是排到佇列尾端 */
   const loadNext = useCallback(async (preferCardId?: string) => {
@@ -58,6 +61,7 @@ export default function Review() {
     }
     setCurrent({ card, note })
     setRemaining(queue.length)
+    setSessionMax((m) => Math.max(m, queue.length))
     setShowBack(false)
     setDone(false)
     setNextDue(null)
@@ -202,8 +206,14 @@ export default function Review() {
   const front = card.direction === 'forward' ? note.expression : note.meaning
   const preview = previewIntervals(card)
 
+  const progress = sessionMax > 0 ? Math.round(((sessionMax - remaining + 1) / sessionMax) * 100) : 0
+
   return (
     <div className="review">
+      <div className="session-progress" role="progressbar"
+        aria-valuemin={0} aria-valuemax={sessionMax} aria-valuenow={sessionMax - remaining + 1}>
+        <span style={{ width: `${progress}%` }} />
+      </div>
       <div className="review-head">
         {undoable
           ? <button className="link" onClick={() => void undo()}>↩ 復原上一張</button>
@@ -230,7 +240,9 @@ export default function Review() {
         )}
       </div>
       {!showBack ? (
-        <button className="btn show-answer" onClick={() => setShowBack(true)}>顯示答案(空白鍵)</button>
+        <button className="btn show-answer" onClick={() => setShowBack(true)}>
+          顯示答案<span className="kbd-hint">(空白鍵)</span>
+        </button>
       ) : (
         <div className="ratings">
           {([1, 2, 3, 4] as const).map((r) => (
@@ -244,8 +256,12 @@ export default function Review() {
 
       {editing === null ? (
         <div className="card-actions">
-          <button className="link" onClick={() => setEditing(currentNoteFields())}>✎ 編輯這張</button>
-          <button className="link" onClick={() => void skip()}>⤼ 跳過</button>
+          <button className="link" onClick={() => setEditing(currentNoteFields())}>
+            ✎ 編輯這張<span className="kbd-hint"> (E)</span>
+          </button>
+          <button className="link" onClick={() => void skip()}>
+            ⤼ 跳過<span className="kbd-hint"> (S)</span>
+          </button>
         </div>
       ) : (
         <div className="note-form">

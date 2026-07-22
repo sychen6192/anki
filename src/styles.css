@@ -180,7 +180,13 @@ textarea { resize: vertical; }
 
 /* ---------- 複習 ---------- */
 .review { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+/* 這次 session 的進度條:走完一張就往前一格,「重來」讓分母回升時不倒退 */
+.session-progress { width: 100%; height: 4px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.session-progress > span { display: block; height: 100%; background: var(--primary); border-radius: 999px; transition: width .3s ease; }
 .review-head { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 28px; }
+/* 鍵盤提示只在有實體鍵盤(hover 裝置)顯示,手機上是雜訊 */
+.kbd-hint { opacity: 0.6; font-weight: 400; }
+@media (hover: none) { .kbd-hint { display: none; } }
 .remaining { color: var(--faint); font-size: 13px; font-weight: 550; font-variant-numeric: tabular-nums; }
 .flashcard {
   width: 100%; min-height: 300px; background: var(--surface);
@@ -244,6 +250,26 @@ textarea { resize: vertical; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
+
+/* 有新版可用時從底部滑出的提示 */
+.update-banner {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 50; width: min(calc(100% - 24px), 420px);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px 12px 18px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: var(--shadow-md); font-size: 14.5px; font-weight: 550;
+  animation: banner-in .3s cubic-bezier(.2, .8, .2, 1);
+}
+.update-banner-actions { display: flex; align-items: center; gap: 6px; }
+.update-banner .btn { padding: 7px 14px; }
+@keyframes banner-in {
+  from { opacity: 0; transform: translate(-50%, 16px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .update-banner { animation: none; } }
 
 .crash { display: flex; flex-direction: column; gap: 12px; padding-top: 40px; }
 .crash h1 { font-size: 26px; }

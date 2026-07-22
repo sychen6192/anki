@@ -6,9 +6,11 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
-      // 註冊由 src/lib/sw.ts 自己做:新 SW 接手時要重新載入頁面,
-      // 否則舊 HTML 會配上新 precache,分割出去的 chunk 就抓不到了
+      // prompt:新版不自動接管,而是等使用者按「更新」才 skipWaiting。
+      // 這也順帶解掉分割 chunk 的問題 —— 更新前舊 SW 一直供舊 chunk,
+      // 不會出現「舊 HTML 配新 precache、chunk 抓不到」的情況。
+      registerType: 'prompt',
+      // 註冊與更新提示由 src/lib/sw.ts 自己做
       injectRegister: null,
       manifest: {
         // id 固定住已安裝 app 的身分,之後改 start_url 或圖示也不會被當成另一個 app

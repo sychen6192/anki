@@ -4,6 +4,7 @@ import { setupAutoSync } from './lib/sync'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Loading } from './components/Loading'
 import { TopNav, type Tab } from './components/TopNav'
+import { UpdateBanner } from './components/UpdateBanner'
 import { lazyRoute, prefetchRoutes } from './lib/lazyRoute'
 import DeckList from './pages/DeckList'
 import Review from './pages/Review'
@@ -61,6 +62,7 @@ export default function App() {
           </Suspense>
         </ErrorBoundary>
       </main>
+      <UpdateBanner />
     </BrowserRouter>
   )
 }
