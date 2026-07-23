@@ -233,7 +233,7 @@ export default function ImportPage() {
       <h1>匯入</h1>
 
       {shareCode !== null && (
-        <div className="template-card">
+        <div className="template-card share-card">
           {shared === null && shareErr === '' && <p className="hint">讀取分享內容…</p>}
           {shareErr !== '' && <p className="err" role="alert">{shareErr}</p>}
           {shared !== null && (

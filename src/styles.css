@@ -434,6 +434,12 @@ kbd {
 .template-info { flex: 1; min-width: 0; }
 .template-info .hint { margin: 2px 0 0; }
 .template-card .btn { flex-shrink: 0; }
+/* 分享匯入卡不在 import-form 裡,獨立站在 tabs 上面 —— 要有自己的間距與底色 */
+.share-card {
+  margin-bottom: 18px; background: var(--surface);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm);
+}
+.share-card > .hint, .share-card > .err { margin: 0; }
 
 /* ---------- 匯入 / 設定 ---------- */
 .tabs { display: flex; gap: 6px; margin-bottom: 18px; }
@@ -448,7 +454,9 @@ kbd {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 18px; display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; box-shadow: var(--shadow-sm);
 }
-.import-form label { display: flex; gap: 8px; align-items: center; }
+/* 標籤文字不折行(CJK 會被壓成一字一行);寬的下拉自己縮 */
+.import-form label { display: flex; gap: 8px; align-items: center; white-space: nowrap; }
+.import-form label select { flex: 1; min-width: 0; }
 /* 設定頁的 label(如「還原備份:」+ 檔案選擇)在窄螢幕改直向堆疊,避免文字被擠成一字一行、檔案輸入溢出卡片 */
 .settings-block label { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 input[type="file"] { border: none; padding: 0; background: none; max-width: 100%; color: var(--muted); font-size: 14px; }
