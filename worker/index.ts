@@ -3,7 +3,7 @@ import type {
   CardRecord, DeckRecord, NoteRecord, ReviewLogRecord, SyncPush, SyncPullResponse,
 } from '../shared/types'
 
-export type Env = { DB: D1Database }
+export type Env = { DB: D1Database; ASSETS: Fetcher }
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -306,6 +306,28 @@ app.post('/api/share', async (c) => {
       .bind(code, body.name.trim(), payload, Date.now()),
   ])
   return c.json({ code })
+})
+
+const escapeHtml = (s: string) =>
+  s.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]!))
+
+// 分享連結貼到 LINE/Discord 時要有像樣的預覽:/import 先進 worker,
+// 有 share 參數就把牌組名與筆數塞進 og: 標籤,其餘原樣回 SPA shell。
+app.get('/import', async (c) => {
+  const shell = await c.env.ASSETS.fetch(new URL('/', c.req.url))
+  const code = c.req.query('share')
+  if (code === undefined || code === '') return shell
+  const row = await c.env.DB.prepare('SELECT name, payload FROM shares WHERE code = ?')
+    .bind(code).first<{ name: string; payload: string }>().catch(() => null)
+  if (row === null) return shell
+  const count = (JSON.parse(row.payload) as unknown[]).length
+  const meta =
+    `<meta property="og:title" content="${escapeHtml(row.name)} — 字卡牌組分享">` +
+    `<meta property="og:description" content="${count} 個單字,點開直接匯入">` +
+    `<meta property="og:type" content="website">`
+  return new HTMLRewriter()
+    .on('head', { element(el) { el.append(meta, { html: true }) } })
+    .transform(shell)
 })
 
 app.get('/api/share/:code', async (c) => {

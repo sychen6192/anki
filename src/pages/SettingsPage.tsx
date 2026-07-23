@@ -5,6 +5,9 @@ import { exportBackup, importBackup } from '../lib/backup'
 import { download } from '../lib/download'
 import { syncNow } from '../lib/sync'
 import { generateSyncKey, getSyncSpace, setSyncSpace, clearLocalData } from '../lib/space'
+import { getThemePref, setThemePref, type ThemePref } from '../lib/theme'
+
+const THEME_LABELS: Record<ThemePref, string> = { system: '跟隨系統', light: '淺色', dark: '深色' }
 import { useBusy } from '../lib/useBusy'
 
 export default function SettingsPage() {
@@ -14,6 +17,7 @@ export default function SettingsPage() {
   const [keyInput, setKeyInput] = useState<string | null>(null)
   const [showKey, setShowKey] = useState(false)
   const [autoSpeak, setAutoSpeak] = useState(() => localStorage.getItem('auto-speak') === '1')
+  const [theme, setTheme] = useState<ThemePref>(() => getThemePref())
   // 三個動作共用一把鎖:其中兩個會清空本機資料,不該在另一個跑到一半時插隊
   const [busy, run] = useBusy()
 
@@ -91,6 +95,16 @@ export default function SettingsPage() {
           一組金鑰 = 一個獨立空間;多台裝置填同一組會同步到一起,記得抄下來。
           金鑰就是這個空間的密碼,別用好猜的。換金鑰會先清空本機(雲端不動)再重新同步。
         </p>
+      </div>
+
+      <h2>外觀</h2>
+      <div className="settings-block">
+        <div className="tabs">
+          {(['system', 'light', 'dark'] as const).map((p) => (
+            <button key={p} className={`tab${theme === p ? ' active' : ''}`}
+              onClick={() => { setThemePref(p); setTheme(p) }}>{THEME_LABELS[p]}</button>
+          ))}
+        </div>
       </div>
 
       <h2>複習</h2>

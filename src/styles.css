@@ -3,7 +3,7 @@
    所有元件走變數,深淺色一次切換。
    ============================================================ */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 
   --bg: #f5f5f6;
   --surface: #ffffff;
@@ -51,9 +51,10 @@
     "Yu Gothic", "Meiryo", sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1013;
+/* 深色 token:由 lib/theme.ts 解析(系統偏好或手動鎖定)後寫進 data-theme */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1013;
     --surface: #17181c;
     --surface-2: #1c1d22;
     --text: #e8e8ec;
@@ -84,7 +85,6 @@
 
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px rgb(0 0 0 / 0.35);
     --shadow-md: 0 2px 8px rgb(0 0 0 / 0.35), 0 10px 28px rgb(0 0 0 / 0.45);
-  }
 }
 
 * { box-sizing: border-box; margin: 0; }
@@ -221,6 +221,7 @@ textarea { resize: vertical; }
 .today-line b { font-variant-numeric: tabular-nums; }
 
 .settings-block label.check-row { flex-direction: row; align-items: center; }
+.settings-block .tabs { margin-bottom: 0; }
 .expression { font-size: 46px; font-weight: 700; letter-spacing: -0.01em; text-align: center; line-height: 1.25; overflow-wrap: anywhere; }
 /* 反向卡的正面是「意思」,常常是一整句 —— 46px 會爆成三四行,長文降級 */
 .expression.long { font-size: 27px; line-height: 1.45; }
@@ -287,6 +288,21 @@ textarea { resize: vertical; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
+
+/* 評分後的短暫回饋(可復原) */
+.rate-toast {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  z-index: 40;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 8px 8px 16px;
+  background: var(--surface); color: var(--muted);
+  border: 1px solid var(--border-strong); border-radius: 999px;
+  box-shadow: var(--shadow-md); font-size: 13.5px; font-weight: 550;
+  animation: banner-in .25s cubic-bezier(.2, .8, .2, 1);
+}
+.rate-toast .link { color: var(--primary); min-height: 32px; }
+@media (prefers-reduced-motion: reduce) { .rate-toast { animation: none; } }
 
 /* 有新版可用時從底部滑出的提示 */
 .update-banner {
@@ -464,9 +480,11 @@ input[type="file"]::file-selector-button {
 .stat-tile b { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 .stat-tile span { font-size: 12.5px; color: var(--faint); font-weight: 550; }
 
-.heatmap {
-  display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 12px);
-  gap: 3px; justify-content: center; padding: 4px 0;
+.heatmap { display: flex; gap: 3px; justify-content: center; padding: 4px 0; overflow-x: auto; }
+.heat-week { display: flex; flex-direction: column; gap: 3px; }
+.heat-month {
+  height: 13px; width: 12px; font-size: 10px; line-height: 1.2;
+  color: var(--faint); white-space: nowrap; overflow: visible;
 }
 .heat-cell {
   width: 12px; height: 12px; border-radius: 3px;
@@ -497,6 +515,8 @@ input[type="file"]::file-selector-button {
 .recharts-default-tooltip .recharts-tooltip-item { color: var(--text) !important; }
 /* hover 時蓋在長條上的游標矩形,預設 #ccc 在深色下是一塊亮斑 */
 .recharts-tooltip-cursor { fill: color-mix(in srgb, var(--text) 8%, transparent); }
+/* 座標軸文字跟著主題,別停在 recharts 預設的深灰 */
+.recharts-cartesian-axis-tick text { fill: var(--faint); }
 .state-dist { display: flex; align-items: center; gap: 20px; padding: 18px; }
 .dist-legend { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .dist-legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }

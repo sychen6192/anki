@@ -69,8 +69,17 @@ export default function StatsPage() {
   const todayCount = stamps.filter((ts) => ts >= today).length
   const streak = streakDays(stamps, today)
   const heatDays = lastNDays(stamps, today, HEAT_WEEKS * 7)
-  // 讓格子照星期對齊:第一天不是週日就先塞空格
+  // 讓格子照星期對齊:第一天不是週日就先塞空格,再切成一週一欄
   const heatPad = new Date(heatDays[0].start).getDay()
+  const cells: ({ start: number; count: number } | null)[] =
+    [...Array<null>(heatPad).fill(null), ...heatDays]
+  const weeks: (typeof cells)[] = []
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7))
+  // 每欄第一天所在的月份,和前一欄不同才標(第一欄一定標)
+  const monthOf = (w: (typeof cells)) => {
+    const first = w.find((d) => d !== null)
+    return first === undefined ? -1 : new Date(first.start).getMonth()
+  }
 
   return (
     <div>
@@ -85,14 +94,20 @@ export default function StatsPage() {
       <h2>複習熱力圖</h2>
       <div className="chart-block">
         <div className="heatmap" role="img" aria-label={`過去 ${HEAT_WEEKS} 週每日複習量`}>
-          {Array.from({ length: heatPad }, (_, i) => <span key={`pad-${i}`} className="heat-cell pad" />)}
-          {heatDays.map((d) => {
-            const dt = new Date(d.start)
-            return (
-              <span key={d.start} className="heat-cell" style={{ background: heatColor(d.count) }}
-                title={`${dt.getMonth() + 1}/${dt.getDate()}:${d.count} 張`} />
-            )
-          })}
+          {weeks.map((w, i) => (
+            <div className="heat-week" key={i}>
+              <span className="heat-month">
+                {(i === 0 || monthOf(w) !== monthOf(weeks[i - 1])) && monthOf(w) >= 0
+                  ? `${monthOf(w) + 1}月` : ''}
+              </span>
+              {w.map((d, j) => d === null
+                ? <span key={j} className="heat-cell pad" />
+                : (
+                  <span key={j} className="heat-cell" style={{ background: heatColor(d.count) }}
+                    title={`${new Date(d.start).getMonth() + 1}/${new Date(d.start).getDate()}:${d.count} 張`} />
+                ))}
+            </div>
+          ))}
         </div>
         <div className="heat-legend" aria-hidden="true">
           少

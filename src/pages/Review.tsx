@@ -28,6 +28,10 @@ export default function Review() {
   const [undoable, setUndoable] = useState<{ card: CardRecord; logId: string } | null>(null)
   const [tick, setTick] = useState(() => Date.now())
   const [doneStats, setDoneStats] = useState<{ count: number; correct: number } | null>(null)
+  // 評分後短暫出現的回饋(評了什麼、多久後再見、可立即復原)
+  const [toast, setToast] = useState<{ label: string; interval: string } | null>(null)
+  const toastTimer = useRef(0)
+  useEffect(() => () => clearTimeout(toastTimer.current), [])
   const [editing, setEditing] = useState<{ expression: string; reading: string; meaning: string; accent: string } | null>(null)
   const answering = useRef(false)
   // 這次 session 裡跳過的卡片。只存在記憶體,離開複習畫面就重來 —— 跳過是
@@ -85,6 +89,9 @@ export default function Review() {
       // 評分已儲存成功,先清掉舊錯誤——loadNext 若失敗是另一回事,不代表評分沒存到。
       setErrMsg(null)
       setUndoable({ card: answered, logId })
+      setToast({ label: RATING_LABELS[rating], interval: previewIntervals(answered)[rating] })
+      clearTimeout(toastTimer.current)
+      toastTimer.current = window.setTimeout(() => setToast(null), 4000)
       try {
         await loadNext()
       } catch {
@@ -275,6 +282,13 @@ export default function Review() {
               <small>{preview[r]}</small>
             </button>
           ))}
+        </div>
+      )}
+
+      {toast !== null && undoable !== null && (
+        <div className="rate-toast" role="status">
+          <span>{toast.label} · {toast.interval}後再見</span>
+          <button className="link" onClick={() => { setToast(null); void undo() }}>復原</button>
         </div>
       )}
 
