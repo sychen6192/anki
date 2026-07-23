@@ -4,12 +4,13 @@
   // 本地 wrangler 4.110 的 workerd 最高支援到 2026-07-15,別設更新的(會起不來)
   "compatibility_date": "2026-07-15",
   "compatibility_flags": ["nodejs_compat"],
-  // run_worker_first:/import 先進 worker(分享連結要動態塞 og: 預覽標籤),其餘照舊直出靜態檔
+  // run_worker_first 一旦設了就是白名單:沒列到的路徑全走資產層(含 SPA fallback),
+  // 不會再進 worker —— /api/* 必須一起列,漏了它同步會拿到 index.html 而不是 JSON。
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application",
     "binding": "ASSETS",
-    "run_worker_first": ["/import"]
+    "run_worker_first": ["/import", "/api/*"]
   },
   "d1_databases": [
     // database_id 在 Task 14 執行 `wrangler d1 create` 後填入;local dev/test 不需要真 id
