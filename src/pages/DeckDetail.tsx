@@ -169,18 +169,27 @@ export default function DeckDetail() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const { code } = await res.json() as { code: string }
       const url = `${location.origin}/import?share=${code}`
-      if (typeof navigator.share === 'function') {
-        await navigator.share({ title: `字卡牌組:${deck.name}`, url })
-        setShareMsg('已分享')
-      } else {
-        await navigator.clipboard.writeText(url)
-        setShareMsg('連結已複製,貼給朋友就能匯入')
-      }
       setErrMsg(null)
+      // 系統分享面板只給觸控裝置:桌機的 navigator.share 也存在,但 macOS 的
+      // popover 常沒人注意到,await 不會 resolve,busy 鎖住整頁按鈕 =「卡死」。
+      if (typeof navigator.share === 'function' && matchMedia('(hover: none)').matches) {
+        try {
+          await navigator.share({ title: `字卡牌組:${deck.name}`, url })
+          setShareMsg('已分享')
+          return
+        } catch (e) {
+          // 自己關掉面板 → 收工;其他失敗(如上傳太久手勢過期)→ 落到複製
+          if (e instanceof DOMException && e.name === 'AbortError') { setShareMsg(null); return }
+        }
+      }
+      try {
+        await navigator.clipboard.writeText(url)
+        setShareMsg(`已複製連結:${url}`)
+      } catch {
+        setShareMsg(`連結(請手動複製):${url}`)
+      }
     } catch (e) {
       setShareMsg(null)
-      // 使用者自己關掉分享面板不是錯誤
-      if (e instanceof DOMException && e.name === 'AbortError') return
       setErrMsg(`分享失敗:${e instanceof Error ? e.message : String(e)}`)
     }
   })
