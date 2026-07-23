@@ -6,7 +6,13 @@ import type {
 } from '../../shared/types'
 import { getSyncSpace } from './space'
 
-export interface SyncResult { ok: boolean; skipped?: boolean; error?: string }
+export interface SyncResult {
+  ok: boolean
+  skipped?: boolean
+  /** skipped 的原因:離線 / 全新安裝還沒選金鑰 / 同步中被換了空間 */
+  reason?: 'offline' | 'first-run' | 'switched'
+  error?: string
+}
 
 // Cap each push POST at this many rows so a big first sync (e.g. importing an
 // 869-note deck) can't blow past Cloudflare's per-invocation subrequest limit —
@@ -131,7 +137,16 @@ async function reconcile(): Promise<number> {
 }
 
 export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult> {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return { ok: false, skipped: true }
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return { ok: false, skipped: true, reason: 'offline' }
+  }
+  // 首次啟動閘門:還沒選過金鑰(meta 缺列)且本機全空 = 全新安裝。
+  // 這時不能自動同步 —— 預設空間是公用的,一同步就把別人的資料整包拉下來。
+  // 等使用者在牌組頁的首次選擇(或設定頁儲存金鑰)後才開始同步。
+  // 本機已有資料的舊安裝不受影響(沒 meta 列也照常同步,行為與過去相同)。
+  if ((await db.meta.get('sync_space')) === undefined && (await db.decks.count()) === 0) {
+    return { ok: false, skipped: true, reason: 'first-run' }
+  }
   const space = await getSyncSpace()
   try {
     // --- push ---
@@ -189,15 +204,42 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
       await db.meta.put({ key: 'sync_cursor', value: data.seq })
       await db.meta.put({ key: 'last_sync_at', value: Date.now() })
     })
-    if (switched) return { ok: false, skipped: true }
+    if (switched) return { ok: false, skipped: true, reason: 'switched' }
+    await db.meta.delete('sync_error')
     return { ok: true }
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    const message = e instanceof Error ? e.message : String(e)
+    // 背景同步的失敗沒有畫面可報,寫進 meta 讓導覽列紅點/牌組頁橫幅撿去顯示
+    await db.meta.put({ key: 'sync_error', value: message }).catch(() => {})
+    return { ok: false, error: message }
   }
+}
+
+let pendingSync: ReturnType<typeof setTimeout> | undefined
+
+/**
+ * 資料異動後的延遲同步:匯入、編輯、改設定之後呼叫。
+ * debounce 幾秒讓連續操作(逐張編輯、連按開關)合併成一次請求。
+ */
+export function requestSync(delayMs = 3000, fetchFn: typeof fetch = fetch): void {
+  clearTimeout(pendingSync)
+  pendingSync = setTimeout(() => { void syncNow(fetchFn) }, delayMs)
 }
 
 export function setupAutoSync(): void {
   const run = () => { void syncNow() }
   window.addEventListener('online', run)
-  run()
+  // 手機上的 PWA 常駐背景、很少冷啟動 —— 回到前景也要同步,
+  // 但切分頁會讓 visibilitychange 連發,60 秒內只跑一次
+  let lastRun = 0
+  const guarded = () => {
+    if (Date.now() - lastRun < 60_000) return
+    lastRun = Date.now()
+    run()
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') guarded()
+  })
+  setInterval(guarded, 15 * 60_000) // 長開不動的頁面(桌機掛著)每 15 分鐘補一次
+  guarded()
 }

@@ -406,6 +406,35 @@ textarea { resize: vertical; }
 }
 .notice .link { padding: 2px 6px; color: var(--primary); }
 
+/* 首次啟動的金鑰選擇卡(掛在 .notice 上,直排) */
+.notice.onboard { display: block; padding: 14px; }
+.notice.onboard .form-actions { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.notice.onboard .hint { margin-top: 6px; }
+.key-code { font-family: ui-monospace, monospace; user-select: all; }
+
+/* 同步失敗:導覽列紅點 + 牌組頁橫幅 */
+.sync-error-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--danger); margin-left: 5px; flex-shrink: 0;
+}
+.notice.sync-error {
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+.notice.sync-error .link { color: var(--danger); }
+
+/* 卡片列表:排序下拉與每行的狀態小標 */
+.list-controls { display: flex; gap: 8px; margin-bottom: 14px; }
+.list-controls .search-wrap { flex: 1; margin-bottom: 0; }
+.sort-select { flex-shrink: 0; max-width: 40%; }
+.stats-deck-filter { display: block; width: 100%; max-width: none; margin-bottom: 16px; }
+.note-state {
+  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  padding: 1px 7px; border-radius: 999px;
+  border: 1px solid currentColor; opacity: .85;
+}
+.note-state.faint { color: var(--faint); }
+
 .guide-lead { color: var(--muted); margin: -10px 0 8px; }
 .guide-steps { margin: 0 0 0 22px; display: flex; flex-direction: column; gap: 8px; }
 ul.guide-steps { list-style: disc; }

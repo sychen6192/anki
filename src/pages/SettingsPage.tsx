@@ -10,8 +10,17 @@ import { getThemePref, setThemePref, type ThemePref } from '../lib/theme'
 const THEME_LABELS: Record<ThemePref, string> = { system: '跟隨系統', light: '淺色', dark: '深色' }
 import { useBusy } from '../lib/useBusy'
 
+/** SyncResult 轉人話;skipped 的各種原因分開講 */
+function syncMessage(r: { ok: boolean; reason?: string; error?: string }, okText: string): string {
+  if (r.ok) return okText
+  if (r.reason === 'offline') return '目前離線,已跳過'
+  if (r.reason === 'first-run') return '還沒選擇同步金鑰 —— 按「產生一組」建立,或儲存空白金鑰使用公用空間'
+  return `同步失敗:${r.error}`
+}
+
 export default function SettingsPage() {
   const lastSync = useLiveQuery(() => db.meta.get('last_sync_at'), [])
+  const syncError = useLiveQuery(() => db.meta.get('sync_error'), [])
   const currentSpace = useLiveQuery(() => getSyncSpace(), [])
   const [msg, setMsg] = useState('')
   const [keyInput, setKeyInput] = useState<string | null>(null)
@@ -24,7 +33,7 @@ export default function SettingsPage() {
   const doSync = () => run(async () => {
     setMsg('同步中…')
     const r = await syncNow()
-    setMsg(r.ok ? '✓ 同步完成' : r.skipped ? '目前離線,已跳過' : `同步失敗:${r.error}`)
+    setMsg(syncMessage(r, '✓ 同步完成'))
   })
 
   const saveKey = () => run(async () => {
@@ -35,7 +44,8 @@ export default function SettingsPage() {
     setKeyInput(null)
     setMsg('金鑰已更新,同步中…')
     const r = await syncNow()
-    setMsg(r.ok ? '✓ 已切換空間並同步完成' : r.skipped ? '金鑰已更新(目前離線)' : `同步失敗:${r.error}`)
+    setMsg(r.ok ? '✓ 已切換空間並同步完成'
+      : r.reason === 'offline' ? '金鑰已更新(目前離線)' : syncMessage(r, ''))
   })
 
   const doClearLocal = () => run(async () => {
@@ -43,7 +53,8 @@ export default function SettingsPage() {
     await clearLocalData()
     setMsg('本機已清空,重新同步中…')
     const r = await syncNow()
-    setMsg(r.ok ? '✓ 已清空並重新同步' : r.skipped ? '本機已清空(目前離線)' : `同步失敗:${r.error}`)
+    setMsg(r.ok ? '✓ 已清空並重新同步'
+      : r.reason === 'offline' ? '本機已清空(目前離線)' : syncMessage(r, ''))
   })
 
   const restoreBackup = (file: File) => run(async () => {
@@ -64,6 +75,9 @@ export default function SettingsPage() {
         <p className="hint">
           上次同步:{lastSync ? new Date(lastSync.value).toLocaleString('zh-TW') : '從未'}
         </p>
+        {syncError !== undefined && (
+          <p className="err" role="alert">上次同步失敗:{String(syncError.value)}</p>
+        )}
         <button className="btn" disabled={busy} onClick={() => void doSync()}>立即同步</button>
         {msg && <p role="status" aria-live="polite">{msg}</p>}
       </div>

@@ -36,7 +36,12 @@ export async function clearLocalData(): Promise<void> {
  */
 export async function setSyncSpace(key: string): Promise<void> {
   const next = key.trim()
-  if (next === (await getSyncSpace())) return
+  if (next === (await getSyncSpace())) {
+    // 值沒變也要把 meta 列寫下來:全新安裝時 meta 缺列 =「還沒選過」,
+    // 首次啟動閘門(syncNow)靠這一列分辨「明確選了公用空間」與「還沒選」。
+    await db.meta.put({ key: 'sync_space', value: next })
+    return
+  }
   // 換空間:清空本機四表 + 游標歸零 + 寫新金鑰,全部同一交易(與 syncNow 的併入交易互斥,杜絕競態)
   await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.meta], async () => {
     await db.decks.clear()

@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto'
 import { beforeEach, describe, it, expect, vi, afterEach } from 'vitest'
 import { db } from '../src/db/db'
 import { createDeck, createNote, softDeleteDeck } from '../src/db/repo'
-import { syncNow } from '../src/lib/sync'
+import { requestSync, syncNow } from '../src/lib/sync'
 import { getSyncSpace, setSyncSpace, clearLocalData } from '../src/lib/space'
 
 type Row = Record<string, any>
@@ -336,5 +336,86 @@ describe('sync namespace / space', () => {
 
     await syncNow(fetchFn)
     expect(await db.decks.get('x')).toBeUndefined() // 舊空間資料未被併入 new 空間
+  })
+})
+
+describe('首次啟動閘門與同步錯誤旗標', () => {
+  it('全新安裝(沒選過金鑰、本機無資料)不自動同步,避免拉進公用空間資料', async () => {
+    const server = makeServer()
+    server.inject('decks', { id: 'd1', name: '別人的牌組', new_per_day: 20, updated_at: 1000, deleted: 0 })
+    const r = await syncNow(server.fetchFn)
+    expect(r.ok).toBe(false)
+    expect(r.skipped).toBe(true)
+    expect(r.reason).toBe('first-run')
+    expect(await db.decks.count()).toBe(0) // 沒把公用空間的資料拉下來
+  })
+
+  it('選過金鑰(即使是空白=公用空間)之後照常同步', async () => {
+    const server = makeServer()
+    server.inject('decks', { id: 'd1', name: '公用牌組', new_per_day: 20, updated_at: 1000, deleted: 0 })
+    await setSyncSpace('')
+    const r = await syncNow(server.fetchFn)
+    expect(r.ok).toBe(true)
+    expect(await db.decks.count()).toBe(1)
+  })
+
+  it('沒選過金鑰但本機已有資料(舊版升級上來)照常同步', async () => {
+    const server = makeServer()
+    await createDeck('既有資料')
+    const r = await syncNow(server.fetchFn)
+    expect(r.ok).toBe(true)
+    expect(server.tables.decks.size).toBe(1)
+  })
+
+  it('同步失敗寫入 sync_error meta,下次成功後清掉', async () => {
+    await setSyncSpace('')
+    const failFetch = (async () => new Response('boom', { status: 500 })) as typeof fetch
+    await createDeck('A')
+    const r = await syncNow(failFetch)
+    expect(r.ok).toBe(false)
+    const err = await db.meta.get('sync_error')
+    expect(typeof err?.value).toBe('string')
+    expect(String(err!.value)).toContain('500')
+
+    const r2 = await syncNow(makeServer().fetchFn)
+    expect(r2.ok).toBe(true)
+    expect(await db.meta.get('sync_error')).toBeUndefined()
+  })
+
+  it('離線跳過不算失敗,不寫 sync_error', async () => {
+    vi.stubGlobal('navigator', { onLine: false })
+    const r = await syncNow(makeServer().fetchFn)
+    expect(r.skipped).toBe(true)
+    expect(await db.meta.get('sync_error')).toBeUndefined()
+  })
+})
+
+describe('requestSync(資料異動後的延遲同步)', () => {
+  it('debounce:短時間多次呼叫只同步一次', async () => {
+    // Dexie/fake-indexeddb 內部靠 setImmediate 排程,全部 fake 會讓資料庫操作卡死,
+    // 所以先在真實計時器下備妥資料,只 fake setTimeout/clearTimeout 來驗 debounce
+    await setSyncSpace('')
+    await createDeck('A')
+    let posts = 0
+    const countingFetch = (async (_input: any, init?: any) => {
+      if (init?.method === 'POST') posts += 1
+      return new Response(JSON.stringify(
+        init?.method === 'POST' ? { ok: true } : { decks: [], notes: [], cards: [], review_logs: [], seq: 0 },
+      ))
+    }) as typeof fetch
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      requestSync(1000, countingFetch)
+      requestSync(1000, countingFetch)
+      requestSync(1000, countingFetch)
+      await vi.advanceTimersByTimeAsync(1500) // 只觸發最後一個 pending timer
+    } finally {
+      vi.useRealTimers()
+    }
+    // syncNow 是 fire-and-forget,回到真實計時器後等它跑完
+    await vi.waitFor(() => { expect(posts).toBeGreaterThan(0) })
+    await new Promise((r) => setTimeout(r, 50)) // 若 debounce 失效,其餘兩次會在這期間冒出來
+    expect(posts).toBe(1)
   })
 })

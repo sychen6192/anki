@@ -1,5 +1,7 @@
 import { useTransition } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { db } from '../db/db'
 
 export interface Tab { to: string; label: string; prefetch?: () => Promise<unknown> }
 
@@ -15,6 +17,8 @@ export interface Tab { to: string; label: string; prefetch?: () => Promise<unkno
 export function TopNav({ tabs }: { tabs: Tab[] }) {
   const navigate = useNavigate()
   const [pending, startTransition] = useTransition()
+  // 背景同步失敗時在「設定」分頁掛個紅點,不打斷正在複習的人
+  const syncError = useLiveQuery(() => db.meta.get('sync_error'), [])
 
   return (
     <>
@@ -30,7 +34,12 @@ export function TopNav({ tabs }: { tabs: Tab[] }) {
               e.preventDefault()
               startTransition(() => navigate(to))
             }}
-          >{label}</NavLink>
+          >
+            {label}
+            {to === '/settings' && syncError !== undefined && (
+              <span className="sync-error-dot" title="上次同步失敗" aria-label="上次同步失敗" />
+            )}
+          </NavLink>
         ))}
       </nav>
       <div className={`route-progress${pending ? ' active' : ''}`} aria-hidden="true" />
