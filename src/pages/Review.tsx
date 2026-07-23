@@ -7,7 +7,7 @@ import { PencilIcon, SkipIcon, UndoIcon } from '../components/icons'
 import { Loading } from '../components/Loading'
 import { db } from '../db/db'
 import { applyReview, undoReview, updateNote } from '../db/repo'
-import { formatInterval, previewIntervals, rate, type RatingValue } from '../lib/fsrs'
+import { formatInterval, previewIntervals, rate, State, type RatingValue } from '../lib/fsrs'
 import { deckQueue, startOfToday } from '../lib/queue'
 import { syncNow } from '../lib/sync'
 import type { CardRecord, NoteRecord } from '../../shared/types'
@@ -40,6 +40,11 @@ export default function Review() {
   // 進度條用:記住這次 session 見過的最大待複習數。按「重來」會讓待複習數
   // 回升,取最大值當分母,進度條就不會倒退。
   const [sessionMax, setSessionMax] = useState(0)
+  // 「再學 N 張新卡」:今日額度用完後自願加碼。只存在記憶體,離開頁面歸零,
+  // 不動牌組設定 —— 明天的額度照舊。
+  const bonusNew = useRef(0)
+  const [moreNew, setMoreNew] = useState(0)
+  const newPerDayRef = useRef(20)
 
   /** preferCardId:復原時用,讓剛還原的那張卡直接回到眼前,而不是排到佇列尾端 */
   const loadNext = useCallback(async (preferCardId?: string) => {
@@ -47,21 +52,34 @@ export default function Review() {
     if (!deck || deck.deleted) { setMissing(true); return }
     const cards = await db.cards.where('deck_id').equals(deckId!).toArray()
     const logs = await db.review_logs.where('reviewed_at').aboveOrEqual(startOfToday()).toArray()
-    const built = deckQueue(deckId!, deck.new_per_day, cards, logs)
+    newPerDayRef.current = deck.new_per_day
+    const built = deckQueue(deckId!, deck.new_per_day + bonusNew.current, cards, logs)
     const nextLearningDue = built.nextLearningDue
     const queue = built.queue.filter((c) => !skipped.current.has(c.id))
-    if (queue.length === 0) {
+    // 復原時優先回到那張卡。它可能已不在佇列裡 —— undoReview 會推進 updated_at
+    // (LWW 傳播用),新卡按 updated_at 排序就會把它擠出每日上限的切片 ——
+    // 這種情況直接把卡撈回來顯示,不然「復原上一張」會跳到別張卡。
+    const preferred = preferCardId
+      ? queue.find((c) => c.id === preferCardId)
+        ?? cards.find((c) => c.id === preferCardId && !c.deleted)
+      : undefined
+    if (queue.length === 0 && preferred === undefined) {
       // 完成畫面的今日成績:這副牌組今天複習幾張、一次就答對的比例
       const cardIds = new Set(cards.map((c) => c.id))
       const deckLogs = logs.filter((l) => cardIds.has(l.card_id))
       setDoneStats({ count: deckLogs.length, correct: deckLogs.filter((l) => l.rating > 1).length })
+      // 額度用完但牌組裡還有新卡 → 完成畫面給「再學一點」的選項
+      setMoreNew(cards.filter(
+        (c) => !c.deleted && c.state === State.New && !skipped.current.has(c.id),
+      ).length)
       setCurrent(null)
       setDone(true)
       setNextDue(nextLearningDue)
       void syncNow() // 複習結束觸發同步
       return
     }
-    const card = (preferCardId && queue.find((c) => c.id === preferCardId)) || queue[0]
+    const card = preferred ?? queue[0]
+    const inQueue = queue.some((c) => c.id === card.id)
     const note = await db.notes.get(card.note_id)
     if (!note) {
       setErrMsg('卡片資料缺失')
@@ -70,8 +88,8 @@ export default function Review() {
       return
     }
     setCurrent({ card, note })
-    setRemaining(queue.length)
-    setSessionMax((m) => Math.max(m, queue.length))
+    setRemaining(queue.length + (inQueue ? 0 : 1))
+    setSessionMax((m) => Math.max(m, queue.length + (inQueue ? 0 : 1)))
     setShowBack(false)
     setDone(false)
     setNextDue(null)
@@ -161,11 +179,12 @@ export default function Review() {
       if (e.key === ' ') { e.preventDefault(); setShowBack(true) }
       else if (e.key === 'e') { e.preventDefault(); setEditing(currentNoteFields()) }
       else if (e.key === 's') { e.preventDefault(); void skip() }
+      else if (e.key === 'u') { e.preventDefault(); void undo() }
       else if (showBack && ['1', '2', '3', '4'].includes(e.key)) void answer(Number(e.key) as RatingValue)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [showBack, answer, editing, skip, currentNoteFields])
+  }, [showBack, answer, editing, skip, undo, currentNoteFields])
 
   // 翻面自動唸讀音(設定頁開關;進頁面時讀一次就好)
   const autoSpeak = useRef(typeof localStorage !== 'undefined' && localStorage.getItem('auto-speak') === '1')
@@ -219,10 +238,19 @@ export default function Review() {
             <button className="btn secondary" onClick={() => void loadNext()}>現在繼續</button>
           </>
         ))}
+        {moreNew > 0 && (
+          <button className="btn" onClick={() => {
+            bonusNew.current += newPerDayRef.current > 0 ? newPerDayRef.current : 20
+            void loadNext()
+          }}>
+            再學 {Math.min(newPerDayRef.current > 0 ? newPerDayRef.current : 20, moreNew)} 張新卡
+            {moreNew > newPerDayRef.current && <span className="kbd-hint">(還有 {moreNew} 張)</span>}
+          </button>
+        )}
         {undoable && (
           <button className="btn secondary" onClick={() => void undo()}>復原上一次評分</button>
         )}
-        <Link to="/" className="btn">回牌組列表</Link>
+        <Link to="/" className={moreNew > 0 ? 'btn secondary' : 'btn'}>回牌組列表</Link>
       </div>
     )
   }
@@ -242,7 +270,7 @@ export default function Review() {
       </div>
       <div className="review-head">
         {undoable
-          ? <button className="link icon-link" onClick={() => void undo()}><UndoIcon size={15} />復原上一張</button>
+          ? <button className="link icon-link" onClick={() => void undo()}><UndoIcon size={15} />復原上一張<span className="kbd-hint">(U)</span></button>
           : <span />}
         <p className="remaining">剩 {remaining} 張</p>
       </div>

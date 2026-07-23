@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
 import { createDeck, createNotes } from '../db/repo'
+import { requestSync } from '../lib/sync'
 import {
   autoMapHeaders, dedupeRows, mapRows, noteKey, parseCsv,
   type CsvMapping, type ParsedRow,
@@ -49,7 +50,10 @@ export default function ImportPage() {
   )
   const [deckId, setDeckId] = useState('new')
   const [newDeckName, setNewDeckName] = useState('')
+  const [withReverse, setWithReverse] = useState(false)
   const [summary, setSummary] = useState<Summary | null>(null)
+  // 最近一次匯入寫進哪副牌組 —— 摘要裡給「開始複習/查看牌組」的直達連結
+  const [lastDeckId, setLastDeckId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [errMsg, setErrMsg] = useState('')
 
@@ -169,9 +173,14 @@ export default function ImportPage() {
       }
     }
 
-    await createNotes(targetId, toCreate.map((r) => ({ ...r, reversed: false })))
+    await createNotes(targetId, toCreate.map((r) => ({ ...r, reversed: withReverse })))
     setSummary({ imported: toCreate.length, skipped, annotated, missed, annotateSkipped, otherSkipped })
+    setLastDeckId(targetId)
+    // 目標牌組切到剛匯入的那副:再按一次「匯入」會走去重,而不是又建一副同名新牌組
+    setDeckId(targetId)
+    setNewDeckName('')
     setErrMsg('')
+    requestSync() // 匯入完成就推上雲端,不用等下次複習結束
   }
 
   const doImport = async () => {
@@ -241,6 +250,8 @@ export default function ImportPage() {
               <div className="template-info">
                 <b>{shared.name}</b>
                 <p className="hint">朋友分享的牌組,{shared.rows.length} 筆</p>
+                <label className="check-row"><input type="checkbox" checked={withReverse}
+                  onChange={(e) => setWithReverse(e.target.checked)} /> 同時建立反向卡</label>
               </div>
               <button className="btn" disabled={busy} onClick={() => void importShared()}>
                 {busy ? '匯入中…' : '匯入'}
@@ -276,6 +287,8 @@ export default function ImportPage() {
         {mode === 'templates' && (
           <>
             <p className="hint">選一份直接開始。重音自動標;重複匯入只補新字,不會重複。</p>
+            <label className="check-row"><input type="checkbox" checked={withReverse}
+              onChange={(e) => setWithReverse(e.target.checked)} /> 同時建立反向卡(意思→單字)</label>
             {DECK_TEMPLATES.map((t) => (
               <div className="template-card" key={t.id}>
                 <div className="template-info">
@@ -297,7 +310,12 @@ export default function ImportPage() {
               onChange={async (e) => {
                 const f = e.target.files?.[0]
                 e.target.value = '' // 清掉選檔紀錄,否則選同一個檔案第二次不會觸發
-                if (f) onTextLoaded(await f.text())
+                if (!f) return
+                // 檔名當牌組名的預設值,免得沒填名稱默默生出一副「新牌組」
+                if (deckId === 'new' && newDeckName.trim() === '') {
+                  setNewDeckName(f.name.replace(/\.csv$/i, ''))
+                }
+                onTextLoaded(await f.text())
               }} />
             <textarea rows={5} placeholder="或直接貼上 CSV 內容" value={text}
               onChange={(e) => onTextLoaded(e.target.value)} />
@@ -360,6 +378,8 @@ export default function ImportPage() {
               共 {parsed.length} 筆有效資料
               {mode === 'apkg' && otherNoteCount > 0 && `,另有 ${otherNoteCount} 筆屬於其他樣板不會匯入`}
             </p>
+            <label className="check-row"><input type="checkbox" checked={withReverse}
+              onChange={(e) => setWithReverse(e.target.checked)} /> 同時建立反向卡(意思→單字)</label>
             <button className="btn" disabled={busy || parsed.length === 0} onClick={doImport}>
               {busy ? '匯入中…' : `匯入 ${parsed.length} 筆`}
             </button>
@@ -374,9 +394,21 @@ export default function ImportPage() {
               ? <p className="hint">沒連上字典,重音先空著;之後在牌組頁按「自動標註重音」補。</p>
               : <p className="hint">自動標註重音 {summary.annotated} 筆,查無 {summary.missed} 筆</p>}
             {summary.skipped.length > 0 && (
-              <ul>{summary.skipped.map((r, i) => (
-                <li key={i}>{r.expression}{r.reading && `(${r.reading})`} — {r.meaning}</li>
-              ))}</ul>
+              <>
+                {/* 只列前 10 筆:整副重匯時全列出來會生出上千個節點 */}
+                <ul>{summary.skipped.slice(0, 10).map((r, i) => (
+                  <li key={i}>{r.expression}{r.reading && `(${r.reading})`} — {r.meaning}</li>
+                ))}</ul>
+                {summary.skipped.length > 10 && (
+                  <p className="hint">…還有 {summary.skipped.length - 10} 筆重複未列出</p>
+                )}
+              </>
+            )}
+            {lastDeckId !== null && (
+              <div className="form-actions">
+                <Link to={`/review/${lastDeckId}`} className="btn">開始複習</Link>
+                <Link to={`/deck/${lastDeckId}`} className="btn secondary">查看牌組</Link>
+              </div>
             )}
           </div>
         )}

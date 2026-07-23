@@ -41,6 +41,7 @@ export default function GuidePage() {
             <tr><td><kbd>空白鍵</kbd></td><td>顯示答案</td></tr>
             <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></td><td>評分</td></tr>
             <tr><td><kbd>E</kbd> / <kbd>S</kbd></td><td>編輯 / 跳過</td></tr>
+            <tr><td><kbd>U</kbd></td><td>復原上一張</td></tr>
           </tbody>
         </table>
       </div>
@@ -48,6 +49,7 @@ export default function GuidePage() {
       <h2>每天的量</h2>
       <div className="settings-block">
         <p>新卡一天 20 張,在牌組頁的「牌組設定」調。</p>
+        <p>今天的量看完還想學?完成畫面有「再學 N 張新卡」,只加今天,不動設定。</p>
         <p className="hint">凌晨 4 點才換日,熬夜複習不會爆量。</p>
       </div>
 
