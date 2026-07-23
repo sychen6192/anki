@@ -4,6 +4,7 @@ import { db } from '../src/db/db'
 import {
   createDeck, updateDeck, softDeleteDeck,
   createNote, createNotes, updateNote, softDeleteNote, applyReview, undoReview,
+  enableReverseCards, moveNote,
 } from '../src/db/repo'
 import { rate } from '../src/lib/fsrs'
 
@@ -167,5 +168,100 @@ describe('undoReview', () => {
     expect(restored.reps).toBe(afterFirst.reps)
     expect(restored.state).toBe(afterFirst.state)
     expect(await db.review_logs.where('card_id').equals(card.id).count()).toBe(1)
+  })
+})
+
+describe('enableReverseCards', () => {
+  it('為整副牌組沒有反向卡的 note 補上反向卡', async () => {
+    const deck = await createDeck('A')
+    await createNotes(deck.id, [
+      { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' },
+      { expression: '猫', reading: 'ねこ', meaning: '貓', reversed: false, accent: '' },
+    ])
+    const changed = await enableReverseCards(deck.id)
+    expect(changed).toBe(2)
+    for (const n of await db.notes.toArray()) expect(n.reversed).toBe(1)
+    const reverses = (await db.cards.toArray()).filter((c) => c.direction === 'reverse')
+    expect(reverses).toHaveLength(2)
+    for (const c of reverses) expect(c).toMatchObject({ deck_id: deck.id, deleted: 0, dirty: 1 })
+  })
+
+  it('已有反向卡的 note 不重複建;再跑一次是 no-op', async () => {
+    const deck = await createDeck('A')
+    await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: true, accent: '' })
+    await createNote(deck.id, { expression: '猫', reading: 'ねこ', meaning: '貓', reversed: false, accent: '' })
+    expect(await enableReverseCards(deck.id)).toBe(1)
+    expect(await enableReverseCards(deck.id)).toBe(0)
+    expect((await db.cards.toArray()).filter((c) => c.direction === 'reverse')).toHaveLength(2)
+  })
+
+  it('曾勾過又取消的 note:復原原本的反向卡(保留 id 與進度),不另建新卡', async () => {
+    const deck = await createDeck('A')
+    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: true, accent: '' })
+    const rev = (await db.cards.where('note_id').equals(note.id).toArray()).find((c) => c.direction === 'reverse')!
+    await updateNote(note.id, { reversed: false })
+    expect(await enableReverseCards(deck.id)).toBe(1)
+    const after = (await db.cards.where('note_id').equals(note.id).toArray()).filter((c) => c.direction === 'reverse')
+    expect(after).toHaveLength(1)
+    expect(after[0].id).toBe(rev.id)
+    expect(after[0].deleted).toBe(0)
+  })
+
+  it('不動已刪除的 note', async () => {
+    const deck = await createDeck('A')
+    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
+    await softDeleteNote(note.id)
+    expect(await enableReverseCards(deck.id)).toBe(0)
+  })
+})
+
+describe('moveNote', () => {
+  it('note 與其所有卡片一起搬到目標牌組,並標 dirty', async () => {
+    const a = await createDeck('A')
+    const b = await createDeck('B')
+    const note = await createNote(a.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: true, accent: '' })
+    // 清掉 dirty 才能驗證搬移有重新標
+    await db.notes.update(note.id, { dirty: 0 })
+    await db.cards.where('note_id').equals(note.id).modify({ dirty: 0 })
+
+    await moveNote(note.id, b.id)
+
+    const moved = (await db.notes.get(note.id))!
+    expect(moved.deck_id).toBe(b.id)
+    expect(moved.dirty).toBe(1)
+    const cards = await db.cards.where('note_id').equals(note.id).toArray()
+    expect(cards).toHaveLength(2)
+    for (const c of cards) {
+      expect(c.deck_id).toBe(b.id)
+      expect(c.dirty).toBe(1)
+    }
+  })
+
+  it('搬移保留排程進度(due/state/reps 不變)', async () => {
+    const a = await createDeck('A')
+    const b = await createDeck('B')
+    const note = await createNote(a.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
+    const card = (await db.cards.where('note_id').equals(note.id).toArray())[0]
+    const { fields, log } = rate(card, 3)
+    await applyReview(card, fields, log)
+    const before = (await db.cards.get(card.id))!
+
+    await moveNote(note.id, b.id)
+
+    const after = (await db.cards.get(card.id))!
+    expect(after.due).toBe(before.due)
+    expect(after.state).toBe(before.state)
+    expect(after.reps).toBe(before.reps)
+  })
+})
+
+describe('createNotes 匯入順序', () => {
+  it('批次建立時 updated_at 逐筆遞增,列表才能還原匯入順序', async () => {
+    const deck = await createDeck('A')
+    const notes = await createNotes(deck.id, Array.from({ length: 5 }, (_, i) => ({
+      expression: `w${i}`, reading: '', meaning: `m${i}`, reversed: false, accent: '',
+    })))
+    const stamps = notes.map((n) => n.updated_at)
+    for (let i = 1; i < stamps.length; i++) expect(stamps[i]).toBeGreaterThan(stamps[i - 1])
   })
 })

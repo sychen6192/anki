@@ -53,13 +53,16 @@ export async function createNote(deckId: string, input: NoteInput): Promise<Note
 
 export async function createNotes(deckId: string, inputs: NoteInput[]): Promise<NoteRecord[]> {
   const t = now()
-  const notes: Local<NoteRecord>[] = inputs.map((input) => ({
+  // updated_at 逐筆 +1ms:同批匯入的 note 才有穩定的先後,列表能還原匯入順序
+  const notes: Local<NoteRecord>[] = inputs.map((input, i) => ({
     id: crypto.randomUUID(), deck_id: deckId,
     expression: input.expression.trim(), reading: input.reading.trim(), meaning: input.meaning.trim(),
     accent: input.accent.trim(),
-    reversed: input.reversed ? 1 : 0, updated_at: t, deleted: 0, dirty: 1,
+    reversed: input.reversed ? 1 : 0, updated_at: t + i, deleted: 0, dirty: 1,
   }))
-  const cards = notes.flatMap((n) => n.reversed ? [makeCard(n, 'forward', t), makeCard(n, 'reverse', t)] : [makeCard(n, 'forward', t)])
+  const cards = notes.flatMap((n) => n.reversed
+    ? [makeCard(n, 'forward', n.updated_at), makeCard(n, 'reverse', n.updated_at)]
+    : [makeCard(n, 'forward', n.updated_at)])
   await db.transaction('rw', [db.notes, db.cards], async () => {
     await db.notes.bulkAdd(notes)
     await db.cards.bulkAdd(cards)
@@ -88,6 +91,38 @@ export async function updateNote(id: string, patch: Partial<NoteInput>): Promise
     } else if (!reversed && rev && !rev.deleted) {
       await db.cards.update(rev.id, { deleted: 1, updated_at: t, dirty: 1 })
     }
+  })
+}
+
+/**
+ * 為整副牌組還沒有反向卡的 note 批次開啟反向卡。
+ * 曾勾過又取消的 note 復原原本那張(保留 id 與複習進度),與 updateNote 同一套規則。
+ * 回傳實際開啟的 note 數。
+ */
+export async function enableReverseCards(deckId: string): Promise<number> {
+  let changed = 0
+  await db.transaction('rw', [db.notes, db.cards], async () => {
+    const t = now()
+    const targets = await db.notes.where('deck_id').equals(deckId)
+      .filter((n) => !n.deleted && n.reversed === 0).toArray()
+    for (const note of targets) {
+      await db.notes.update(note.id, { reversed: 1, updated_at: t, dirty: 1 })
+      const rev = (await db.cards.where('note_id').equals(note.id).toArray())
+        .find((c) => c.direction === 'reverse')
+      if (rev && rev.deleted) await db.cards.update(rev.id, { deleted: 0, updated_at: t, dirty: 1 })
+      else if (!rev) await db.cards.add(makeCard({ ...note, reversed: 1 }, 'reverse', t))
+      changed++
+    }
+  })
+  return changed
+}
+
+/** 把 note 連同底下所有卡片搬到另一副牌組;排程進度不動。 */
+export async function moveNote(id: string, deckId: string): Promise<void> {
+  await db.transaction('rw', [db.notes, db.cards], async () => {
+    const t = now()
+    await db.notes.update(id, { deck_id: deckId, updated_at: t, dirty: 1 })
+    await db.cards.where('note_id').equals(id).modify({ deck_id: deckId, updated_at: t, dirty: 1 })
   })
 }
 

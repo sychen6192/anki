@@ -1,23 +1,45 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
 import {
-  createNote, softDeleteDeck, softDeleteNote, updateDeck, updateNote, type NoteInput,
+  createNote, enableReverseCards, moveNote, softDeleteDeck, softDeleteNote,
+  updateDeck, updateNote, type NoteInput,
 } from '../db/repo'
 import { exportCsv } from '../lib/csv'
 import { download } from '../lib/download'
 import { fillMissingAccents, isValidAccent, lookupAccents } from '../lib/accent'
 import { PitchAccent } from '../components/PitchAccent'
 import { isSpeechSupported, speak } from '../lib/speak'
+import { requestSync } from '../lib/sync'
+import { State } from '../lib/fsrs'
 import { useBusy } from '../lib/useBusy'
 import { Loading } from '../components/Loading'
 import { SpeakerIcon } from '../components/SpeakerIcon'
+import type { NoteRecord } from '../../shared/types'
 
 const EMPTY: NoteInput = { expression: '', reading: '', meaning: '', reversed: false, accent: '' }
 // 一次只掛這麼多列到 DOM;捲到底再長出下一批。整副 869 筆全部掛上去時,
 // 光是清空搜尋就要重建近千個節點,在手機上看得出頓挫。
 const PAGE_SIZE = 60
+
+type SortKey = 'added-desc' | 'added-asc' | 'kana'
+const SORTS: readonly (readonly [SortKey, string])[] = [
+  ['added-desc', '最近新增/編輯'],
+  ['added-asc', '匯入順序'],
+  ['kana', '五十音'],
+]
+
+/** 一筆 note 的複習狀態標籤(彙總它的正/反向卡):到期 > 學習中 > 新卡 > 排程中 */
+function noteStateBadge(cards: { state: number; due: number }[] | undefined, now: number) {
+  if (!cards || cards.length === 0) return null
+  if (cards.some((c) => c.state !== State.New && c.due <= now)) return { label: '到期', cls: 'c-due' }
+  if (cards.some((c) => c.state === State.Learning || c.state === State.Relearning)) {
+    return { label: '學習中', cls: 'c-learn' }
+  }
+  if (cards.every((c) => c.state === State.New)) return { label: '新', cls: 'c-new' }
+  return { label: '排程中', cls: 'faint' }
+}
 
 export default function DeckDetail() {
   const { deckId } = useParams()
@@ -26,17 +48,43 @@ export default function DeckDetail() {
   const notes = useLiveQuery(
     () => db.notes.where('deck_id').equals(deckId!).filter((n) => !n.deleted).toArray(), [deckId],
   )
+  // 列表每行的狀態標籤要看卡片;搬移牌組的下拉要牌組列表
+  const deckCards = useLiveQuery(
+    () => db.cards.where('deck_id').equals(deckId!).filter((c) => !c.deleted).toArray(), [deckId],
+  )
+  const allDecks = useLiveQuery(() => db.decks.filter((d) => !d.deleted).toArray(), [])
   const [search, setSearch] = useState('')
+  const [sort, setSort] = useState<SortKey>('added-desc')
   const [editingId, setEditingId] = useState<string | null>(null) // 'new' = 新增模式
   const [form, setForm] = useState<NoteInput>(EMPTY)
+  const [moveTo, setMoveTo] = useState<string | null>(null)
   const [deckName, setDeckName] = useState<string | null>(null)
   const [newPerDay, setNewPerDay] = useState<number | null>(null)
   const [busy, run] = useBusy()
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const sentinel = useRef<HTMLDivElement | null>(null)
 
-  // 搜尋條件變了就從頭算起
-  useEffect(() => { setVisibleCount(PAGE_SIZE) }, [search])
+  // 搜尋或排序變了就從頭算起
+  useEffect(() => { setVisibleCount(PAGE_SIZE) }, [search, sort])
+
+  const cardsByNote = useMemo(() => {
+    const m = new Map<string, { state: number; due: number }[]>()
+    for (const c of deckCards ?? []) {
+      const list = m.get(c.note_id)
+      if (list) list.push(c)
+      else m.set(c.note_id, [c])
+    }
+    return m
+  }, [deckCards])
+
+  const sorted = useMemo(() => {
+    if (!notes) return []
+    const arr: NoteRecord[] = [...notes]
+    if (sort === 'added-desc') arr.sort((a, b) => b.updated_at - a.updated_at)
+    else if (sort === 'added-asc') arr.sort((a, b) => a.updated_at - b.updated_at)
+    else arr.sort((a, b) => (a.reading || a.expression).localeCompare(b.reading || b.expression, 'ja'))
+    return arr
+  }, [notes, sort])
 
   // 捲到列表底部就再多顯示一批
   useEffect(() => {
@@ -64,9 +112,10 @@ export default function DeckDetail() {
   }
 
   const filtered = search
-    ? notes.filter((n) => [n.expression, n.reading, n.meaning].some((s) => s.includes(search)))
-    : notes
+    ? sorted.filter((n) => [n.expression, n.reading, n.meaning].some((s) => s.includes(search)))
+    : sorted
   const shown = filtered.slice(0, visibleCount)
+  const listNow = Date.now()
 
   const lookupOne = async () => {
     if (!form.expression.trim()) { setErrMsg('請先輸入單字'); return }
@@ -98,9 +147,24 @@ export default function DeckDetail() {
       })
       setAnnotateMsg(`完成:標註 ${filled} 筆,查無 ${missed} 筆`)
       setErrMsg(null)
+      requestSync()
     } catch (e) {
       setAnnotateMsg(null)
       setErrMsg(`自動標註失敗:${e instanceof Error ? e.message : String(e)}`)
+    }
+  })
+
+  const bulkReverse = () => run(async () => {
+    const missing = notes.filter((n) => n.reversed === 0).length
+    if (missing === 0) { setAnnotateMsg('所有卡片都已開啟反向卡'); return }
+    if (!confirm(`為 ${missing} 筆卡片開啟反向卡(意思→單字)?新的反向卡從新卡開始排程。`)) return
+    try {
+      const changed = await enableReverseCards(deck.id)
+      setAnnotateMsg(`已為 ${changed} 筆開啟反向卡`)
+      setErrMsg(null)
+      requestSync()
+    } catch (e) {
+      setErrMsg(`開啟反向卡失敗:${e instanceof Error ? e.message : String(e)}`)
     }
   })
 
@@ -115,10 +179,19 @@ export default function DeckDetail() {
     }
     try {
       if (editingId === 'new') await createNote(deck.id, form)
-      else if (editingId) await updateNote(editingId, form)
+      else if (editingId) {
+        await updateNote(editingId, form)
+        if (moveTo !== null && moveTo !== deck.id) {
+          await moveNote(editingId, moveTo)
+          const target = allDecks?.find((d) => d.id === moveTo)
+          setAnnotateMsg(`已把「${form.expression}」搬到「${target?.name ?? '另一副牌組'}」`)
+        }
+      }
       setEditingId(null)
       setForm(EMPTY)
+      setMoveTo(null)
       setErrMsg(null)
+      requestSync()
     } catch (e) {
       setErrMsg(`操作失敗:${e instanceof Error ? e.message : String(e)}`)
     }
@@ -143,6 +216,7 @@ export default function DeckDetail() {
       })
       setDeckName(null); setNewPerDay(null)
       setErrMsg(null)
+      requestSync()
     } catch (e) {
       setErrMsg(`操作失敗:${e instanceof Error ? e.message : String(e)}`)
     }
@@ -199,6 +273,7 @@ export default function DeckDetail() {
     try {
       await softDeleteDeck(deck.id)
       setErrMsg(null)
+      requestSync()
       navigate('/')
     } catch (e) {
       setErrMsg(`操作失敗:${e instanceof Error ? e.message : String(e)}`)
@@ -210,6 +285,7 @@ export default function DeckDetail() {
     try {
       await softDeleteNote(id)
       setErrMsg(null)
+      requestSync()
     } catch (e) {
       setErrMsg(`操作失敗:${e instanceof Error ? e.message : String(e)}`)
     }
@@ -241,6 +317,7 @@ export default function DeckDetail() {
             onChange={(e) => setNewPerDay(e.target.value === '' ? NaN : Number(e.target.value))} /></label>
           <div className="form-actions">
             <button className="btn" disabled={busy} onClick={() => void saveDeck()}>儲存設定</button>
+            <button className="btn secondary" disabled={busy} onClick={() => void bulkReverse()}>為整副開啟反向卡</button>
             <button className="btn danger" disabled={busy} onClick={() => void removeDeck()}>刪除牌組</button>
           </div>
         </div>
@@ -280,35 +357,53 @@ export default function DeckDetail() {
           )}
           <label><input type="checkbox" checked={form.reversed}
             onChange={(e) => setForm({ ...form, reversed: e.target.checked })} /> 反向卡(意思→單字)</label>
+          {editingId !== 'new' && allDecks !== undefined && allDecks.length > 1 && (
+            <label className="field">牌組(改選別副 = 搬過去,進度保留)
+              <select value={moveTo ?? deck.id} onChange={(e) => setMoveTo(e.target.value)}>
+                {allDecks.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </label>
+          )}
           <div className="form-actions">
             <button className="btn" disabled={busy} onClick={() => void saveNote()}>儲存</button>
-            <button className="btn secondary" onClick={() => setEditingId(null)}>取消</button>
+            <button className="btn secondary" onClick={() => { setEditingId(null); setMoveTo(null) }}>取消</button>
           </div>
         </div>
       )}
 
-      <div className="search-wrap">
-        <input className="search" placeholder="搜尋" value={search} onChange={(e) => setSearch(e.target.value)} />
-        {search !== '' && (
-          <button className="search-clear" aria-label="清除搜尋" onClick={() => setSearch('')}>✕</button>
-        )}
+      <div className="list-controls">
+        <div className="search-wrap">
+          <input className="search" placeholder="搜尋" value={search} onChange={(e) => setSearch(e.target.value)} />
+          {search !== '' && (
+            <button className="search-clear" aria-label="清除搜尋" onClick={() => setSearch('')}>✕</button>
+          )}
+        </div>
+        <select className="sort-select" aria-label="排序" value={sort}
+          onChange={(e) => setSort(e.target.value as SortKey)}>
+          {SORTS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
       </div>
       <ul className="note-list">
-        {shown.map((n) => (
+        {shown.map((n) => {
+          const badge = noteStateBadge(cardsByNote.get(n.id), listNow)
+          return (
           <li key={n.id} className="note-row">
             <div className="note-text">
               <b lang="ja">{n.expression}</b>
               {n.reading && <span className="reading-inline" lang="ja">{n.reading}</span>}
               <span>{n.meaning}</span>
+              {badge !== null && <span className={`note-state ${badge.cls}`}>{badge.label}</span>}
             </div>
             <button className="link" onClick={() => {
               setEditingId(n.id)
+              setMoveTo(null)
               setForm({ expression: n.expression, reading: n.reading, meaning: n.meaning, reversed: n.reversed === 1, accent: n.accent ?? '' })
             }}>編輯</button>
             <button className="link danger" disabled={busy}
               onClick={() => void removeNote(n.id, n.expression)}>刪除</button>
           </li>
-        ))}
+          )
+        })}
       </ul>
       <div ref={sentinel} />
       <p className="hint">
