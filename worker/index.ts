@@ -274,7 +274,16 @@ function genShareCode(): string {
 interface ShareRow { expression: string; reading: string; meaning: string; accent: string }
 
 app.post('/api/share', async (c) => {
-  const body = await c.req.json<{ name?: unknown; rows?: unknown }>().catch(() => null)
+  // 大牌組的 JSON 上傳可觀(869 筆約 57KB),客戶端會 gzip(約剩 1/3)再送
+  let body: { name?: unknown; rows?: unknown } | null = null
+  try {
+    const text = c.req.header('x-body-gzip') === '1'
+      ? await new Response(c.req.raw.body!.pipeThrough(new DecompressionStream('gzip'))).text()
+      : await c.req.text()
+    body = JSON.parse(text) as { name?: unknown; rows?: unknown }
+  } catch {
+    body = null
+  }
   if (body === null || typeof body.name !== 'string' || body.name.trim() === '') {
     return c.json({ error: 'name is required' }, 400)
   }

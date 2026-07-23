@@ -38,6 +38,21 @@ describe('/api/share', () => {
     expect((await create({ name: 'x', rows: [{ expression: 'x' }] })).status).toBe(400)
   })
 
+  it('接受 gzip 壓縮的 body(x-body-gzip: 1)', async () => {
+    const json = JSON.stringify({ name: '壓縮測試', rows })
+    const gz = await new Response(
+      new Blob([json]).stream().pipeThrough(new CompressionStream('gzip')),
+    ).arrayBuffer()
+    const res = await app.request('/api/share', {
+      method: 'POST', body: gz,
+      headers: { 'content-type': 'application/json', 'x-body-gzip': '1' },
+    }, env)
+    expect(res.status).toBe(200)
+    const { code } = await res.json<{ code: string }>()
+    const got = await (await app.request(`/api/share/${code}`, {}, env)).json()
+    expect(got).toEqual({ name: '壓縮測試', rows })
+  })
+
   it('缺 reading/accent 的列補空字串存入', async () => {
     const res = await create({ name: 'n', rows: [{ expression: '猫', meaning: '貓' }] })
     expect(res.status).toBe(200)

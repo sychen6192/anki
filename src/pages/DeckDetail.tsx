@@ -151,14 +151,21 @@ export default function DeckDetail() {
   /** 產生分享連結:內容上傳到 /api/share,拿 code 組網址;手機開分享面板、桌機複製 */
   const shareDeck = () => run(async () => {
     try {
-      setShareMsg('建立分享連結…')
+      setShareMsg(`上傳 ${notes.length} 筆…`)
       const rows = notes.map((n) => ({
         expression: n.expression, reading: n.reading, meaning: n.meaning, accent: n.accent ?? '',
       }))
-      const res = await fetch('/api/share', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: deck.name, rows }),
-      })
+      // 大牌組的 JSON 有幾十 KB,行動網路上行慢 —— 能壓就壓(約剩 1/3)
+      const json = JSON.stringify({ name: deck.name, rows })
+      const headers: Record<string, string> = { 'content-type': 'application/json' }
+      let payload: BodyInit = json
+      if (typeof CompressionStream === 'function') {
+        payload = await new Response(
+          new Blob([json]).stream().pipeThrough(new CompressionStream('gzip')),
+        ).blob()
+        headers['x-body-gzip'] = '1'
+      }
+      const res = await fetch('/api/share', { method: 'POST', headers, body: payload })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const { code } = await res.json() as { code: string }
       const url = `${location.origin}/import?share=${code}`
