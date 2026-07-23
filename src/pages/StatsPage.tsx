@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import {
   Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -38,9 +39,19 @@ function dayLabel(ts: number): string {
 }
 
 export default function StatsPage() {
-  const logs = useLiveQuery(() => db.review_logs.toArray(), [])
-  const cards = useLiveQuery(() => db.cards.filter((c) => !c.deleted).toArray(), [])
-  if (!logs || !cards) return <Loading />
+  const allLogs = useLiveQuery(() => db.review_logs.toArray(), [])
+  const allCards = useLiveQuery(() => db.cards.toArray(), [])
+  const decks = useLiveQuery(() => db.decks.filter((d) => !d.deleted).toArray(), [])
+  const [deckFilter, setDeckFilter] = useState('all')
+  if (!allLogs || !allCards || !decks) return <Loading />
+
+  // 篩某副牌組:卡片直接看 deck_id;複習紀錄沒有 deck_id,經 card_id 查
+  // (對照表含已刪卡片,舊紀錄才不會因為卡片刪了就歸不了戶)
+  const cardDeck = new Map(allCards.map((c) => [c.id, c.deck_id]))
+  const logs = deckFilter === 'all'
+    ? allLogs
+    : allLogs.filter((l) => cardDeck.get(l.card_id) === deckFilter)
+  const cards = allCards.filter((c) => !c.deleted && (deckFilter === 'all' || c.deck_id === deckFilter))
 
   const today = startOfToday()
 
@@ -84,6 +95,14 @@ export default function StatsPage() {
   return (
     <div>
       <h1>統計</h1>
+
+      {decks.length > 1 && (
+        <select className="sort-select stats-deck-filter" aria-label="篩選牌組"
+          value={deckFilter} onChange={(e) => setDeckFilter(e.target.value)}>
+          <option value="all">全部牌組</option>
+          {decks.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+      )}
 
       <div className="stat-row">
         <div className="stat-tile"><b>{todayCount}</b><span>今日複習</span></div>
