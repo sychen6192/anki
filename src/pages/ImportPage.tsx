@@ -12,6 +12,7 @@ import { DECK_TEMPLATES, type DeckTemplate } from '../data/templates'
 import { parseApkg, type ApkgParse } from '../lib/apkg'
 import { autoMapFields, mapApkgNotes, type ApkgMapping } from '../lib/apkgMap'
 import { fillMissingAccents } from '../lib/accent'
+import { useBusy } from '../lib/useBusy'
 import { Loading } from '../components/Loading'
 
 type MappingField = keyof ApkgMapping
@@ -28,10 +29,6 @@ interface Summary {
 }
 
 type Mode = 'csv' | 'apkg' | 'templates'
-
-/** 範本卡片上的前幾個字,讓人看一眼就知道內容(範本 csv 無引號逗號,直接切) */
-const templatePreview = (t: DeckTemplate): string =>
-  t.csv.split('\n').slice(1, 4).map((l) => l.split(',')[0]).join('、') + '…'
 
 export default function ImportPage() {
   const decks = useLiveQuery(() => db.decks.filter((d) => !d.deleted).toArray(), [])
@@ -54,7 +51,7 @@ export default function ImportPage() {
   const [summary, setSummary] = useState<Summary | null>(null)
   // 最近一次匯入寫進哪副牌組 —— 摘要裡給「開始複習/查看牌組」的直達連結
   const [lastDeckId, setLastDeckId] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [busy, runBusy] = useBusy()
   const [errMsg, setErrMsg] = useState('')
 
   const [text, setText] = useState('')
@@ -183,56 +180,60 @@ export default function ImportPage() {
     requestSync() // 匯入完成就推上雲端,不用等下次複習結束
   }
 
-  const doImport = async () => {
-    if (parsed.length === 0 || busy) return
-    setBusy(true)
+  /** 包住 busy 與錯誤處理;所有匯入入口共用,失敗一律把摘要清掉再顯示訊息 */
+  const runImport = (fn: () => Promise<void>) => void runBusy(async () => {
     try {
-      let targetId = deckId
-      if (targetId === 'new') targetId = (await createDeck(newDeckName.trim() || '新牌組')).id
-      await importParsed(targetId, parsed, mode === 'apkg' ? otherNoteCount : 0)
+      await fn()
     } catch (e) {
       setSummary(null)
       setErrMsg(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
     }
+  })
+
+  const doImport = () => {
+    if (parsed.length === 0) return
+    runImport(async () => {
+      let targetId = deckId
+      if (targetId === 'new') targetId = (await createDeck(newDeckName.trim() || '新牌組')).id
+      await importParsed(targetId, parsed, mode === 'apkg' ? otherNoteCount : 0)
+    })
   }
 
   /** 匯入到「以名字找到或新建」的牌組;範本與分享共用 */
   const importNamed = async (name: string, parsedRows: ParsedRow[]) => {
-    if (busy) return
-    setBusy(true)
+    const existingDeck = await db.decks.filter((d) => !d.deleted && d.name === name).first()
+    const targetId = existingDeck?.id ?? (await createDeck(name)).id
+    await importParsed(targetId, parsedRows, 0)
+  }
+
+  // csv 本體是動態 import 進來的,整段(含下載)都在 busy 內,免得下載期間又被按一次
+  const importTemplate = (t: DeckTemplate) => runImport(async () => {
+    let csv: string
     try {
-      const existingDeck = await db.decks.filter((d) => !d.deleted && d.name === name).first()
-      const targetId = existingDeck?.id ?? (await createDeck(name)).id
-      await importParsed(targetId, parsedRows, 0)
-    } catch (e) {
-      setSummary(null)
-      setErrMsg(e instanceof Error ? e.message : String(e))
-    } finally {
-      setBusy(false)
+      csv = await t.loadCsv()
+    } catch {
+      throw new Error('範本資料載入失敗,請重新整理後再試')
     }
-  }
-
-  const importTemplate = async (t: DeckTemplate) => {
-    const tRows = parseCsv(t.csv)
+    const tRows = parseCsv(csv)
     const tMapping = autoMapHeaders(tRows[0])
-    if (!tMapping) { setErrMsg('範本表頭無法解析'); return }
+    if (!tMapping) throw new Error('範本表頭無法解析')
     await importNamed(t.name, mapRows(tRows.slice(1), tMapping))
-  }
+  })
 
-  const importShared = async () => {
+  const importShared = () => {
     if (shared === null) return
-    // 伺服器驗過形狀,這裡再過一次 mapRows 等級的清理(修剪、丟缺欄的列)
-    const rows = shared.rows
-      .map((r) => ({
-        expression: (r.expression ?? '').trim(),
-        reading: (r.reading ?? '').trim(),
-        meaning: (r.meaning ?? '').trim(),
-        accent: (r.accent ?? '').trim(),
-      }))
-      .filter((r) => r.expression !== '' && r.meaning !== '')
-    await importNamed(shared.name, rows)
+    runImport(async () => {
+      // 伺服器驗過形狀,這裡再過一次 mapRows 等級的清理(修剪、丟缺欄的列)
+      const rows = shared.rows
+        .map((r) => ({
+          expression: (r.expression ?? '').trim(),
+          reading: (r.reading ?? '').trim(),
+          meaning: (r.meaning ?? '').trim(),
+          accent: (r.accent ?? '').trim(),
+        }))
+        .filter((r) => r.expression !== '' && r.meaning !== '')
+      await importNamed(shared.name, rows)
+    })
   }
 
   if (!decks) return <Loading />
@@ -253,7 +254,7 @@ export default function ImportPage() {
                 <label className="check-row"><input type="checkbox" checked={withReverse}
                   onChange={(e) => setWithReverse(e.target.checked)} /> 同時建立反向卡</label>
               </div>
-              <button className="btn" disabled={busy} onClick={() => void importShared()}>
+              <button className="btn" disabled={busy} onClick={importShared}>
                 {busy ? '匯入中…' : '匯入'}
               </button>
             </>
@@ -294,9 +295,9 @@ export default function ImportPage() {
                 <div className="template-info">
                   <b>{t.name}</b>
                   <p className="hint">{t.description}</p>
-                  <p className="hint" lang="ja">{templatePreview(t)}</p>
+                  <p className="hint" lang="ja">{t.preview}</p>
                 </div>
-                <button className="btn" disabled={busy} onClick={() => void importTemplate(t)}>
+                <button className="btn" disabled={busy} onClick={() => importTemplate(t)}>
                   {busy ? '匯入中…' : `匯入 ${t.count} 筆`}
                 </button>
               </div>
