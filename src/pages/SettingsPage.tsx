@@ -13,8 +13,8 @@ import { useBusy } from '../lib/useBusy'
 /** SyncResult 轉人話;skipped 的各種原因分開講 */
 function syncMessage(r: { ok: boolean; reason?: string; error?: string }, okText: string): string {
   if (r.ok) return okText
+  if (r.reason === 'local-only') return '沒設金鑰,資料只存在這台裝置 —— 按「產生一組」再儲存就會開始同步'
   if (r.reason === 'offline') return '目前離線,已跳過'
-  if (r.reason === 'first-run') return '還沒選擇同步金鑰 —— 按「產生一組」建立,或儲存空白金鑰使用公用空間'
   return `同步失敗:${r.error}`
 }
 
@@ -86,10 +86,10 @@ export default function SettingsPage() {
       <div className="settings-block">
         {currentSpace === '' && (
           <p className="notice">
-            你在<b>公用的預設空間</b>,跟其他沒設金鑰的人共用資料。按「產生一組」再儲存,就有自己的空間。
+            目前<b>只存在這台裝置</b>,不會同步到雲端。按「產生一組」再儲存,就有自己的空間。
           </p>
         )}
-        <label>金鑰(空白 = 預設空間)
+        <label>金鑰(空白 = 只存本機,不同步)
           <span className="key-field">
             <input type={showKey ? 'text' : 'password'} autoComplete="off"
               value={keyInput ?? currentSpace ?? ''} placeholder="例如一串不好猜的字"
@@ -108,6 +108,7 @@ export default function SettingsPage() {
         <p className="hint">
           一組金鑰 = 一個獨立空間;多台裝置填同一組會同步到一起,記得抄下來。
           金鑰就是這個空間的密碼,別用好猜的。換金鑰會先清空本機(雲端不動)再重新同步。
+          清成空白則回到只存本機,雲端那份不會被刪,填回同一組金鑰就能取回。
         </p>
       </div>
 

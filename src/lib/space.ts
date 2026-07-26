@@ -13,7 +13,7 @@ export function generateSyncKey(): string {
   return `${chars.slice(0, 4).join('')}-${chars.slice(4, 8).join('')}-${chars.slice(8, 12).join('')}`
 }
 
-/** 讀取本機同步金鑰;未設為空字串(預設空間)。 */
+/** 讀取本機同步金鑰;未設為空字串 = 純本機模式,syncNow 會直接跳過不連雲端。 */
 export async function getSyncSpace(): Promise<string> {
   const row = await db.meta.get('sync_space')
   return typeof row?.value === 'string' ? row.value : ''
@@ -38,7 +38,7 @@ export async function setSyncSpace(key: string): Promise<void> {
   const next = key.trim()
   if (next === (await getSyncSpace())) {
     // 值沒變也要把 meta 列寫下來:全新安裝時 meta 缺列 =「還沒選過」,
-    // 首次啟動閘門(syncNow)靠這一列分辨「明確選了公用空間」與「還沒選」。
+    // 牌組頁靠這一列決定要不要顯示首次啟動的金鑰選擇。
     await db.meta.put({ key: 'sync_space', value: next })
     return
   }

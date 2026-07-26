@@ -435,9 +435,7 @@ textarea { resize: vertical; }
 }
 .note-state.faint { color: var(--faint); }
 
-.guide-lead { color: var(--muted); margin: -10px 0 8px; }
 .guide-steps { margin: 0 0 0 22px; display: flex; flex-direction: column; gap: 8px; }
-ul.guide-steps { list-style: disc; }
 .guide-rates { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 9px; }
 .guide-rates li { display: flex; align-items: center; gap: 10px; }
 .rate-chip {

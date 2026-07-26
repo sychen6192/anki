@@ -13,8 +13,8 @@ import { Loading } from '../components/Loading'
 const KEY_HINT_DISMISSED = 'key-hint-dismissed'
 
 /**
- * 首次啟動的金鑰選擇。在使用者選定前,syncNow 的首次啟動閘門會擋住自動同步,
- * 所以不會先把公用空間的資料拉下來;這裡選完立刻補一次同步。
+ * 首次啟動的金鑰選擇。沒金鑰時 syncNow 一律跳過(純本機),所以「先不同步」
+ * 只是把選擇記下來讓這張卡消失,不需要補同步;產生金鑰那條才要立刻推上去。
  */
 function Onboarding({ onKeyGenerated }: { onKeyGenerated: (key: string) => void }) {
   const [busy, run] = useBusy()
@@ -26,19 +26,18 @@ function Onboarding({ onKeyGenerated }: { onKeyGenerated: (key: string) => void 
     onKeyGenerated(key)
     await syncNow()
   })
-  const usePublic = () => run(async () => {
-    if (!confirm('公用空間跟其他沒設金鑰的人共用資料,任何人都看得到、改得動。確定?')) return
+  const stayLocal = () => run(async () => {
+    if (!confirm('不設金鑰的話資料只留在這台裝置,換手機或清掉瀏覽器資料就沒了。之後隨時能在設定頁補上。確定?')) return
     await setSyncSpace('')
-    await syncNow()
   })
 
   return (
     <div className="notice onboard">
-      <p><b>第一次使用</b> —— 先建立自己的同步空間,進度才不會跟別人混在一起:</p>
+      <p><b>第一次使用</b> —— 設一組同步金鑰,進度才能跨裝置帶著走:</p>
       <div className="form-actions">
         <button className="btn" disabled={busy} onClick={() => void generate()}>產生我的金鑰(推薦)</button>
         <Link to="/settings" className="btn secondary">我有金鑰,去輸入</Link>
-        <button className="link" disabled={busy} onClick={() => void usePublic()}>先用公用空間</button>
+        <button className="link" disabled={busy} onClick={() => void stayLocal()}>先不同步,只存這台</button>
       </div>
     </div>
   )
@@ -104,7 +103,7 @@ export default function DeckList() {
       )}
       {!(spaceChosen === 'unset' && decks.length === 0) && space === '' && !keyHintDismissed && (
         <p className="notice">
-          <span>還沒設同步金鑰,正在跟別人共用預設空間。</span>
+          <span>還沒設同步金鑰,資料只存在這台裝置,沒有備份到雲端。</span>
           <Link to="/settings" className="link">前往設定</Link>
           <button className="link" onClick={() => {
             localStorage.setItem(KEY_HINT_DISMISSED, '1')

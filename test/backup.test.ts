@@ -4,10 +4,12 @@ import { db } from '../src/db/db'
 import { createDeck, createNote } from '../src/db/repo'
 import { exportBackup, importBackup } from '../src/lib/backup'
 import { syncNow } from '../src/lib/sync'
+import { setSyncSpace } from '../src/lib/space'
 
 beforeEach(async () => {
   await db.delete()
   await db.open()
+  await setSyncSpace('testkey') // 沒金鑰的話 syncNow 會直接跳過(純本機),下面的還原後同步就驗不到
 })
 
 // 極簡假 server:只需 decks 表的 LWW push/pull 語意(與 worker/index.ts 同款規則),

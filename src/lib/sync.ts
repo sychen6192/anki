@@ -9,8 +9,8 @@ import { getSyncSpace } from './space'
 export interface SyncResult {
   ok: boolean
   skipped?: boolean
-  /** skipped 的原因:離線 / 全新安裝還沒選金鑰 / 同步中被換了空間 */
-  reason?: 'offline' | 'first-run' | 'switched'
+  /** skipped 的原因:沒設金鑰(純本機)/ 離線 / 同步中被換了空間 */
+  reason?: 'local-only' | 'offline' | 'switched'
   error?: string
 }
 
@@ -137,17 +137,19 @@ async function reconcile(): Promise<number> {
 }
 
 export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult> {
+  // 沒設金鑰 = 純本機模式,一個 request 都不發。空金鑰以前會落在公用的預設空間,
+  // 等於每個沒設金鑰的人共寫同一份資料;現在改成資料就留在這台裝置,
+  // 使用者在設定頁存下一組金鑰之後才開始同步。
+  const space = await getSyncSpace()
+  if (space === '') {
+    // 有金鑰時失敗過、後來切回純本機的話,舊旗標會永遠掛在導覽列紅點與牌組頁橫幅上
+    // —— 這裡不再連線,那個錯誤也就不再成立
+    await db.meta.delete('sync_error').catch(() => {})
+    return { ok: false, skipped: true, reason: 'local-only' }
+  }
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     return { ok: false, skipped: true, reason: 'offline' }
   }
-  // 首次啟動閘門:還沒選過金鑰(meta 缺列)且本機全空 = 全新安裝。
-  // 這時不能自動同步 —— 預設空間是公用的,一同步就把別人的資料整包拉下來。
-  // 等使用者在牌組頁的首次選擇(或設定頁儲存金鑰)後才開始同步。
-  // 本機已有資料的舊安裝不受影響(沒 meta 列也照常同步,行為與過去相同)。
-  if ((await db.meta.get('sync_space')) === undefined && (await db.decks.count()) === 0) {
-    return { ok: false, skipped: true, reason: 'first-run' }
-  }
-  const space = await getSyncSpace()
   try {
     // --- push ---
     const dirtyDecks = await db.decks.where('dirty').equals(1).toArray()

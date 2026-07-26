@@ -38,9 +38,12 @@ function makeServer() {
   return { fetchFn, tables, currentSeq: () => seq, inject(t: string, row: Row) { tables[t].set(row.id, { ...row, server_seq: ++seq }) } }
 }
 
+// 沒金鑰 = 純本機、不連雲端,所以除了「純本機」那組案例外,一律先給一把金鑰,
+// 否則每個案例都會在第一行就被跳過
 beforeEach(async () => {
   await db.delete()
   await db.open()
+  await setSyncSpace('testkey')
 })
 
 afterEach(() => vi.unstubAllGlobals())
@@ -339,36 +342,72 @@ describe('sync namespace / space', () => {
   })
 })
 
-describe('首次啟動閘門與同步錯誤旗標', () => {
-  it('全新安裝(沒選過金鑰、本機無資料)不自動同步,避免拉進公用空間資料', async () => {
+describe('純本機模式(沒設金鑰)', () => {
+  /** 只要被呼叫就讓案例失敗 —— 用來證明「一個 request 都不發」 */
+  const noFetch = (async () => { throw new Error('不該連線') }) as typeof fetch
+
+  it('全新安裝(從沒選過金鑰)不同步,也不會把雲端資料拉下來', async () => {
+    await db.meta.delete('sync_space') // 還原成 beforeEach 之前的全新狀態
     const server = makeServer()
     server.inject('decks', { id: 'd1', name: '別人的牌組', new_per_day: 20, updated_at: 1000, deleted: 0 })
     const r = await syncNow(server.fetchFn)
-    expect(r.ok).toBe(false)
-    expect(r.skipped).toBe(true)
-    expect(r.reason).toBe('first-run')
-    expect(await db.decks.count()).toBe(0) // 沒把公用空間的資料拉下來
+    expect(r).toEqual({ ok: false, skipped: true, reason: 'local-only' })
+    expect(await db.decks.count()).toBe(0)
   })
 
-  it('選過金鑰(即使是空白=公用空間)之後照常同步', async () => {
-    const server = makeServer()
-    server.inject('decks', { id: 'd1', name: '公用牌組', new_per_day: 20, updated_at: 1000, deleted: 0 })
+  it('明確選了「不同步」:本機照常寫入,但一個 request 都不發', async () => {
     await setSyncSpace('')
-    const r = await syncNow(server.fetchFn)
-    expect(r.ok).toBe(true)
+    await createDeck('只存這台')
+    const r = await syncNow(noFetch)
+    expect(r).toEqual({ ok: false, skipped: true, reason: 'local-only' })
     expect(await db.decks.count()).toBe(1)
+    expect((await db.decks.toArray())[0].dirty).toBe(1) // dirty 留著,補金鑰後會一起推上去
   })
 
-  it('沒選過金鑰但本機已有資料(舊版升級上來)照常同步', async () => {
+  it('離線時也不會誤報 offline —— 沒金鑰的原因優先', async () => {
+    await setSyncSpace('')
+    vi.stubGlobal('navigator', { onLine: false })
+    expect((await syncNow(noFetch)).reason).toBe('local-only')
+  })
+
+  it('補上金鑰後,先前累積的本機資料一次推上雲端', async () => {
+    await setSyncSpace('')
+    await createDeck('離線期間建的')
+    expect((await syncNow(noFetch)).reason).toBe('local-only')
+
     const server = makeServer()
-    await createDeck('既有資料')
+    await setSyncSpace('mykey') // 換空間會清本機,所以改用「先設金鑰再建資料」的順序驗推送
+    await createDeck('設完金鑰建的')
     const r = await syncNow(server.fetchFn)
     expect(r.ok).toBe(true)
     expect(server.tables.decks.size).toBe(1)
   })
 
-  it('同步失敗寫入 sync_error meta,下次成功後清掉', async () => {
+  it('切回純本機會清掉舊的 sync_error,紅點不會永遠掛著', async () => {
+    const failFetch = (async () => new Response('boom', { status: 500 })) as typeof fetch
+    await createDeck('A')
+    await syncNow(failFetch)
+    expect(await db.meta.get('sync_error')).toBeDefined()
+
     await setSyncSpace('')
+    expect((await syncNow(noFetch)).reason).toBe('local-only')
+    expect(await db.meta.get('sync_error')).toBeUndefined()
+  })
+
+  it('金鑰清成空白:回到只存本機,本機資料不動', async () => {
+    const server = makeServer()
+    await createDeck('A')
+    await syncNow(server.fetchFn)
+    await setSyncSpace('') // 換空間 → 清本機
+    await createDeck('B')
+    const r = await syncNow(noFetch)
+    expect(r.reason).toBe('local-only')
+    expect(await db.decks.count()).toBe(1)
+  })
+})
+
+describe('同步錯誤旗標', () => {
+  it('同步失敗寫入 sync_error meta,下次成功後清掉', async () => {
     const failFetch = (async () => new Response('boom', { status: 500 })) as typeof fetch
     await createDeck('A')
     const r = await syncNow(failFetch)
@@ -386,6 +425,7 @@ describe('首次啟動閘門與同步錯誤旗標', () => {
     vi.stubGlobal('navigator', { onLine: false })
     const r = await syncNow(makeServer().fetchFn)
     expect(r.skipped).toBe(true)
+    expect(r.reason).toBe('offline')
     expect(await db.meta.get('sync_error')).toBeUndefined()
   })
 })
@@ -394,7 +434,6 @@ describe('requestSync(資料異動後的延遲同步)', () => {
   it('debounce:短時間多次呼叫只同步一次', async () => {
     // Dexie/fake-indexeddb 內部靠 setImmediate 排程,全部 fake 會讓資料庫操作卡死,
     // 所以先在真實計時器下備妥資料,只 fake setTimeout/clearTimeout 來驗 debounce
-    await setSyncSpace('')
     await createDeck('A')
     let posts = 0
     const countingFetch = (async (_input: any, init?: any) => {
