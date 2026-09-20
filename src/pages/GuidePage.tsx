@@ -16,7 +16,7 @@ export default function GuidePage() {
             挑一份範本,或丟自己的 CSV / .apkg
           </li>
           <li>
-            回「牌組」按<b>複習</b>
+            回「牌組」按<b>複習</b>;好幾副牌組時按上方的<b>全部一起複習</b>
           </li>
           <li>想答案 → 點卡片翻面 → 評分</li>
         </ol>

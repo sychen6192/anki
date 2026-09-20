@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { buildQueue, countTodayNew, deckQueue, startOfToday, DAY_START_HOUR, SIBLING_GAP_MS } from '../src/lib/queue'
+import {
+  buildMultiDeckQueue, buildQueue, countTodayNew, deckQueue, startOfToday, DAY_START_HOUR, SIBLING_GAP_MS,
+} from '../src/lib/queue'
 import { newCardFields, State } from '../src/lib/fsrs'
 import type { CardRecord, ReviewLogRecord } from '../shared/types'
 
@@ -193,5 +195,73 @@ describe('buildQueue:同一個字的正反兩面(sibling)不連著出現', () =>
     const logs = [log({ card_id: fwdA.id, state: State.New, reviewed_at: NOW - 60_000 })]
     const { queue } = buildQueue([revA, fwdA], logs, 20, NOW)
     expect(queue.map((c) => c.id)).toEqual([fwdA.id, revA.id])
+  })
+})
+
+describe('buildMultiDeckQueue:跨牌組一次複習', () => {
+  const decks = [{ id: 'A', new_per_day: 1 }, { id: 'B', new_per_day: 2 }]
+  const ids = (q: CardRecord[]) => q.map((c) => c.id)
+
+  it('到期卡跨牌組依 due 排;新卡各牌組照自己的額度、依牌組順序接起來', () => {
+    const dueB = card({ deck_id: 'B', state: State.Review, due: NOW - 3000 })
+    const dueA = card({ deck_id: 'A', state: State.Review, due: NOW - 1000 })
+    const a1 = card({ deck_id: 'A', state: State.New, updated_at: 1 })
+    const a2 = card({ deck_id: 'A', state: State.New, updated_at: 2 })
+    const b1 = card({ deck_id: 'B', state: State.New, updated_at: 1 })
+    const b2 = card({ deck_id: 'B', state: State.New, updated_at: 2 })
+    const b3 = card({ deck_id: 'B', state: State.New, updated_at: 3 })
+    const { queue, newRemaining } = buildMultiDeckQueue(decks, [a2, b3, dueA, b1, a1, dueB, b2], [], NOW)
+    expect(ids(queue)).toEqual(ids([dueB, dueA, a1, b1, b2]))
+    expect(newRemaining).toBe(3)
+  })
+
+  it('今日新卡只扣自己那副牌組的額度', () => {
+    const a1 = card({ deck_id: 'A', state: State.New })
+    const aDone = card({ deck_id: 'A', state: State.Learning, due: NOW + 600_000 })
+    const b1 = card({ deck_id: 'B', state: State.New })
+    const logs = [log({ card_id: aDone.id, state: State.New, reviewed_at: NOW - 60_000 })]
+    const { queue, newRemaining } = buildMultiDeckQueue(decks, [a1, aDone, b1], logs, NOW)
+    expect(ids(queue)).toEqual([b1.id])
+    expect(newRemaining).toBe(2) // A 剩 0,B 剩 2
+  })
+
+  it('不在名單裡的牌組(例如已刪除的)整個不算,連它的紀錄也不影響額度', () => {
+    const z = card({ deck_id: 'Z', state: State.Review, due: NOW - 1000 })
+    const zDone = card({ deck_id: 'Z', state: State.Learning, due: NOW + 600_000 })
+    const a1 = card({ deck_id: 'A', state: State.New })
+    const logs = [log({ card_id: zDone.id, state: State.New, reviewed_at: NOW - 60_000 })]
+    const { queue } = buildMultiDeckQueue(decks, [z, zDone, a1], logs, NOW)
+    expect(ids(queue)).toEqual([a1.id])
+  })
+
+  it('加碼是跨牌組共 N 張:依牌組順序先補前面的,補完再往下一副', () => {
+    const a = [1, 2, 3].map((i) => card({ deck_id: 'A', state: State.New, updated_at: i }))
+    const b = [1, 2, 3, 4].map((i) => card({ deck_id: 'B', state: State.New, updated_at: i }))
+    const { queue } = buildMultiDeckQueue(decks, [...a, ...b], [], NOW, 3)
+    // A:額度 1 + 加碼 2(它只剩 2 張可加);B:額度 2 + 加碼 1
+    expect(ids(queue)).toEqual(ids([a[0], a[1], a[2], b[0], b[1], b[2]]))
+  })
+
+  it('剛看過的字,另一面排到整個到期段最後 —— 不會因為跨牌組重排 due 又黏回去', () => {
+    const fwdA = card({ deck_id: 'A', note_id: 'nA', state: State.Learning, due: NOW - 30_000 })
+    const revA = card({ deck_id: 'A', note_id: 'nA', direction: 'reverse', state: State.Review, due: NOW - 3600_000 })
+    const dueB = card({ deck_id: 'B', note_id: 'nB', state: State.Review, due: NOW - 7200_000 })
+    const logs = [log({ card_id: fwdA.id, state: State.Relearning, reviewed_at: NOW - 300_000 })]
+    const { queue } = buildMultiDeckQueue(decks, [revA, fwdA, dueB], logs, NOW)
+    expect(ids(queue)).toEqual(ids([dueB, fwdA, revA]))
+  })
+
+  it('nextLearningDue 取所有牌組最早的;暫停的不算', () => {
+    const lA = card({ deck_id: 'A', state: State.Learning, due: NOW + 600_000 })
+    const lB = card({ deck_id: 'B', state: State.Relearning, due: NOW + 300_000 })
+    const paused = card({ deck_id: 'B', state: State.Learning, due: NOW + 60_000, suspended: 1 })
+    expect(buildMultiDeckQueue(decks, [lA, lB, paused], [], NOW).nextLearningDue).toBe(NOW + 300_000)
+  })
+
+  it('沒有牌組:空佇列', () => {
+    const { queue, newRemaining, nextLearningDue } = buildMultiDeckQueue([], [card({ state: State.New })], [], NOW)
+    expect(queue).toEqual([])
+    expect(newRemaining).toBe(0)
+    expect(nextLearningDue).toBeNull()
   })
 })

@@ -11,10 +11,10 @@ import {
 } from '../db/repo'
 import { applyFsrsSettings, formatInterval, previewIntervals, rate, State, type RatingValue } from '../lib/fsrs'
 import { getFsrsSettings } from '../lib/fsrsSettings'
-import { deckQueue, startOfToday } from '../lib/queue'
+import { buildMultiDeckQueue, deckQueue, startOfToday } from '../lib/queue'
 import { reviewKeyAction } from '../lib/reviewKeys'
 import { syncNow } from '../lib/sync'
-import type { CardRecord, NoteRecord } from '../../shared/types'
+import type { CardRecord, DeckRecord, NoteRecord } from '../../shared/types'
 
 const RATING_LABELS: Record<RatingValue, string> = { 1: '重來', 2: '困難', 3: '普通', 4: '簡單' }
 
@@ -27,7 +27,9 @@ const AUTO_RESUME_WINDOW = 10 * 60 * 1000
 
 export default function Review() {
   const { deckId } = useParams()
-  const [current, setCurrent] = useState<{ card: CardRecord; note: NoteRecord } | null>(null)
+  // /review/all:所有牌組合成一次。到期卡跨牌組依 due 排,新卡各牌組照自己的每日上限
+  const allMode = deckId === 'all'
+  const [current, setCurrent] = useState<{ card: CardRecord; note: NoteRecord; deckName: string | null } | null>(null)
   const [showBack, setShowBack] = useState(false)
   const [remaining, setRemaining] = useState(0)
   const [done, setDone] = useState(false)
@@ -62,15 +64,28 @@ export default function Review() {
 
   /** preferCardId:復原時用,讓剛還原的那張卡直接回到眼前,而不是排到佇列尾端 */
   const loadNext = useCallback(async (preferCardId?: string) => {
-    const deck = await db.decks.get(deckId!)
-    if (!deck || deck.deleted) { setMissing(true); return }
+    let decks: DeckRecord[]
+    if (allMode) {
+      decks = await db.decks.filter((d) => !d.deleted).toArray()
+    } else {
+      const deck = await db.decks.get(deckId!)
+      decks = deck !== undefined && !deck.deleted ? [deck] : []
+    }
+    if (decks.length === 0) { setMissing(true); return }
     // 每張卡載入前都重新套一次:設定頁改了目標保持率、或同步拉到別台裝置最佳化的參數,
     // 下一張卡的按鈕與排程就用新的,不必離開複習畫面
     applyFsrsSettings(await getFsrsSettings())
-    const cards = await db.cards.where('deck_id').equals(deckId!).toArray()
+    const liveDeckIds = new Set(decks.map((d) => d.id))
+    const cards = allMode
+      ? (await db.cards.toArray()).filter((c) => liveDeckIds.has(c.deck_id))
+      : await db.cards.where('deck_id').equals(deckId!).toArray()
     const logs = await db.review_logs.where('reviewed_at').aboveOrEqual(startOfToday()).toArray()
-    newPerDayRef.current = deck.new_per_day
-    const built = deckQueue(deckId!, deck.new_per_day + bonusNew.current, cards, logs)
+    // 「再學 N 張」的單位:單副是它的每日上限;全部時取最大的那副
+    newPerDayRef.current = Math.max(...decks.map((d) => d.new_per_day))
+    // 單副:加碼直接加在額度上;全部:各牌組各自的額度,加碼另計(跨牌組共 N 張)
+    const built = allMode
+      ? buildMultiDeckQueue(decks, cards, logs, Date.now(), bonusNew.current)
+      : deckQueue(deckId!, decks[0].new_per_day + bonusNew.current, cards, logs)
     const nextLearningDue = built.nextLearningDue
     const queue = built.queue.filter((c) => !skipped.current.has(c.id))
     // 復原時優先回到那張卡。它可能已不在佇列裡 —— undoReview 會推進 updated_at
@@ -104,13 +119,13 @@ export default function Review() {
       setDone(true)
       return
     }
-    setCurrent({ card, note })
+    setCurrent({ card, note, deckName: allMode ? decks.find((d) => d.id === card.deck_id)?.name ?? null : null })
     setRemaining(queue.length + (inQueue ? 0 : 1))
     setSessionMax((m) => Math.max(m, queue.length + (inQueue ? 0 : 1)))
     setShowBack(false)
     setDone(false)
     setNextDue(null)
-  }, [deckId])
+  }, [deckId, allMode])
 
   useEffect(() => { void loadNext() }, [loadNext])
 
@@ -175,7 +190,7 @@ export default function Review() {
       // 只改文字,不動「反向卡」—— 複習到一半增刪卡片會讓當下的佇列對不上
       await updateNote(current.note.id, editing)
       const fresh = await db.notes.get(current.note.id)
-      if (fresh) setCurrent({ card: current.card, note: fresh })
+      if (fresh) setCurrent({ ...current, note: fresh })
       setEditing(null)
       setErrMsg(null)
     } catch (e) {
@@ -254,7 +269,7 @@ export default function Review() {
   if (missing) {
     return (
       <div className="review-done">
-        <h1>找不到這個牌組</h1>
+        <h1>{allMode ? '還沒有牌組' : '找不到這個牌組'}</h1>
         <Link to="/" className="btn">回牌組列表</Link>
       </div>
     )
@@ -314,6 +329,7 @@ export default function Review() {
         {lastAction
           ? <button className="link icon-link" onClick={() => void undo()}><UndoIcon size={15} />復原上一張<span className="kbd-hint">(U)</span></button>
           : <span />}
+        {current.deckName !== null && <span className="deck-tag" title="這張卡的牌組">{current.deckName}</span>}
         <p className="remaining">剩 {remaining} 張</p>
       </div>
       {errMsg && <p className="err" role="alert">{errMsg}</p>}
