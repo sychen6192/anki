@@ -31,16 +31,19 @@ const TABLE_COLS = {
   notes: ['id', 'deck_id', 'expression', 'reading', 'meaning', 'accent', 'reversed', 'updated_at', 'deleted', 'namespace'],
   cards: ['id', 'note_id', 'deck_id', 'direction', 'due', 'stability', 'difficulty',
     'elapsed_days', 'scheduled_days', 'learning_steps', 'reps', 'lapses', 'state',
-    'last_review', 'updated_at', 'deleted', 'namespace'],
+    'last_review', 'suspended', 'updated_at', 'deleted', 'namespace'],
   review_logs: ['id', 'card_id', 'rating', 'state', 'due', 'stability', 'difficulty',
     'elapsed_days', 'last_elapsed_days', 'scheduled_days', 'reviewed_at', 'namespace'],
   settings: ['id', 'value', 'updated_at', 'deleted', 'namespace'],
 } as const
 
-// 舊 client 不會送 accent;缺欄位的 note 以 '' 補上(notes.accent 是 NOT NULL)。
+// 舊 client 不會送 accent / suspended;缺的欄位補預設值(兩欄都是 NOT NULL)。
 // 其餘欄位缺值仍走 null(例如 cards.last_review 本來就可 null)。
+// 代價:舊 client 評分一張卡會把它的 suspended 洗回 0 —— 與 accent 同一個已接受的邊角,
+// 只在各裝置版本不一致的期間發生。
 const COL_DEFAULTS: Partial<Record<TableName, Record<string, unknown>>> = {
   notes: { accent: '' },
+  cards: { suspended: 0 },
 }
 
 type TableName = keyof typeof TABLE_COLS

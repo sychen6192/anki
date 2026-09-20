@@ -131,6 +131,19 @@ describe('/api/sync', () => {
     expect(byId.n2.accent).toBe('')
   })
 
+  it('card 的 suspended 會 round-trip;缺 suspended 的舊 push 補成 0', async () => {
+    const card = (over: Record<string, unknown>) => ({
+      id: 'c', note_id: 'n1', deck_id: 'd1', direction: 'forward', due: 1, stability: 1, difficulty: 5,
+      elapsed_days: 0, scheduled_days: 0, learning_steps: 0, reps: 0, lapses: 0, state: 0, last_review: null,
+      updated_at: 1000, deleted: 0, ...over,
+    })
+    await push({ ...empty, cards: [card({ id: 'c1', suspended: 2 }), card({ id: 'c2' })] })
+    const out = await pull(0)
+    const byId = Object.fromEntries(out.cards.map((c: { id: string }) => [c.id, c]))
+    expect(byId.c1.suspended).toBe(2)
+    expect(byId.c2.suspended).toBe(0)
+  })
+
   // 帶 x-sync-space header 的 push/pull
   async function pushNs(space: string, body: unknown) {
     const res = await app.request('/api/sync', {

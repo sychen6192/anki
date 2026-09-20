@@ -10,12 +10,16 @@ export interface NoteRecord {
   updated_at: number; deleted: 0 | 1
 }
 
+/** 0 = 學習中;1 = 暫停(先不看);2 = 已經會了(不用學)。1 與 2 都不進佇列、不算到期,只差標籤與意圖。 */
+export type CardSuspended = 0 | 1 | 2
+
 export interface CardRecord {
   id: string; note_id: string; deck_id: string
   direction: 'forward' | 'reverse'
   due: number; stability: number; difficulty: number
   elapsed_days: number; scheduled_days: number; learning_steps: number
   reps: number; lapses: number; state: number; last_review: number | null
+  suspended: CardSuspended
   updated_at: number; deleted: 0 | 1
 }
 

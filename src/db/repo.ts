@@ -1,5 +1,5 @@
 import { db, type Local } from './db'
-import type { CardRecord, DeckRecord, NoteRecord, ReviewLogRecord } from '../../shared/types'
+import type { CardRecord, CardSuspended, DeckRecord, NoteRecord, ReviewLogRecord } from '../../shared/types'
 import { newCardFields, type FsrsFields } from '../lib/fsrs'
 
 export interface NoteInput { expression: string; reading: string; meaning: string; reversed: boolean; accent: string }
@@ -28,10 +28,12 @@ export async function softDeleteDeck(id: string): Promise<void> {
   })
 }
 
-function makeCard(note: NoteRecord, direction: CardRecord['direction'], t: number): Local<CardRecord> {
+function makeCard(
+  note: NoteRecord, direction: CardRecord['direction'], t: number, suspended: CardSuspended = 0,
+): Local<CardRecord> {
   return {
     id: crypto.randomUUID(), note_id: note.id, deck_id: note.deck_id, direction,
-    ...newCardFields(t), updated_at: t, deleted: 0, dirty: 1,
+    ...newCardFields(t), suspended, updated_at: t, deleted: 0, dirty: 1,
   }
 }
 
@@ -83,11 +85,14 @@ export async function updateNote(id: string, patch: Partial<NoteInput>): Promise
       accent: (patch.accent ?? note.accent).trim(),
       reversed, updated_at: t, dirty: 1,
     })
-    const rev = (await db.cards.where('note_id').equals(id).toArray()).find((c) => c.direction === 'reverse')
+    const cardsOfNote = await db.cards.where('note_id').equals(id).toArray()
+    const rev = cardsOfNote.find((c) => c.direction === 'reverse')
+    // 新建的反向卡跟著正向卡的狀態:已經會了的字,開反向卡也不該跑回佇列
+    const inherited = cardsOfNote.find((c) => c.direction === 'forward' && !c.deleted)?.suspended ?? 0
     if (reversed && rev?.deleted) {
       await db.cards.update(rev.id, { deleted: 0, updated_at: t, dirty: 1 }) // 復原保留舊複習進度
     } else if (reversed && !rev) {
-      await db.cards.add(makeCard({ ...note, reversed }, 'reverse', t))
+      await db.cards.add(makeCard({ ...note, reversed }, 'reverse', t, inherited))
     } else if (!reversed && rev && !rev.deleted) {
       await db.cards.update(rev.id, { deleted: 1, updated_at: t, dirty: 1 })
     }
@@ -107,10 +112,11 @@ export async function enableReverseCards(deckId: string): Promise<number> {
       .filter((n) => !n.deleted && n.reversed === 0).toArray()
     for (const note of targets) {
       await db.notes.update(note.id, { reversed: 1, updated_at: t, dirty: 1 })
-      const rev = (await db.cards.where('note_id').equals(note.id).toArray())
-        .find((c) => c.direction === 'reverse')
+      const cardsOfNote = await db.cards.where('note_id').equals(note.id).toArray()
+      const rev = cardsOfNote.find((c) => c.direction === 'reverse')
+      const inherited = cardsOfNote.find((c) => c.direction === 'forward' && !c.deleted)?.suspended ?? 0
       if (rev && rev.deleted) await db.cards.update(rev.id, { deleted: 0, updated_at: t, dirty: 1 })
-      else if (!rev) await db.cards.add(makeCard({ ...note, reversed: 1 }, 'reverse', t))
+      else if (!rev) await db.cards.add(makeCard({ ...note, reversed: 1 }, 'reverse', t, inherited))
       changed++
     }
   })
@@ -162,5 +168,45 @@ export async function undoReview(card: CardRecord, logId: string): Promise<void>
       updated_at: now(), dirty: 1,
     })
     await db.review_logs.delete(logId)
+  })
+}
+
+export interface SuspendedSnapshot { id: string; suspended: CardSuspended }
+
+/**
+ * 把一筆 note 底下所有(未刪除)卡片一起設成某個狀態:0 學習中、1 暫停、2 已經會了。
+ * 動作以「字」為單位是刻意的:使用者看到的是單字,不是正反兩張卡。
+ * 回傳改動前每張卡的值,讓複習頁的「復原」可以精確寫回去。
+ */
+export async function setNoteSuspended(noteId: string, value: CardSuspended): Promise<SuspendedSnapshot[]> {
+  const prev: SuspendedSnapshot[] = []
+  await db.transaction('rw', [db.cards], async () => {
+    const t = now()
+    const cards = await db.cards.where('note_id').equals(noteId).filter((c) => !c.deleted).toArray()
+    for (const c of cards) {
+      prev.push({ id: c.id, suspended: c.suspended ?? 0 })
+      if ((c.suspended ?? 0) !== value) await db.cards.update(c.id, { suspended: value, updated_at: t, dirty: 1 })
+    }
+  })
+  return prev
+}
+
+/** 批次版(牌組頁勾選多筆)。回傳實際改到的卡片數,已經是該狀態的不動。 */
+export async function setNotesSuspended(noteIds: string[], value: CardSuspended): Promise<number> {
+  let changed = 0
+  await db.transaction('rw', [db.cards], async () => {
+    const t = now()
+    await db.cards.where('note_id').anyOf(noteIds)
+      .filter((c) => !c.deleted && (c.suspended ?? 0) !== value)
+      .modify((c) => { c.suspended = value; c.updated_at = t; c.dirty = 1; changed += 1 })
+  })
+  return changed
+}
+
+/** 復原 setNoteSuspended:逐張寫回原值。用新的 updated_at,其他裝置才會經 LWW 收到復原結果。 */
+export async function restoreCardsSuspended(prev: SuspendedSnapshot[]): Promise<void> {
+  await db.transaction('rw', [db.cards], async () => {
+    const t = now()
+    for (const p of prev) await db.cards.update(p.id, { suspended: p.suspended, updated_at: t, dirty: 1 })
   })
 }

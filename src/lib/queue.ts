@@ -86,7 +86,8 @@ function deferSiblings(cards: CardRecord[], recent: Map<string, Set<string>>): C
 export function buildQueue(
   cards: CardRecord[], logs: ReviewLogRecord[], newPerDay: number, now = Date.now(),
 ): QueueResult {
-  const active = cards.filter((c) => !c.deleted)
+  // 暫停 / 已經會了的卡不進佇列、不算到期,也不會觸發完成畫面的自動接回
+  const active = cards.filter((c) => !c.deleted && !c.suspended)
   const recent = recentlyReviewedNotes(cards, logs, now)
   const due = deferSiblings(active
     .filter((c) => c.state !== State.New && c.due <= now)

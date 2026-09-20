@@ -145,6 +145,22 @@ describe('backup', () => {
     expect(row.updated_at).toBeGreaterThanOrEqual(before)
   })
 
+  it('匯入缺 suspended 的舊備份時,card.suspended 補成 0;有值的保留', async () => {
+    const card = (over: Record<string, unknown>) => ({
+      id: 'c', note_id: 'n1', deck_id: 'd1', direction: 'forward', due: 1, stability: 1, difficulty: 5,
+      elapsed_days: 0, scheduled_days: 0, learning_steps: 0, reps: 0, lapses: 0, state: 0, last_review: null,
+      updated_at: 1000, deleted: 0, ...over,
+    })
+    await importBackup(JSON.stringify({
+      version: 1, exported_at: 1000,
+      decks: [{ id: 'd1', name: 'A', new_per_day: 20, updated_at: 1000, deleted: 0 }],
+      notes: [], review_logs: [],
+      cards: [card({ id: 'old' }), card({ id: 'known', suspended: 2 })],
+    }))
+    expect((await db.cards.get('old'))!.suspended).toBe(0)
+    expect((await db.cards.get('known'))!.suspended).toBe(2)
+  })
+
   it('匯入缺 accent 的舊備份時,note.accent 補成空字串', async () => {
     const json = JSON.stringify({
       version: 1,

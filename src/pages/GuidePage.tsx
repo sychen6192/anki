@@ -41,6 +41,9 @@ export default function GuidePage() {
         <p className="hint">
           小字是下次見到的間隔。按錯了點左上「復原上一張」。
         </p>
+        <p className="hint">
+          早就會的字按「已經會了」,先不想看的按「暫停」,兩種都不會再出現;牌組頁可以批次處理,也能恢復。
+        </p>
       </div>
 
       <h2>快捷鍵</h2>
@@ -70,6 +73,12 @@ export default function GuidePage() {
                 <kbd>U</kbd>
               </td>
               <td>復原上一張</td>
+            </tr>
+            <tr>
+              <td>
+                <kbd>K</kbd>
+              </td>
+              <td>已經會了</td>
             </tr>
           </tbody>
         </table>

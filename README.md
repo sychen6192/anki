@@ -44,7 +44,7 @@ npm run deploy
 
 等同於 `npm run build && wrangler deploy`,會將 `dist/` 靜態檔與 Worker 一併發布到 Cloudflare。
 
-有新的 migration 時先套用再 deploy(例如 `0005_settings.sql` 的 settings 表):
+有新的 migration 時先套用再 deploy(例如 `0005_settings.sql` 的 settings 表、`0006_suspended.sql` 的 cards.suspended 欄):
 
 ```bash
 npx wrangler d1 migrations apply anki-pwa --remote
@@ -65,6 +65,7 @@ npx wrangler d1 migrations apply anki-pwa --remote
 | 編輯這張卡 | `e`(`Esc` 取消) |
 | 跳過這張卡 | `s` |
 | 復原上一張 | `u` |
+| 已經會了 | `k` |
 
 帶 Cmd / Ctrl / Alt 的組合鍵一律交還瀏覽器:Cmd+S、Ctrl+U、Cmd+1 不會被當成跳過、復原、評分。
 
@@ -76,6 +77,10 @@ npx wrangler d1 migrations apply anki-pwa --remote
 - **同一個字的正反兩面不會連著出現**:剛評完其中一面,另一面會排到這段佇列的最後
   (20 分鐘內看過就算)。同樣不是 bury、不會延到明天;佇列只剩這兩張時仍會相鄰。
 - 評分按鈕上的間隔就是評分後實際排進去的間隔(fuzz 的種子取自卡片,不取自時間)。
+- **已經會了 / 暫停**:整個字的正反兩張卡一起退出佇列,不評分、不寫複習紀錄,但會寫進資料庫並同步。
+  兩者只差標籤與意圖:「已經會了」是不用學,「暫停」是先不看。統計的狀態分布與到期預測不算它們。
+  剛按完可以「復原」;之後在牌組頁用「批次選取」勾多筆一起標記或恢復,狀態篩選可以只看已會或暫停的字。
+  範本牌組裡早就會的字,用這個一次清掉,每日新卡才真的是新的。
 - **換日時間是凌晨 4 點**(與 Anki 相同):半夜還在複習時算前一天的額度,
   不會一過午夜就重新發一份新卡配額。
 - 學習中的卡片若在 10 分鐘內到期,完成畫面會顯示倒數並自動接回複習。

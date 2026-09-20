@@ -75,3 +75,26 @@ describe('Dexie schema v2 → v3 升級', () => {
     db.close()
   })
 })
+
+describe('Dexie schema v3 → v4 升級', () => {
+  const V3_STORES = { ...V1_STORES, settings: 'id, dirty' }
+  const cardRow = (over: Record<string, unknown>) => ({
+    id: 'c', note_id: 'n1', deck_id: 'd1', direction: 'forward', due: 1, stability: 1, difficulty: 5,
+    elapsed_days: 0, scheduled_days: 0, learning_steps: 0, reps: 0, lapses: 0, state: 0, last_review: null,
+    updated_at: 1, deleted: 0, dirty: 0, ...over,
+  })
+
+  it('舊卡片沒有 suspended 時補 0;升級當下已經帶值的不動', async () => {
+    const v3 = new Dexie('anki-pwa')
+    v3.version(3).stores(V3_STORES)
+    await v3.open()
+    await v3.table('cards').bulkAdd([cardRow({ id: 'old' }), cardRow({ id: 'known', suspended: 2 })])
+    v3.close()
+
+    const { db } = await import('../src/db/db')
+    await db.open()
+    expect((await db.cards.get('old'))!.suspended).toBe(0)
+    expect((await db.cards.get('known'))!.suspended).toBe(2)
+    db.close()
+  })
+})

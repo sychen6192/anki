@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
 import {
-  createNote, enableReverseCards, moveNote, softDeleteDeck, softDeleteNote,
+  createNote, enableReverseCards, moveNote, setNotesSuspended, softDeleteDeck, softDeleteNote,
   updateDeck, updateNote, type NoteInput,
 } from '../db/repo'
 import { exportCsv } from '../lib/csv'
@@ -16,7 +16,7 @@ import { State } from '../lib/fsrs'
 import { useBusy } from '../lib/useBusy'
 import { Loading } from '../components/Loading'
 import { SpeakerIcon } from '../components/SpeakerIcon'
-import type { NoteRecord } from '../../shared/types'
+import type { CardSuspended, NoteRecord } from '../../shared/types'
 
 const EMPTY: NoteInput = { expression: '', reading: '', meaning: '', reversed: false, accent: '' }
 // 一次只掛這麼多列到 DOM;捲到底再長出下一批。整副 869 筆全部掛上去時,
@@ -30,9 +30,22 @@ const SORTS: readonly (readonly [SortKey, string])[] = [
   ['kana', '五十音'],
 ]
 
-/** 一筆 note 的複習狀態標籤(彙總它的正/反向卡):到期 > 學習中 > 新卡 > 排程中 */
-function noteStateBadge(cards: { state: number; due: number }[] | undefined, now: number) {
+type NoteStatus = 'active' | 'paused' | 'known'
+type CardLite = { state: number; due: number; suspended?: number }
+const STATUS_LABELS: Record<NoteStatus, string> = { active: '學習中', paused: '暫停', known: '已會' }
+
+/** 一筆 note 的狀態(彙總它的卡片):任一張已會 → 已會;任一張暫停 → 暫停;否則學習中 */
+function noteStatus(cards: CardLite[] | undefined): NoteStatus {
+  const s = Math.max(0, ...(cards ?? []).map((c) => c.suspended ?? 0))
+  return s === 2 ? 'known' : s === 1 ? 'paused' : 'active'
+}
+
+/** 一筆 note 的複習狀態標籤(彙總它的正/反向卡):已會/暫停 > 到期 > 學習中 > 新卡 > 排程中 */
+function noteStateBadge(cards: CardLite[] | undefined, now: number) {
   if (!cards || cards.length === 0) return null
+  const status = noteStatus(cards)
+  if (status === 'known') return { label: '已會', cls: 'c-known' }
+  if (status === 'paused') return { label: '暫停', cls: 'c-paused' }
   if (cards.some((c) => c.state !== State.New && c.due <= now)) return { label: '到期', cls: 'c-due' }
   if (cards.some((c) => c.state === State.Learning || c.state === State.Relearning)) {
     return { label: '學習中', cls: 'c-learn' }
@@ -55,6 +68,10 @@ export default function DeckDetail() {
   const allDecks = useLiveQuery(() => db.decks.filter((d) => !d.deleted).toArray(), [])
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortKey>('added-desc')
+  const [status, setStatus] = useState<'all' | NoteStatus>('all')
+  // 批次選取:勾多筆一起標成 已經會了 / 暫停 / 恢復學習(範本牌組裡早就會的字,一次清掉)
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [editingId, setEditingId] = useState<string | null>(null) // 'new' = 新增模式
   const [form, setForm] = useState<NoteInput>(EMPTY)
   const [moveTo, setMoveTo] = useState<string | null>(null)
@@ -64,11 +81,11 @@ export default function DeckDetail() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const sentinel = useRef<HTMLDivElement | null>(null)
 
-  // 搜尋或排序變了就從頭算起
-  useEffect(() => { setVisibleCount(PAGE_SIZE) }, [search, sort])
+  // 搜尋、排序或狀態篩選變了就從頭算起
+  useEffect(() => { setVisibleCount(PAGE_SIZE) }, [search, sort, status])
 
   const cardsByNote = useMemo(() => {
-    const m = new Map<string, { state: number; due: number }[]>()
+    const m = new Map<string, CardLite[]>()
     for (const c of deckCards ?? []) {
       const list = m.get(c.note_id)
       if (list) list.push(c)
@@ -111,11 +128,40 @@ export default function DeckDetail() {
     )
   }
 
-  const filtered = search
-    ? sorted.filter((n) => [n.expression, n.reading, n.meaning].some((s) => s.includes(search)))
-    : sorted
+  const filtered = sorted.filter((n) =>
+    (search === '' || [n.expression, n.reading, n.meaning].some((s) => s.includes(search)))
+    && (status === 'all' || noteStatus(cardsByNote.get(n.id)) === status))
   const shown = filtered.slice(0, visibleCount)
   const listNow = Date.now()
+  const statusCounts = { known: 0, paused: 0 }
+  for (const n of notes) {
+    const st = noteStatus(cardsByNote.get(n.id))
+    if (st !== 'active') statusCounts[st] += 1
+  }
+  const hasParked = statusCounts.known + statusCounts.paused > 0
+
+  const toggleSelected = (id: string) => setSelected((prev) => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  })
+  const exitSelecting = () => { setSelecting(false); setSelected(new Set()) }
+
+  const applyStatus = (value: CardSuspended) => run(async () => {
+    const ids = [...selected].filter((id) => notes.some((n) => n.id === id))
+    if (ids.length === 0) return
+    try {
+      await setNotesSuspended(ids, value)
+      const label = value === 2 ? '已經會了' : value === 1 ? '暫停' : '恢復學習'
+      setAnnotateMsg(`已把 ${ids.length} 筆標為「${label}」`)
+      setSelected(new Set())
+      setErrMsg(null)
+      requestSync()
+    } catch (e) {
+      setErrMsg(`操作失敗:${e instanceof Error ? e.message : String(e)}`)
+    }
+  })
 
   const lookupOne = async () => {
     if (!form.expression.trim()) { setErrMsg('請先輸入單字'); return }
@@ -303,6 +349,8 @@ export default function DeckDetail() {
         <button className="btn secondary" onClick={() => { setEditingId('new'); setForm(EMPTY) }}>＋新增卡片</button>
         <button className="btn secondary" disabled={busy} onClick={() => void annotateDeck()}>自動標註重音</button>
         <button className="btn secondary" disabled={busy || notes.length === 0} onClick={() => void shareDeck()}>分享牌組</button>
+        <button className="btn secondary" disabled={notes.length === 0}
+          onClick={() => (selecting ? exitSelecting() : setSelecting(true))}>{selecting ? '結束批次' : '批次選取'}</button>
       </div>
       {annotateMsg && <p className="hint" role="status" aria-live="polite">{annotateMsg}</p>}
       {shareMsg && <p className="hint" role="status" aria-live="polite">{shareMsg}</p>}
@@ -371,6 +419,19 @@ export default function DeckDetail() {
         </div>
       )}
 
+      {selecting && (
+        <div className="batch-bar" role="region" aria-label="批次操作">
+          <span>已選 <b>{selected.size}</b> 筆</span>
+          <button className="link" onClick={() => setSelected(new Set(filtered.map((n) => n.id)))}>全選目前列表</button>
+          <button className="link" onClick={() => setSelected(new Set())}>清除</button>
+          <div className="form-actions">
+            <button className="btn" disabled={busy || selected.size === 0} onClick={() => void applyStatus(2)}>已經會了</button>
+            <button className="btn secondary" disabled={busy || selected.size === 0} onClick={() => void applyStatus(1)}>暫停</button>
+            <button className="btn secondary" disabled={busy || selected.size === 0} onClick={() => void applyStatus(0)}>恢復學習</button>
+          </div>
+          <p className="hint">已經會了與暫停的字都不再出現在複習裡;統計也不算它們。之後可以在這裡恢復。</p>
+        </div>
+      )}
       <div className="list-controls">
         <div className="search-wrap">
           <input className="search" placeholder="搜尋" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -382,25 +443,45 @@ export default function DeckDetail() {
           onChange={(e) => setSort(e.target.value as SortKey)}>
           {SORTS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
         </select>
+        {(hasParked || selecting || status !== 'all') && (
+          <select className="sort-select" aria-label="狀態篩選" value={status}
+            onChange={(e) => setStatus(e.target.value as 'all' | NoteStatus)}>
+            <option value="all">全部狀態</option>
+            {(['active', 'known', 'paused'] as const).map((s) => (
+              <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+            ))}
+          </select>
+        )}
       </div>
       <ul className="note-list">
         {shown.map((n) => {
           const badge = noteStateBadge(cardsByNote.get(n.id), listNow)
           return (
-          <li key={n.id} className="note-row">
+          <li key={n.id}
+            className={`note-row${selecting ? ' selectable' : ''}${selecting && selected.has(n.id) ? ' selected' : ''}`}
+            onClick={selecting ? () => toggleSelected(n.id) : undefined}>
+            {selecting && (
+              <input type="checkbox" className="note-check" aria-label={`選取 ${n.expression}`}
+                checked={selected.has(n.id)} onChange={() => toggleSelected(n.id)}
+                onClick={(e) => e.stopPropagation()} />
+            )}
             <div className="note-text">
               <b lang="ja">{n.expression}</b>
               {n.reading && <span className="reading-inline" lang="ja">{n.reading}</span>}
               <span>{n.meaning}</span>
               {badge !== null && <span className={`note-state ${badge.cls}`}>{badge.label}</span>}
             </div>
-            <button className="link" onClick={() => {
-              setEditingId(n.id)
-              setMoveTo(null)
-              setForm({ expression: n.expression, reading: n.reading, meaning: n.meaning, reversed: n.reversed === 1, accent: n.accent ?? '' })
-            }}>編輯</button>
-            <button className="link danger" disabled={busy}
-              onClick={() => void removeNote(n.id, n.expression)}>刪除</button>
+            {!selecting && (
+              <>
+                <button className="link" onClick={() => {
+                  setEditingId(n.id)
+                  setMoveTo(null)
+                  setForm({ expression: n.expression, reading: n.reading, meaning: n.meaning, reversed: n.reversed === 1, accent: n.accent ?? '' })
+                }}>編輯</button>
+                <button className="link danger" disabled={busy}
+                  onClick={() => void removeNote(n.id, n.expression)}>刪除</button>
+              </>
+            )}
           </li>
           )
         })}
@@ -408,6 +489,7 @@ export default function DeckDetail() {
       <div ref={sentinel} />
       <p className="hint">
         顯示 {shown.length} / {filtered.length} 筆{filtered.length !== notes.length && `(共 ${notes.length} 筆)`}
+        {statusCounts.known > 0 && ` · 已會 ${statusCounts.known}`}{statusCounts.paused > 0 && ` · 暫停 ${statusCounts.paused}`}
         {shown.length < filtered.length && (
           <> · <button className="link" onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}>顯示更多</button></>
         )}

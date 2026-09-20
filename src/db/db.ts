@@ -43,6 +43,19 @@ export class AppDB extends Dexie {
       settings: 'id, dirty',
       meta: 'key',
     })
+    // v4:cards.suspended(0 學習中 / 1 暫停 / 2 已經會了)。與 accent 同一套:只補沒有的
+    this.version(4).stores({
+      decks: 'id, dirty',
+      notes: 'id, deck_id, dirty',
+      cards: 'id, note_id, deck_id, due, dirty',
+      review_logs: 'id, card_id, reviewed_at, dirty',
+      settings: 'id, dirty',
+      meta: 'key',
+    }).upgrade(async (tx) => {
+      await tx.table('cards').toCollection().modify((c: { suspended?: number }) => {
+        if (typeof c.suspended !== 'number') c.suspended = 0
+      })
+    })
   }
 }
 

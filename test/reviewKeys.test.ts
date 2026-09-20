@@ -15,6 +15,13 @@ describe('reviewKeyAction', () => {
     expect(reviewKeyAction(key('3'), front)).toBeNull()
   })
 
+  it('K = 已經會了,正面背面都能按;帶修飾鍵或編輯中不接', () => {
+    expect(reviewKeyAction(key('k'), front)).toEqual({ type: 'known' })
+    expect(reviewKeyAction(key('k'), back)).toEqual({ type: 'known' })
+    expect(reviewKeyAction(key('k', { metaKey: true }), front)).toBeNull()
+    expect(reviewKeyAction(key('k'), { editing: true, showBack: false })).toBeNull()
+  })
+
   it('翻面後 1~4 評分', () => {
     for (const k of ['1', '2', '3', '4'] as const) {
       expect(reviewKeyAction(key(k), back)).toEqual({ type: 'rate', rating: Number(k) })

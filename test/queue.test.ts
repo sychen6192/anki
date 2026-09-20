@@ -9,7 +9,7 @@ let seq = 0
 function card(overrides: Partial<CardRecord>): CardRecord {
   return {
     id: `c${seq++}`, note_id: 'n', deck_id: 'd', direction: 'forward',
-    ...newCardFields(NOW), updated_at: NOW, deleted: 0, ...overrides,
+    ...newCardFields(NOW), suspended: 0, updated_at: NOW, deleted: 0, ...overrides,
   }
 }
 
@@ -60,6 +60,17 @@ describe('buildQueue', () => {
     expect(queue).toHaveLength(0)
   })
 
+  it('暫停 / 已經會了的卡:不算到期、不佔新卡額度、不觸發自動接回', () => {
+    const due = card({ state: State.Review, due: NOW - 1000, suspended: 1 })
+    const known = card({ state: State.New, suspended: 2 })
+    const fresh = card({ state: State.New })
+    const learning = card({ state: State.Learning, due: NOW + 60_000, suspended: 1 })
+    const { queue, newRemaining, nextLearningDue } = buildQueue([due, known, fresh, learning], [], 1, NOW)
+    expect(queue.map((c) => c.id)).toEqual([fresh.id])
+    expect(newRemaining).toBe(1)
+    expect(nextLearningDue).toBeNull()
+  })
+
   it('nextLearningDue = 未到期學習中卡的最早 due', () => {
     const l1 = card({ state: State.Learning, due: NOW + 600_000 })
     const l2 = card({ state: State.Relearning, due: NOW + 300_000 })
@@ -102,7 +113,7 @@ describe('deckQueue', () => {
     id: 'c', note_id: 'n', deck_id: 'd1', direction: 'forward',
     due: NOW, stability: 0, difficulty: 0, elapsed_days: 0, scheduled_days: 0,
     learning_steps: 0, reps: 0, lapses: 0, state: State.New, last_review: null,
-    updated_at: 1, deleted: 0, ...over,
+    suspended: 0, updated_at: 1, deleted: 0, ...over,
   })
 
   it('只算指定牌組的卡片,別的牌組不影響額度', () => {
