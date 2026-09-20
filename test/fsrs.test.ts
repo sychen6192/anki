@@ -66,3 +66,33 @@ describe('formatInterval', () => {
     expect(formatInterval(ms)).toBe(expected)
   })
 })
+
+describe('fuzz 種子:按鈕上的預覽 = 實際套用的間隔', () => {
+  // 複習中的卡,下次間隔遠超過 2.5 天,fuzz 才會介入
+  const reviewCard = (id = 'c1') => makeCard({
+    id, state: State.Review, reps: 3, stability: 30, difficulty: 5,
+    elapsed_days: 10, scheduled_days: 30,
+    last_review: NOW - 10 * 86400_000, due: NOW - 86400_000,
+  })
+
+  it('render 與點擊隔了一段時間,四個按鈕顯示的間隔仍等於評分後排進去的間隔', () => {
+    const card = reviewCard()
+    const preview = previewIntervals(card, NOW)
+    for (const r of [1, 2, 3, 4] as const) {
+      const { fields, log } = rate(card, r, NOW + 90_000)
+      expect(formatInterval(fields.due - log.reviewed_at)).toBe(preview[r])
+    }
+  })
+
+  it('同一張卡同一天算幾次,間隔都一樣(以前每毫秒都可能不同)', () => {
+    const card = reviewCard()
+    const a = rate(card, 3, NOW).fields.due - NOW
+    const b = rate(card, 3, NOW + 5 * 60_000).fields.due - (NOW + 5 * 60_000)
+    expect(a).toBe(b)
+  })
+
+  it('fuzz 仍在:欄位相同但 id 不同的卡片,到期日會錯開', () => {
+    const dues = new Set(Array.from({ length: 30 }, (_, i) => rate(reviewCard(`c${i}`), 3, NOW).fields.due))
+    expect(dues.size).toBeGreaterThan(1)
+  })
+})

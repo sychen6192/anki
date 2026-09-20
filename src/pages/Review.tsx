@@ -107,7 +107,8 @@ export default function Review() {
       // 評分已儲存成功,先清掉舊錯誤——loadNext 若失敗是另一回事,不代表評分沒存到。
       setErrMsg(null)
       setUndoable({ card: answered, logId })
-      setToast({ label: RATING_LABELS[rating], interval: previewIntervals(answered)[rating] })
+      // 顯示實際排進去的間隔,不是再算一次的預覽
+      setToast({ label: RATING_LABELS[rating], interval: formatInterval(fields.due - log.reviewed_at) })
       clearTimeout(toastTimer.current)
       toastTimer.current = window.setTimeout(() => setToast(null), 4000)
       try {
