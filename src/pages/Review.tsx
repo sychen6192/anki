@@ -9,6 +9,7 @@ import { db } from '../db/db'
 import { applyReview, undoReview, updateNote } from '../db/repo'
 import { formatInterval, previewIntervals, rate, State, type RatingValue } from '../lib/fsrs'
 import { deckQueue, startOfToday } from '../lib/queue'
+import { reviewKeyAction } from '../lib/reviewKeys'
 import { syncNow } from '../lib/sync'
 import type { CardRecord, NoteRecord } from '../../shared/types'
 
@@ -172,16 +173,17 @@ export default function Review() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // 編輯中鍵盤要留給輸入框,只保留 Esc 取消
-      if (editing !== null) {
-        if (e.key === 'Escape') setEditing(null)
-        return
+      // 鍵 → 動作的對照表在 reviewKeys.ts(含「帶 Cmd/Ctrl/Alt 不接」的規則),這裡只負責執行
+      const action = reviewKeyAction(e, { editing: editing !== null, showBack })
+      if (action === null) return
+      switch (action.type) {
+        case 'cancel-edit': setEditing(null); break
+        case 'show': e.preventDefault(); setShowBack(true); break
+        case 'edit': e.preventDefault(); setEditing(currentNoteFields()); break
+        case 'skip': e.preventDefault(); void skip(); break
+        case 'undo': e.preventDefault(); void undo(); break
+        case 'rate': void answer(action.rating); break
       }
-      if (e.key === ' ') { e.preventDefault(); setShowBack(true) }
-      else if (e.key === 'e') { e.preventDefault(); setEditing(currentNoteFields()) }
-      else if (e.key === 's') { e.preventDefault(); void skip() }
-      else if (e.key === 'u') { e.preventDefault(); void undo() }
-      else if (showBack && ['1', '2', '3', '4'].includes(e.key)) void answer(Number(e.key) as RatingValue)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
