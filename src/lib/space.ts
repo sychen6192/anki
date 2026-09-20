@@ -19,13 +19,14 @@ export async function getSyncSpace(): Promise<string> {
   return typeof row?.value === 'string' ? row.value : ''
 }
 
-/** 清空本機四張資料表與同步游標,保留金鑰;之後重新同步取得該金鑰空間資料。 */
+/** 清空本機五張資料表與同步游標,保留金鑰;之後重新同步取得該金鑰空間資料。 */
 export async function clearLocalData(): Promise<void> {
-  await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.meta], async () => {
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
     await db.decks.clear()
     await db.notes.clear()
     await db.cards.clear()
     await db.review_logs.clear()
+    await db.settings.clear()
     await db.meta.delete('sync_cursor')
   })
 }
@@ -42,12 +43,13 @@ export async function setSyncSpace(key: string): Promise<void> {
     await db.meta.put({ key: 'sync_space', value: next })
     return
   }
-  // 換空間:清空本機四表 + 游標歸零 + 寫新金鑰,全部同一交易(與 syncNow 的併入交易互斥,杜絕競態)
-  await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.meta], async () => {
+  // 換空間:清空本機五表 + 游標歸零 + 寫新金鑰,全部同一交易(與 syncNow 的併入交易互斥,杜絕競態)
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
     await db.decks.clear()
     await db.notes.clear()
     await db.cards.clear()
     await db.review_logs.clear()
+    await db.settings.clear()
     await db.meta.delete('sync_cursor')
     await db.meta.put({ key: 'sync_space', value: next })
   })

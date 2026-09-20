@@ -1,5 +1,6 @@
 import {
-  createEmptyCard, fsrs, generatorParameters, Rating, State,
+  createEmptyCard, default_request_retention, fsrs, generatorParameters, GenSeedStrategyWithCardId,
+  Rating, State, StrategyMode,
   type Card as FsrsCard, type Grade,
 } from 'ts-fsrs'
 import type { CardRecord, ReviewLogRecord } from '../../shared/types'
@@ -7,7 +8,34 @@ import type { CardRecord, ReviewLogRecord } from '../../shared/types'
 export { Rating, State }
 export type RatingValue = 1 | 2 | 3 | 4
 
-const f = fsrs(generatorParameters({ enable_fuzz: true }))
+// fuzz 的亂數種子預設含「評分當下的毫秒時間」。按鈕上的間隔在 render 時算、評分在點擊時
+// 再算一次,兩個時間點不同,超過 2.5 天的間隔就會被 fuzz 抖成不同的值 —— 按鈕寫 4 天,
+// 實際排 3 天或 5 天,連重新 render 都會讓按鈕上的數字跳動。改用「卡片 id + 第幾次複習」
+// 當種子:同一張卡同一天怎麼算都一樣;不同卡片、下一次複習仍各自錯開(fuzz 的本意是分散到期日)。
+export interface SchedulerSettings {
+  /** null = ts-fsrs 預設參數;17/19/21 個都吃,ts-fsrs 會自己升到 FSRS-6 */
+  w: readonly number[] | null
+  desired_retention: number
+}
+
+function buildScheduler(s: SchedulerSettings) {
+  return fsrs(generatorParameters({
+    ...(s.w !== null ? { w: s.w } : {}),
+    request_retention: s.desired_retention,
+    enable_fuzz: true,
+  })).useStrategy(StrategyMode.SEED, GenSeedStrategyWithCardId('id'))
+}
+
+let f = buildScheduler({ w: null, desired_retention: default_request_retention })
+
+/**
+ * 換上使用者的參數與目標保持率:設定頁存檔後、複習頁載入時呼叫,
+ * 之後的 rate / previewIntervals 都用新的排程器。參數存在會同步的 settings 表,
+ * 所以每台裝置算出來的間隔一致。
+ */
+export function applyFsrsSettings(s: SchedulerSettings): void {
+  f = buildScheduler(s)
+}
 
 export type FsrsFields = Pick<CardRecord,
   'due' | 'stability' | 'difficulty' | 'elapsed_days' | 'scheduled_days' |
@@ -19,6 +47,7 @@ export function newCardFields(now = Date.now()): FsrsFields {
 
 function toFsrs(c: CardRecord): FsrsCard {
   return {
+    id: c.id, // ts-fsrs 的 Card 沒這欄;只給上面的 seed 策略讀
     due: new Date(c.due), stability: c.stability, difficulty: c.difficulty,
     elapsed_days: c.elapsed_days, scheduled_days: c.scheduled_days,
     learning_steps: c.learning_steps, reps: c.reps, lapses: c.lapses,

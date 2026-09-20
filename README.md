@@ -44,6 +44,14 @@ npm run deploy
 
 等同於 `npm run build && wrangler deploy`,會將 `dist/` 靜態檔與 Worker 一併發布到 Cloudflare。
 
+有新的 migration 時先套用再 deploy(例如 `0005_settings.sql` 的 settings 表):
+
+```bash
+npx wrangler d1 migrations apply anki-pwa --remote
+```
+
+沒先套的話,新版 worker 寫 settings 表會回 500,客戶端會保留 dirty 下次再推,資料不會掉,但同步會一直失敗到套用為止。
+
 若要部署到自己的 Cloudflare 帳號,先 `npx wrangler d1 create anki-pwa` 並把回傳的 `database_id` 填入 `wrangler.jsonc`(本 repo 已填入原作者的 id),接著 `npx wrangler d1 migrations apply anki-pwa --remote` 套用資料庫結構。
 
 部署完成後 wrangler 會印出 `https://anki-pwa.<account>.workers.dev`,可用 `curl <URL>/api/health` 確認回傳 `{"ok":true}`。
@@ -58,15 +66,34 @@ npm run deploy
 | 跳過這張卡 | `s` |
 | 復原上一張 | `u` |
 
+帶 Cmd / Ctrl / Alt 的組合鍵一律交還瀏覽器:Cmd+S、Ctrl+U、Cmd+1 不會被當成跳過、復原、評分。
+
 - **復原**:評分後左上出現「復原上一張」,會還原卡片的排程並刪掉那筆複習紀錄,
   且直接帶你回到那張卡。注意複習紀錄在伺服器端是 append-only,若該筆已同步出去,
   雲端那列會留著(只影響「今日新卡數」統計,不影響排程)。
 - **跳過**只在這次複習中生效,離開複習畫面就重來 —— 它是「現在不想看」,
   不是 Anki 的 bury,不會寫進排程。
+- **同一個字的正反兩面不會連著出現**:剛評完其中一面,另一面會排到這段佇列的最後
+  (20 分鐘內看過就算)。同樣不是 bury、不會延到明天;佇列只剩這兩張時仍會相鄰。
+- 評分按鈕上的間隔就是評分後實際排進去的間隔(fuzz 的種子取自卡片,不取自時間)。
 - **換日時間是凌晨 4 點**(與 Anki 相同):半夜還在複習時算前一天的額度,
   不會一過午夜就重新發一份新卡配額。
 - 學習中的卡片若在 10 分鐘內到期,完成畫面會顯示倒數並自動接回複習。
 - 複習畫面頂端有本次進度條;剩餘張數即時顯示。
+
+## FSRS 參數與目標保持率
+
+設定頁「FSRS 排程」:
+
+- **目標保持率**(預設 90%):排程會把間隔調到「到期時大約記得這個比例」。調高複習更頻繁、忘得少;調低複習量少、忘得多。
+- **用我的複習紀錄最佳化參數**:在瀏覽器裡跑 [fsrs-rs](https://github.com/open-spaced-repetition/fsrs-rs) 的 optimizer(`fsrs-browser` 的 wasm),用自己的複習紀錄算出一組 FSRS-6 參數。至少 400 筆紀錄才能跑,1000 筆以上比較穩;會佔滿 CPU 幾秒到一分鐘。樣本的整理規則對照 Anki:每張卡到某次複習為止的整段歷史是一個樣本,同一天內的複習只留在歷史裡不當目標。
+- 參數與目標保持率存在 `settings` 表,跟牌組一樣走 LWW 同步,所以手機與電腦排出來的間隔一致;備份 JSON 也帶著。
+- 統計頁的**真實保持率**:複習中的卡片到期時答對的比例(7 天 / 30 天 / 全部),拿來對照目標。明顯低於目標就最佳化參數;明顯高於目標可以把目標調低。
+
+optimizer 用多執行緒 wasm,需要 SharedArrayBuffer,所以 `public/_headers` 對所有路徑送出
+`Cross-Origin-Opener-Policy: same-origin` 與 `Cross-Origin-Embedder-Policy: require-corp`。
+這個 app 沒有任何跨來源資源,所以沒有副作用;日後若要載入外部字型或圖片,那些資源得帶 CORP/CORS 標頭。
+wasm 約 340KB,不進 precache,第一次最佳化時才下載,之後離線也能跑。
 
 ## 更新提示
 

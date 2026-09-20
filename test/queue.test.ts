@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildQueue, countTodayNew, deckQueue, startOfToday, DAY_START_HOUR } from '../src/lib/queue'
+import { buildQueue, countTodayNew, deckQueue, startOfToday, DAY_START_HOUR, SIBLING_GAP_MS } from '../src/lib/queue'
 import { newCardFields, State } from '../src/lib/fsrs'
 import type { CardRecord, ReviewLogRecord } from '../shared/types'
 
@@ -122,5 +122,65 @@ describe('deckQueue', () => {
     ]
     expect(deckQueue('d1', 1, cards, logs, NOW).newRemaining).toBe(1)
     expect(deckQueue('d2', 1, cards, logs, NOW).newRemaining).toBe(0)
+  })
+})
+
+describe('buildQueue:同一個字的正反兩面(sibling)不連著出現', () => {
+  const fwd = (note: string, over: Partial<CardRecord> = {}) => card({ note_id: note, direction: 'forward', ...over })
+  const rev = (note: string, over: Partial<CardRecord> = {}) => card({ note_id: note, direction: 'reverse', ...over })
+  // 剛評過分的正向卡:進入學習中、尚未到期,已不在佇列裡
+  const justAnswered = (note: string) => fwd(note, { state: State.Learning, due: NOW + 600_000 })
+
+  it('剛看過的字,另一面排到新卡段最後 —— 匯入時正反兩張 updated_at 相同,原本會緊接著出現', () => {
+    const fwdA = justAnswered('A')
+    const revA = rev('A'), fwdB = fwd('B'), revB = rev('B')
+    const logs = [log({ card_id: fwdA.id, state: State.New, reviewed_at: NOW - 30_000 })]
+    const { queue } = buildQueue([fwdA, revA, fwdB, revB], logs, 20, NOW)
+    expect(queue.map((c) => c.id)).toEqual([fwdB.id, revB.id, revA.id])
+  })
+
+  it('超過 SIBLING_GAP_MS 就照原順序', () => {
+    const fwdA = justAnswered('A')
+    const revA = rev('A'), fwdB = fwd('B'), revB = rev('B')
+    const logs = [log({ card_id: fwdA.id, state: State.New, reviewed_at: NOW - SIBLING_GAP_MS - 1 })]
+    const { queue } = buildQueue([fwdA, revA, fwdB, revB], logs, 20, NOW)
+    expect(queue.map((c) => c.id)).toEqual([revA.id, fwdB.id, revB.id])
+  })
+
+  it('卡片自己的紀錄不算:學習步驟到期的卡照 due 順序回來,不會被推到後面', () => {
+    const fwdA = fwd('A', { state: State.Learning, due: NOW - 300_000 })
+    const x = card({ note_id: 'X', state: State.Review, due: NOW - 60_000 })
+    const logs = [log({ card_id: fwdA.id, state: State.New, reviewed_at: NOW - 600_000 })]
+    const { queue } = buildQueue([x, fwdA], logs, 20, NOW)
+    expect(queue.map((c) => c.id)).toEqual([fwdA.id, x.id])
+  })
+
+  it('到期段也排開,但只在段內移動:仍在所有新卡之前', () => {
+    const x = card({ note_id: 'X', state: State.Review, due: NOW - 7200_000 })
+    const revA = rev('A', { state: State.Review, due: NOW - 3600_000 })
+    const fwdA = fwd('A', { state: State.Learning, due: NOW - 30_000 })
+    const n = card({ note_id: 'N', state: State.New })
+    const logs = [log({ card_id: fwdA.id, state: State.Relearning, reviewed_at: NOW - 300_000 })]
+    const { queue } = buildQueue([n, revA, fwdA, x], logs, 20, NOW)
+    expect(queue.map((c) => c.id)).toEqual([x.id, fwdA.id, revA.id, n.id])
+  })
+
+  it('新卡額度先切再排開:今天學哪幾張不變,只換順序', () => {
+    const fwdA = justAnswered('A')
+    const revA = rev('A', { updated_at: NOW - 3 })
+    const fwdB = fwd('B', { updated_at: NOW - 2 })
+    const fwdC = fwd('C', { updated_at: NOW - 1 })
+    const logs = [log({ card_id: fwdA.id, state: State.New, reviewed_at: NOW - 30_000 })]
+    const { queue, newRemaining } = buildQueue([fwdA, revA, fwdB, fwdC], logs, 3, NOW)
+    expect(newRemaining).toBe(2) // 額度 3,今天已學 fwdA
+    expect(queue.map((c) => c.id)).toEqual([fwdB.id, revA.id]) // 若先排開再切,會變成 fwdB、fwdC
+  })
+
+  it('佇列只剩這兩張時仍會相鄰(沒有 bury,這是已知取捨)', () => {
+    const fwdA = fwd('A', { state: State.Learning, due: NOW - 30_000 })
+    const revA = rev('A')
+    const logs = [log({ card_id: fwdA.id, state: State.New, reviewed_at: NOW - 60_000 })]
+    const { queue } = buildQueue([revA, fwdA], logs, 20, NOW)
+    expect(queue.map((c) => c.id)).toEqual([fwdA.id, revA.id])
   })
 })

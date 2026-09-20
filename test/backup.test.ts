@@ -5,6 +5,7 @@ import { createDeck, createNote } from '../src/db/repo'
 import { exportBackup, importBackup } from '../src/lib/backup'
 import { syncNow } from '../src/lib/sync'
 import { setSyncSpace } from '../src/lib/space'
+import { DEFAULT_FSRS_SETTINGS, getFsrsSettings, saveFsrsSettings } from '../src/lib/fsrsSettings'
 
 beforeEach(async () => {
   await db.delete()
@@ -127,6 +128,21 @@ describe('backup', () => {
 
     expect(server.decks.get('d1')?.deleted).toBe(0) // 雲端被還原內容覆蓋
     expect((await db.decks.get('d1'))?.deleted).toBe(0) // 本機保持存活
+  })
+
+  it('settings 跟著備份走:還原後拿得回 FSRS 設定,而且是 restore-wins 的新時間戳', async () => {
+    await saveFsrsSettings({ ...DEFAULT_FSRS_SETTINGS, desired_retention: 0.85 })
+    await db.settings.update('fsrs', { updated_at: 1000 })
+    const json = await exportBackup()
+
+    await db.delete(); await db.open()
+    const before = Date.now()
+    await importBackup(json)
+
+    expect((await getFsrsSettings()).desired_retention).toBe(0.85)
+    const row = (await db.settings.get('fsrs'))!
+    expect(row.dirty).toBe(1)
+    expect(row.updated_at).toBeGreaterThanOrEqual(before)
   })
 
   it('匯入缺 accent 的舊備份時,note.accent 補成空字串', async () => {

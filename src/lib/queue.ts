@@ -39,18 +39,64 @@ export function deckQueue(
   return buildQueue(cards, todayLogs.filter((l) => ids.has(l.card_id)), newPerDay, now)
 }
 
+/**
+ * 同一個字的正反兩面(sibling)不該連著出現:剛看完 勉強 的答案,下一張就是
+ * 「讀書、用功」問你 勉強,等於白背。匯入時勾「同時建立反向卡」的兩張卡 updated_at
+ * 相同,新卡段依 updated_at 排序就會正反相鄰。
+ *
+ * 這段時間內看過某一面,另一面就排到該段佇列的最後。佇列每答一張就重算,所以靠
+ * 「最近的複習紀錄」判斷而不是靜態排開 —— 靜態排開的下一輪重算又會黏回去。
+ * 不是 Anki 的 bury(延到明天):整段只剩這兩張時仍會相鄰,那是不寫進排程的代價。
+ */
+export const SIBLING_GAP_MS = 20 * 60_000
+
+/** 最近看過的字:note_id → 這段時間內評過分的 card_id 集合 */
+function recentlyReviewedNotes(
+  cards: CardRecord[], logs: ReviewLogRecord[], now: number,
+): Map<string, Set<string>> {
+  const noteOf = new Map(cards.map((c) => [c.id, c.note_id]))
+  const out = new Map<string, Set<string>>()
+  for (const l of logs) {
+    if (l.reviewed_at <= now - SIBLING_GAP_MS) continue
+    const noteId = noteOf.get(l.card_id)
+    if (noteId === undefined) continue
+    const seen = out.get(noteId)
+    if (seen) seen.add(l.card_id)
+    else out.set(noteId, new Set([l.card_id]))
+  }
+  return out
+}
+
+/**
+ * 「另一面最近看過」的卡片移到最後,其餘順序不動。
+ * 只看別張卡的紀錄:卡片自己剛評過分又到期(學習步驟)要照 due 順序回來,不能被推後。
+ */
+function deferSiblings(cards: CardRecord[], recent: Map<string, Set<string>>): CardRecord[] {
+  const kept: CardRecord[] = []
+  const deferred: CardRecord[] = []
+  for (const c of cards) {
+    const seen = recent.get(c.note_id)
+    const siblingSeen = seen !== undefined && seen.size > (seen.has(c.id) ? 1 : 0)
+    if (siblingSeen) deferred.push(c)
+    else kept.push(c)
+  }
+  return kept.concat(deferred)
+}
+
 export function buildQueue(
   cards: CardRecord[], logs: ReviewLogRecord[], newPerDay: number, now = Date.now(),
 ): QueueResult {
   const active = cards.filter((c) => !c.deleted)
-  const due = active
+  const recent = recentlyReviewedNotes(cards, logs, now)
+  const due = deferSiblings(active
     .filter((c) => c.state !== State.New && c.due <= now)
-    .sort((a, b) => a.due - b.due)
+    .sort((a, b) => a.due - b.due), recent)
   const newRemaining = Math.max(0, newPerDay - countTodayNew(logs, now))
-  const news = active
+  // 額度先切再排開:排開只動順序,不改今天學哪幾張
+  const news = deferSiblings(active
     .filter((c) => c.state === State.New)
     .sort((a, b) => a.updated_at - b.updated_at) // 建立時間即初始 updated_at;近似 Anki 的建立順序
-    .slice(0, newRemaining)
+    .slice(0, newRemaining), recent)
   const futureLearning = active.filter(
     (c) => (c.state === State.Learning || c.state === State.Relearning) && c.due > now,
   )

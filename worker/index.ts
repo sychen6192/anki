@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type {
-  CardRecord, DeckRecord, NoteRecord, ReviewLogRecord, SyncPush, SyncPullResponse,
+  CardRecord, DeckRecord, NoteRecord, ReviewLogRecord, SettingRecord, SyncPush, SyncPullResponse,
 } from '../shared/types'
 
 export type Env = { DB: D1Database; ASSETS: Fetcher }
@@ -34,6 +34,7 @@ const TABLE_COLS = {
     'last_review', 'updated_at', 'deleted', 'namespace'],
   review_logs: ['id', 'card_id', 'rating', 'state', 'due', 'stability', 'difficulty',
     'elapsed_days', 'last_elapsed_days', 'scheduled_days', 'reviewed_at', 'namespace'],
+  settings: ['id', 'value', 'updated_at', 'deleted', 'namespace'],
 } as const
 
 // 舊 client 不會送 accent;缺欄位的 note 以 '' 補上(notes.accent 是 NOT NULL)。
@@ -137,7 +138,7 @@ app.post('/api/sync', async (c) => {
   const statements: D1PreparedStatement[] = []
   // 跳過的列會回報給客戶端,客戶端據此保留 dirty(資料沒被丟掉,只是沒存進去)
   const skipped: string[] = []
-  for (const t of ['decks', 'notes', 'cards', 'review_logs'] as const) {
+  for (const t of ['decks', 'notes', 'cards', 'review_logs', 'settings'] as const) {
     const rows = body[t]
     if (rows === undefined || rows === null) continue
     if (!Array.isArray(rows)) return c.json({ error: `invalid ${t}` }, 400)
@@ -172,6 +173,7 @@ app.get('/api/sync', async (c) => {
     notes: await pullTable<NoteRecord>('notes'),
     cards: await pullTable<CardRecord>('cards'),
     review_logs: await pullTable<ReviewLogRecord>('review_logs'),
+    settings: await pullTable<SettingRecord>('settings'),
     seq: seqRow!.value,
   }
   return c.json(resp)

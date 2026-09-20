@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { DeckRecord, NoteRecord, CardRecord, ReviewLogRecord } from '../../shared/types'
+import type { DeckRecord, NoteRecord, CardRecord, ReviewLogRecord, SettingRecord } from '../../shared/types'
 
 export type Local<T> = T & { dirty: 0 | 1 }
 export interface MetaRow { key: string; value: number | string }
@@ -9,6 +9,7 @@ export class AppDB extends Dexie {
   notes!: Table<Local<NoteRecord>, string>
   cards!: Table<Local<CardRecord>, string>
   review_logs!: Table<Local<ReviewLogRecord>, string>
+  settings!: Table<Local<SettingRecord>, string>
   meta!: Table<MetaRow, string>
 
   constructor() {
@@ -32,6 +33,15 @@ export class AppDB extends Dexie {
       await tx.table('notes').toCollection().modify((n: { accent?: string }) => {
         if (typeof n.accent !== 'string') n.accent = ''
       })
+    })
+    // v3:settings 表(FSRS 參數、目標保持率),跟四張同步表一樣帶 dirty 走同步
+    this.version(3).stores({
+      decks: 'id, dirty',
+      notes: 'id, deck_id, dirty',
+      cards: 'id, note_id, deck_id, due, dirty',
+      review_logs: 'id, card_id, reviewed_at, dirty',
+      settings: 'id, dirty',
+      meta: 'key',
     })
   }
 }
