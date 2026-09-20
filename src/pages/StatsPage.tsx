@@ -6,7 +6,8 @@ import {
 import { db } from '../db/db'
 import { State } from '../lib/fsrs'
 import { startOfToday } from '../lib/queue'
-import { lastNDays, streakDays } from '../lib/stats'
+import { lastNDays, streakDays, trueRetention } from '../lib/stats'
+import { getFsrsSettings } from '../lib/fsrsSettings'
 import { Loading } from '../components/Loading'
 
 /** 熱力圖顏色:單一色相由淺到深(0 張另外用底色) */
@@ -42,8 +43,9 @@ export default function StatsPage() {
   const allLogs = useLiveQuery(() => db.review_logs.toArray(), [])
   const allCards = useLiveQuery(() => db.cards.toArray(), [])
   const decks = useLiveQuery(() => db.decks.filter((d) => !d.deleted).toArray(), [])
+  const fsrsSettings = useLiveQuery(() => getFsrsSettings(), [])
   const [deckFilter, setDeckFilter] = useState('all')
-  if (!allLogs || !allCards || !decks) return <Loading />
+  if (!allLogs || !allCards || !decks || !fsrsSettings) return <Loading />
 
   // 篩某副牌組:卡片直接看 deck_id;複習紀錄沒有 deck_id,經 card_id 查
   // (對照表含已刪卡片,舊紀錄才不會因為卡片刪了就歸不了戶)
@@ -75,6 +77,17 @@ export default function StatsPage() {
     { name: '學習中', value: learning, color: DIST_COLORS[1] },
     { name: '複習中', value: review, color: DIST_COLORS[2] },
   ]
+
+  // 真實保持率:三個區間各算一次;篩牌組時 logs 已經是該牌組的
+  const retentionAll = trueRetention(logs)
+  const retention = [
+    ['7 天', trueRetention(logs, today - 6 * DAY)],
+    ['30 天', trueRetention(logs, today - 29 * DAY)],
+    ['全部', retentionAll],
+  ] as const
+  const pct = (r: { passed: number; total: number }) =>
+    r.total === 0 ? '—' : `${Math.round((r.passed / r.total) * 100)}%`
+  const targetPct = Math.round(fsrsSettings.desired_retention * 100)
 
   const stamps = logs.map((l) => l.reviewed_at)
   const todayCount = stamps.filter((ts) => ts >= today).length
@@ -108,6 +121,27 @@ export default function StatsPage() {
         <div className="stat-tile"><b>{todayCount}</b><span>今日複習</span></div>
         <div className="stat-tile"><b>{streak}</b><span>連續天數</span></div>
         <div className="stat-tile"><b>{logs.length}</b><span>累計複習</span></div>
+      </div>
+
+      <h2>真實保持率</h2>
+      <div className="chart-block">
+        {retentionAll.total === 0 ? (
+          <p className="empty">還沒有「複習中」卡片的紀錄 —— 新卡畢業、再次到期後才算</p>
+        ) : (
+          <>
+            <div className="stat-row">
+              {retention.map(([label, r]) => (
+                <div className="stat-tile" key={label}>
+                  <b>{pct(r)}</b><span>{label} · {r.total} 次</span>
+                </div>
+              ))}
+            </div>
+            <p className="hint">
+              複習中的卡片到期時答對的比例,目標 {targetPct}%(設定頁可調)。
+              明顯低於目標:到設定頁用自己的紀錄最佳化參數;明顯高於目標:可以把目標調低,少複習一點。
+            </p>
+          </>
+        )}
       </div>
 
       <h2>複習熱力圖</h2>

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { DAY, dayStart, lastNDays, prevDayStart, streakDays } from '../src/lib/stats'
+import { DAY, dayStart, lastNDays, prevDayStart, streakDays, trueRetention } from '../src/lib/stats'
+import { State } from '../src/lib/fsrs'
 
 // 固定一個「今天」:2026-07-20(一)凌晨 4 點
 const T = new Date(2026, 6, 20, 4, 0, 0).getTime()
@@ -42,5 +43,30 @@ describe('lastNDays', () => {
     expect(r.map((d) => d.count)).toEqual([1, 0, 2])
     expect(r[2].start).toBe(T)
     expect(r[0].start).toBe(T - 2 * DAY)
+  })
+})
+
+describe('trueRetention', () => {
+  const log = (state: number, rating: number, reviewed_at: number) => ({
+    id: `${state}-${rating}-${reviewed_at}`, card_id: 'c', rating, state, due: 0,
+    stability: 1, difficulty: 5, elapsed_days: 0, last_elapsed_days: 0, scheduled_days: 1, reviewed_at,
+  })
+
+  it('只算複習中(Review)狀態的紀錄,答對 = 評分 > 重來', () => {
+    const logs = [
+      log(State.Review, 3, 100), log(State.Review, 1, 100), log(State.Review, 2, 100), log(State.Review, 4, 100),
+      log(State.New, 3, 100), log(State.Learning, 1, 100), log(State.Relearning, 3, 100),
+    ]
+    expect(trueRetention(logs)).toEqual({ passed: 3, total: 4 })
+  })
+
+  it('since 之前的不算', () => {
+    const logs = [log(State.Review, 3, 50), log(State.Review, 1, 150)]
+    expect(trueRetention(logs, 100)).toEqual({ passed: 0, total: 1 })
+    expect(trueRetention(logs)).toEqual({ passed: 1, total: 2 })
+  })
+
+  it('沒有紀錄時 total 為 0,由畫面決定怎麼顯示', () => {
+    expect(trueRetention([])).toEqual({ passed: 0, total: 0 })
   })
 })
