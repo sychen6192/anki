@@ -4,13 +4,14 @@ import { db } from '../src/db/db'
 import { createDeck, createNote, softDeleteDeck } from '../src/db/repo'
 import { requestSync, syncNow } from '../src/lib/sync'
 import { getSyncSpace, setSyncSpace, clearLocalData } from '../src/lib/space'
+import { DEFAULT_FSRS_SETTINGS, getFsrsSettings, saveFsrsSettings } from '../src/lib/fsrsSettings'
 
 type Row = Record<string, any>
 
 // 模擬 server:與 worker 相同的 LWW + seq 語意
 function makeServer() {
   const tables: Record<string, Map<string, Row>> = {
-    decks: new Map(), notes: new Map(), cards: new Map(), review_logs: new Map(),
+    decks: new Map(), notes: new Map(), cards: new Map(), review_logs: new Map(), settings: new Map(),
   }
   let seq = 0
   const fetchFn = (async (input: any, init?: any) => {
@@ -456,5 +457,36 @@ describe('requestSync(資料異動後的延遲同步)', () => {
     await vi.waitFor(() => { expect(posts).toBeGreaterThan(0) })
     await new Promise((r) => setTimeout(r, 50)) // 若 debounce 失效,其餘兩次會在這期間冒出來
     expect(posts).toBe(1)
+  })
+})
+
+describe('syncNow:settings 表', () => {
+  it('本機存的 FSRS 設定會推上去、清 dirty;遠端較新的會拉回來蓋掉', async () => {
+    const server = makeServer()
+    await saveFsrsSettings({ ...DEFAULT_FSRS_SETTINGS, desired_retention: 0.85 })
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    expect(JSON.parse(server.tables.settings.get('fsrs')!.value).desired_retention).toBe(0.85)
+    expect((await db.settings.get('fsrs'))!.dirty).toBe(0)
+
+    server.inject('settings', {
+      id: 'fsrs', value: JSON.stringify({ ...DEFAULT_FSRS_SETTINGS, desired_retention: 0.8 }),
+      updated_at: Date.now() + 60_000, deleted: 0,
+    })
+    await syncNow(server.fetchFn)
+    expect((await getFsrsSettings()).desired_retention).toBe(0.8)
+  })
+
+  it('舊伺服器的 pull 沒有 settings 這個 key 也不會炸', async () => {
+    const oldServer = (async () => new Response(JSON.stringify(
+      { decks: [], notes: [], cards: [], review_logs: [], seq: 1 },
+    ))) as typeof fetch
+    expect((await syncNow(oldServer)).ok).toBe(true)
+  })
+
+  it('清空本機資料連 settings 一起清', async () => {
+    await saveFsrsSettings({ ...DEFAULT_FSRS_SETTINGS, desired_retention: 0.85 })
+    await clearLocalData()
+    expect(await db.settings.count()).toBe(0)
+    expect((await getFsrsSettings()).desired_retention).toBe(0.9)
   })
 })

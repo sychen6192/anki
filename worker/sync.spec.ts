@@ -174,6 +174,21 @@ describe('/api/sync', () => {
     expect(outA.decks[0].name).toBe('new')
   })
 
+  it('settings 表:LWW round-trip、namespace 隔離、舊 client 沒送 settings 也沒事', async () => {
+    const setting = (over: Record<string, unknown> = {}) =>
+      ({ id: 'fsrs', value: '{"w":null}', updated_at: 1000, deleted: 0, ...over })
+    await pushNs('spaceA', { ...empty, settings: [setting()] })
+    await pushNs('spaceA', { ...empty, settings: [setting({ value: '{"w":[1]}', updated_at: 2000 })] })
+    await pushNs('spaceA', { ...empty, settings: [setting({ value: 'stale', updated_at: 1500 })] })
+    const outA = await pullNs('spaceA')
+    expect(outA.settings).toHaveLength(1)
+    expect(outA.settings[0]).toMatchObject({ id: 'fsrs', value: '{"w":[1]}' })
+    expect(outA.settings[0].namespace).toBeUndefined()
+    expect((await pullNs('spaceB')).settings).toHaveLength(0)
+    await pushNs('spaceA', empty) // 舊 client 的 body 沒有 settings 這個 key
+    expect((await pullNs('spaceA')).settings).toHaveLength(1)
+  })
+
   it('push 忽略 client 送的 namespace,一律以 header 為準', async () => {
     await pushNs('real', { ...empty, decks: [deck({ id: 'dx', namespace: 'spoofed' })] })
     expect((await pullNs('real')).decks.map((d: { id: string }) => d.id)).toEqual(['dx'])

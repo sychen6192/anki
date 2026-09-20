@@ -1,7 +1,7 @@
 import type { Table, UpdateSpec } from 'dexie'
 import { db, type Local } from '../db/db'
 import type {
-  CardRecord, DeckRecord, NoteRecord, ReviewLogRecord,
+  CardRecord, DeckRecord, NoteRecord, ReviewLogRecord, SettingRecord,
   SyncPush, SyncPullResponse, SyncPushResponse,
 } from '../../shared/types'
 import { getSyncSpace } from './space'
@@ -22,6 +22,7 @@ const PUSH_CHUNK_SIZE = 200
 interface PushChunk {
   decks: Local<DeckRecord>[]; notes: Local<NoteRecord>[]
   cards: Local<CardRecord>[]; review_logs: Local<ReviewLogRecord>[]
+  settings: Local<SettingRecord>[]
 }
 
 type TaggedRow =
@@ -29,24 +30,27 @@ type TaggedRow =
   | { table: 'notes'; row: Local<NoteRecord> }
   | { table: 'cards'; row: Local<CardRecord> }
   | { table: 'review_logs'; row: Local<ReviewLogRecord> }
+  | { table: 'settings'; row: Local<SettingRecord> }
 
 function emptyChunk(): PushChunk {
-  return { decks: [], notes: [], cards: [], review_logs: [] }
+  return { decks: [], notes: [], cards: [], review_logs: [], settings: [] }
 }
 
-// Fills chunks in order decks -> notes -> cards -> review_logs (a chunk may span
+// Fills chunks in order decks -> notes -> cards -> review_logs -> settings (a chunk may span
 // tables); each chunk keeps the original Local<T> rows around (not just the
 // stripped-of-dirty wire shape) so the caller can clear dirty flags per-chunk
 // after a successful POST.
 function buildPushChunks(
   dirtyDecks: Local<DeckRecord>[], dirtyNotes: Local<NoteRecord>[],
   dirtyCards: Local<CardRecord>[], dirtyLogs: Local<ReviewLogRecord>[],
+  dirtySettings: Local<SettingRecord>[] = [],
 ): PushChunk[] {
   const tagged: TaggedRow[] = [
     ...dirtyDecks.map((row) => ({ table: 'decks' as const, row })),
     ...dirtyNotes.map((row) => ({ table: 'notes' as const, row })),
     ...dirtyCards.map((row) => ({ table: 'cards' as const, row })),
     ...dirtyLogs.map((row) => ({ table: 'review_logs' as const, row })),
+    ...dirtySettings.map((row) => ({ table: 'settings' as const, row })),
   ]
   const chunks: PushChunk[] = []
   for (let i = 0; i < tagged.length; i += PUSH_CHUNK_SIZE) {
@@ -55,7 +59,8 @@ function buildPushChunks(
       if (item.table === 'decks') chunk.decks.push(item.row)
       else if (item.table === 'notes') chunk.notes.push(item.row)
       else if (item.table === 'cards') chunk.cards.push(item.row)
-      else chunk.review_logs.push(item.row)
+      else if (item.table === 'review_logs') chunk.review_logs.push(item.row)
+      else chunk.settings.push(item.row)
     }
     chunks.push(chunk)
   }
@@ -156,8 +161,9 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
     const dirtyNotes = await db.notes.where('dirty').equals(1).toArray()
     const dirtyCards = await db.cards.where('dirty').equals(1).toArray()
     const dirtyLogs = await db.review_logs.where('dirty').equals(1).toArray()
-    if (dirtyDecks.length + dirtyNotes.length + dirtyCards.length + dirtyLogs.length > 0) {
-      const chunks = buildPushChunks(dirtyDecks, dirtyNotes, dirtyCards, dirtyLogs)
+    const dirtySettings = await db.settings.where('dirty').equals(1).toArray()
+    if (dirtyDecks.length + dirtyNotes.length + dirtyCards.length + dirtyLogs.length + dirtySettings.length > 0) {
+      const chunks = buildPushChunks(dirtyDecks, dirtyNotes, dirtyCards, dirtyLogs, dirtySettings)
       // Push chunk-by-chunk; clear each chunk's dirty flags only after its own POST
       // succeeds. If a later chunk's POST fails we stop (throw) — chunks already
       // cleared stay cleared, so the next syncNow resumes with just the remaining
@@ -166,6 +172,7 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
         const body: SyncPush = {
           decks: stripDirty(chunk.decks), notes: stripDirty(chunk.notes),
           cards: stripDirty(chunk.cards), review_logs: stripDirty(chunk.review_logs),
+          settings: stripDirty(chunk.settings),
         }
         const res = await fetchFn('/api/sync', {
           method: 'POST',
@@ -179,6 +186,7 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
         await clearPushedDirty(db.decks, chunk.decks, skipped)
         await clearPushedDirty(db.notes, chunk.notes, skipped)
         await clearPushedDirty(db.cards, chunk.cards, skipped)
+        await clearPushedDirty(db.settings, chunk.settings, skipped)
         for (const log of chunk.review_logs) {
           if (!skipped.has(log.id)) await db.review_logs.update(log.id, { dirty: 0 })
         }
@@ -190,7 +198,7 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
     if (!res.ok) throw new Error(`pull failed: ${res.status}`)
     const data: SyncPullResponse = await res.json()
     let switched = false
-    await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.meta], async () => {
+    await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
       // 同步進行中若金鑰被切換(換空間會清空本機),放棄把舊空間的 pull 併入新空間。
       // 在交易內讀 sync_space,與 setSyncSpace 的清空/換鑰交易互斥,杜絕競態。
       const cur = await db.meta.get('sync_space')
@@ -198,6 +206,7 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
       await mergeTable(db.decks, data.decks)
       await mergeTable(db.notes, data.notes)
       await mergeTable(db.cards, data.cards)
+      await mergeTable(db.settings, data.settings ?? []) // 還沒套 0005 migration 的舊伺服器不回這張表
       for (const log of data.review_logs) {
         if (!(await db.review_logs.get(log.id))) await db.review_logs.put({ ...log, dirty: 0 })
       }

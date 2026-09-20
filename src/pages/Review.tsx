@@ -7,7 +7,8 @@ import { PencilIcon, SkipIcon, UndoIcon } from '../components/icons'
 import { Loading } from '../components/Loading'
 import { db } from '../db/db'
 import { applyReview, undoReview, updateNote } from '../db/repo'
-import { formatInterval, previewIntervals, rate, State, type RatingValue } from '../lib/fsrs'
+import { applyFsrsSettings, formatInterval, previewIntervals, rate, State, type RatingValue } from '../lib/fsrs'
+import { getFsrsSettings } from '../lib/fsrsSettings'
 import { deckQueue, startOfToday } from '../lib/queue'
 import { reviewKeyAction } from '../lib/reviewKeys'
 import { syncNow } from '../lib/sync'
@@ -51,6 +52,9 @@ export default function Review() {
   const loadNext = useCallback(async (preferCardId?: string) => {
     const deck = await db.decks.get(deckId!)
     if (!deck || deck.deleted) { setMissing(true); return }
+    // 每張卡載入前都重新套一次:設定頁改了目標保持率、或同步拉到別台裝置最佳化的參數,
+    // 下一張卡的按鈕與排程就用新的,不必離開複習畫面
+    applyFsrsSettings(await getFsrsSettings())
     const cards = await db.cards.where('deck_id').equals(deckId!).toArray()
     const logs = await db.review_logs.where('reviewed_at').aboveOrEqual(startOfToday()).toArray()
     newPerDayRef.current = deck.new_per_day

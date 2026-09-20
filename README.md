@@ -44,6 +44,14 @@ npm run deploy
 
 等同於 `npm run build && wrangler deploy`,會將 `dist/` 靜態檔與 Worker 一併發布到 Cloudflare。
 
+有新的 migration 時先套用再 deploy(例如 `0005_settings.sql` 的 settings 表):
+
+```bash
+npx wrangler d1 migrations apply anki-pwa --remote
+```
+
+沒先套的話,新版 worker 寫 settings 表會回 500,客戶端會保留 dirty 下次再推,資料不會掉,但同步會一直失敗到套用為止。
+
 若要部署到自己的 Cloudflare 帳號,先 `npx wrangler d1 create anki-pwa` 並把回傳的 `database_id` 填入 `wrangler.jsonc`(本 repo 已填入原作者的 id),接著 `npx wrangler d1 migrations apply anki-pwa --remote` 套用資料庫結構。
 
 部署完成後 wrangler 會印出 `https://anki-pwa.<account>.workers.dev`,可用 `curl <URL>/api/health` 確認回傳 `{"ok":true}`。

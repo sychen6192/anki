@@ -26,12 +26,24 @@ export interface ReviewLogRecord {
   reviewed_at: number
 }
 
+/**
+ * 使用者層級的設定(FSRS 參數、目標保持率):id 是設定名稱,value 是 JSON 字串。
+ * 跟 decks 一樣走 updated_at 的 LWW —— 排程參數必須在每台裝置一致,否則同一張卡
+ * 在手機和電腦上會排出不同的間隔。
+ */
+export interface SettingRecord {
+  id: string; value: string
+  updated_at: number; deleted: 0 | 1
+}
+
 export interface SyncPush {
   decks: DeckRecord[]; notes: NoteRecord[]
   cards: CardRecord[]; review_logs: ReviewLogRecord[]
+  /** 舊 client 不會送;伺服器對缺的表直接略過 */
+  settings?: SettingRecord[]
 }
 
-export type SyncPullResponse = SyncPush & { seq: number }
+export type SyncPullResponse = SyncPush & { settings: SettingRecord[]; seq: number }
 
 /** skipped:伺服器無法存下的列 id(欄位型別不合法),客戶端據此保留 dirty */
 export interface SyncPushResponse { ok: true; skipped: string[] }

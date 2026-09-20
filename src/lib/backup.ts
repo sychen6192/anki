@@ -1,5 +1,5 @@
 import { db, type Local } from '../db/db'
-import type { CardRecord, DeckRecord, NoteRecord, ReviewLogRecord } from '../../shared/types'
+import type { CardRecord, DeckRecord, NoteRecord, ReviewLogRecord, SettingRecord } from '../../shared/types'
 
 function stripDirty<T extends { dirty: 0 | 1 }>(rows: T[]): Omit<T, 'dirty'>[] {
   return rows.map(({ dirty: _d, ...rest }) => rest)
@@ -13,10 +13,12 @@ export async function exportBackup(): Promise<string> {
     notes: stripDirty(await db.notes.toArray()),
     cards: stripDirty(await db.cards.toArray()),
     review_logs: stripDirty(await db.review_logs.toArray()),
+    settings: stripDirty(await db.settings.toArray()),
   })
 }
 
-const TABLES = ['decks', 'notes', 'cards', 'review_logs'] as const
+// settings 是後來加的:舊備份沒有這個 key,parseBackup 會當成空陣列
+const TABLES = ['decks', 'notes', 'cards', 'review_logs', 'settings'] as const
 
 /**
  * 還原前先把備份檔看過一遍。這裡是最容易吃到壞資料的地方(手動編輯過、下載到一半、
@@ -69,11 +71,12 @@ export async function importBackup(json: string): Promise<void> {
   // parseBackup 已擋掉最容易出事的情況(不是陣列、缺 id、new_per_day 不是數字);
   // 其餘欄位沿用備份檔內容,這裡的 as 是把驗證過的資料交回原本的型別。
   const as = <T>(rows: unknown[]) => rows as T[]
-  await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.meta], async () => {
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
     await db.decks.clear(); await db.decks.bulkAdd(as<Local<DeckRecord>>(data.decks.map(withDirty)))
     await db.notes.clear(); await db.notes.bulkAdd(as<Local<NoteRecord>>(data.notes.map(withDirtyNote)))
     await db.cards.clear(); await db.cards.bulkAdd(as<Local<CardRecord>>(data.cards.map(withDirty)))
     await db.review_logs.clear(); await db.review_logs.bulkAdd(as<Local<ReviewLogRecord>>(data.review_logs.map(withDirtyOnly)))
+    await db.settings.clear(); await db.settings.bulkAdd(as<Local<SettingRecord>>(data.settings.map(withDirty)))
     await db.meta.delete('sync_cursor') // 下次同步全量重拉,restore-wins 讓還原內容覆蓋雲端與其他裝置
   })
 }

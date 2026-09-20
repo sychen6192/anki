@@ -54,3 +54,24 @@ describe('Dexie schema v1 → v2 升級', () => {
     db.close()
   })
 })
+
+describe('Dexie schema v2 → v3 升級', () => {
+  it('多出 settings 表,既有資料原封不動', async () => {
+    const v2 = new Dexie('anki-pwa')
+    v2.version(2).stores(V1_STORES) // v2 的 stores 定義與 v1 相同,只是補了 accent
+    await v2.open()
+    await v2.table('notes').add({
+      id: 'n1', deck_id: 'd1', expression: '犬', reading: 'いぬ', meaning: '狗',
+      accent: '2', reversed: 0, updated_at: 123, deleted: 0, dirty: 0,
+    })
+    v2.close()
+
+    const { db } = await import('../src/db/db')
+    await db.open()
+    expect(await db.settings.count()).toBe(0)
+    await db.settings.put({ id: 'fsrs', value: '{}', updated_at: 1, deleted: 0, dirty: 1 })
+    expect(await db.settings.where('dirty').equals(1).count()).toBe(1)
+    expect((await db.notes.get('n1'))!.accent).toBe('2')
+    db.close()
+  })
+})
