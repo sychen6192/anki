@@ -46,4 +46,8 @@ export default defineConfig({
     }),
   ],
   server: { proxy: { '/api': 'http://localhost:8787' } },
+  // fsrs-browser 的 worker 裡有動態 import 與 new Worker(new URL(..., import.meta.url)):
+  // 只有 ES 格式的 worker 輸出撐得住;dev 時也別讓 esbuild 預打包它(會弄壞 import.meta.url)
+  worker: { format: 'es' },
+  optimizeDeps: { exclude: ['fsrs-browser'] },
 })

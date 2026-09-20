@@ -3,9 +3,12 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
 import { exportBackup, importBackup } from '../lib/backup'
 import { download } from '../lib/download'
-import { syncNow } from '../lib/sync'
+import { requestSync, syncNow } from '../lib/sync'
 import { generateSyncKey, getSyncSpace, setSyncSpace, clearLocalData } from '../lib/space'
 import { getThemePref, setThemePref, type ThemePref } from '../lib/theme'
+import { applyFsrsSettings } from '../lib/fsrs'
+import { clampRetention, getFsrsSettings, saveFsrsSettings, MAX_RETENTION_PCT, MIN_RETENTION_PCT } from '../lib/fsrsSettings'
+import { buildTrainingSet, optimizeParameters, MIN_REVIEWS_TO_OPTIMIZE, RECOMMENDED_REVIEWS } from '../lib/fsrsOptimizer'
 
 const THEME_LABELS: Record<ThemePref, string> = { system: '跟隨系統', light: '淺色', dark: '深色' }
 import { useBusy } from '../lib/useBusy'
@@ -27,8 +30,53 @@ export default function SettingsPage() {
   const [showKey, setShowKey] = useState(false)
   const [autoSpeak, setAutoSpeak] = useState(() => localStorage.getItem('auto-speak') === '1')
   const [theme, setTheme] = useState<ThemePref>(() => getThemePref())
-  // 三個動作共用一把鎖:其中兩個會清空本機資料,不該在另一個跑到一半時插隊
+  const fsrs = useLiveQuery(() => getFsrsSettings(), [])
+  const logCount = useLiveQuery(() => db.review_logs.count(), [])
+  const [retentionInput, setRetentionInput] = useState<string | null>(null)
+  const [fsrsMsg, setFsrsMsg] = useState('')
+  // 這頁的動作共用一把鎖:清空本機、還原備份、最佳化參數都跑得久,不該在另一個跑到一半時插隊
   const [busy, run] = useBusy()
+
+  const saveRetention = () => run(async () => {
+    if (fsrs === undefined) return
+    const pct = Number(retentionInput ?? Math.round(fsrs.desired_retention * 100))
+    if (!Number.isFinite(pct)) { setFsrsMsg(`請輸入 ${MIN_RETENTION_PCT}–${MAX_RETENTION_PCT} 的數字`); return }
+    const next = { ...fsrs, desired_retention: clampRetention(pct / 100) }
+    await saveFsrsSettings(next)
+    applyFsrsSettings(next)
+    setRetentionInput(null)
+    setFsrsMsg(`✓ 目標保持率已設為 ${Math.round(next.desired_retention * 100)}%`)
+    requestSync()
+  })
+
+  const optimize = () => run(async () => {
+    if (fsrs === undefined) return
+    try {
+      setFsrsMsg('整理複習紀錄…')
+      const set = buildTrainingSet(await db.review_logs.toArray())
+      if (set.items === 0) { setFsrsMsg('紀錄裡還沒有跨天的複習,沒東西可以學'); return }
+      setFsrsMsg('最佳化中…')
+      const w = await optimizeParameters(set, (done, total) => {
+        if (total > 0) setFsrsMsg(`最佳化中… ${Math.min(100, Math.round((done / total) * 100))}%`)
+      })
+      const next = { ...fsrs, w, optimized_at: Date.now(), optimized_reviews: set.reviews }
+      await saveFsrsSettings(next)
+      applyFsrsSettings(next)
+      setFsrsMsg(`✓ 完成:用了 ${set.reviews} 筆紀錄、${set.items} 個樣本,新參數已存檔並同步`)
+      requestSync()
+    } catch (e) {
+      setFsrsMsg(`最佳化失敗:${e instanceof Error ? e.message : String(e)}`)
+    }
+  })
+
+  const resetParams = () => run(async () => {
+    if (fsrs === undefined || !confirm('換回預設參數?之後隨時可以再最佳化。')) return
+    const next = { ...fsrs, w: null, optimized_at: null, optimized_reviews: 0 }
+    await saveFsrsSettings(next)
+    applyFsrsSettings(next)
+    setFsrsMsg('已換回預設參數')
+    requestSync()
+  })
 
   const doSync = () => run(async () => {
     setMsg('同步中…')
@@ -130,6 +178,39 @@ export default function SettingsPage() {
             localStorage.setItem('auto-speak', e.target.checked ? '1' : '0')
           }} /> 翻面自動唸讀音
         </label>
+      </div>
+
+      <h2>FSRS 排程</h2>
+      <div className="settings-block">
+        <label>目標保持率(到期時大約記得的比例)
+          <span className="key-field">
+            <input type="number" min={MIN_RETENTION_PCT} max={MAX_RETENTION_PCT} step={1} inputMode="numeric"
+              value={retentionInput ?? (fsrs === undefined ? '' : Math.round(fsrs.desired_retention * 100))}
+              onChange={(e) => setRetentionInput(e.target.value)} />
+            <span>%</span>
+            <button className="btn" disabled={busy || fsrs === undefined} onClick={() => void saveRetention()}>儲存</button>
+          </span>
+        </label>
+        <p className="hint">
+          預設 90%。調高:複習更頻繁、忘得少;調低:複習量少、忘得多。統計頁的「真實保持率」可以對照有沒有達到。
+        </p>
+        <p className="hint">
+          參數:{fsrs === undefined ? '…' : fsrs.w === null
+            ? '預設(還沒用自己的紀錄最佳化過)'
+            : `已最佳化 · ${fsrs.optimized_at === null ? '' : new Date(fsrs.optimized_at).toLocaleDateString('zh-TW')} · 基於 ${fsrs.optimized_reviews} 筆複習`}
+        </p>
+        <div className="form-actions">
+          <button className="btn" disabled={busy || fsrs === undefined || (logCount ?? 0) < MIN_REVIEWS_TO_OPTIMIZE}
+            onClick={() => void optimize()}>用我的複習紀錄最佳化參數</button>
+          {fsrs !== undefined && fsrs.w !== null && (
+            <button className="btn secondary" disabled={busy} onClick={() => void resetParams()}>還原預設參數</button>
+          )}
+        </div>
+        <p className="hint">
+          目前 {logCount ?? 0} 筆複習紀錄。至少 {MIN_REVIEWS_TO_OPTIMIZE} 筆才能跑,{RECOMMENDED_REVIEWS} 筆以上結果比較穩;
+          之後每累積一陣子再跑一次。會在背景佔滿 CPU 幾秒到一分鐘,參數存好會同步到其他裝置。
+        </p>
+        {fsrsMsg && <p role="status" aria-live="polite">{fsrsMsg}</p>}
       </div>
 
       <h2>備份</h2>

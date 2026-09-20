@@ -81,6 +81,20 @@ npx wrangler d1 migrations apply anki-pwa --remote
 - 學習中的卡片若在 10 分鐘內到期,完成畫面會顯示倒數並自動接回複習。
 - 複習畫面頂端有本次進度條;剩餘張數即時顯示。
 
+## FSRS 參數與目標保持率
+
+設定頁「FSRS 排程」:
+
+- **目標保持率**(預設 90%):排程會把間隔調到「到期時大約記得這個比例」。調高複習更頻繁、忘得少;調低複習量少、忘得多。
+- **用我的複習紀錄最佳化參數**:在瀏覽器裡跑 [fsrs-rs](https://github.com/open-spaced-repetition/fsrs-rs) 的 optimizer(`fsrs-browser` 的 wasm),用自己的複習紀錄算出一組 FSRS-6 參數。至少 400 筆紀錄才能跑,1000 筆以上比較穩;會佔滿 CPU 幾秒到一分鐘。樣本的整理規則對照 Anki:每張卡到某次複習為止的整段歷史是一個樣本,同一天內的複習只留在歷史裡不當目標。
+- 參數與目標保持率存在 `settings` 表,跟牌組一樣走 LWW 同步,所以手機與電腦排出來的間隔一致;備份 JSON 也帶著。
+- 統計頁的**真實保持率**:複習中的卡片到期時答對的比例(7 天 / 30 天 / 全部),拿來對照目標。明顯低於目標就最佳化參數;明顯高於目標可以把目標調低。
+
+optimizer 用多執行緒 wasm,需要 SharedArrayBuffer,所以 `public/_headers` 對所有路徑送出
+`Cross-Origin-Opener-Policy: same-origin` 與 `Cross-Origin-Embedder-Policy: require-corp`。
+這個 app 沒有任何跨來源資源,所以沒有副作用;日後若要載入外部字型或圖片,那些資源得帶 CORP/CORS 標頭。
+wasm 約 340KB,不進 precache,第一次最佳化時才下載,之後離線也能跑。
+
 ## 更新提示
 
 部署新版後,已開著的頁面**不會**自動重載打斷你 —— 底部會滑出「有新版本可用」,
