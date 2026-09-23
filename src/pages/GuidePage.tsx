@@ -16,7 +16,7 @@ export default function GuidePage() {
             挑一份範本,或丟自己的 CSV / .apkg
           </li>
           <li>
-            回「牌組」按<b>複習</b>
+            回「牌組」按<b>複習</b>;好幾副牌組時按上方的<b>全部一起複習</b>
           </li>
           <li>想答案 → 點卡片翻面 → 評分</li>
         </ol>
@@ -40,6 +40,9 @@ export default function GuidePage() {
         </ul>
         <p className="hint">
           小字是下次見到的間隔。按錯了點左上「復原上一張」。
+        </p>
+        <p className="hint">
+          早就會的字按「已經會了」,先不想看的按「暫停」,兩種都不會再出現;牌組頁可以批次處理,也能恢復。
         </p>
       </div>
 
@@ -70,6 +73,12 @@ export default function GuidePage() {
                 <kbd>U</kbd>
               </td>
               <td>復原上一張</td>
+            </tr>
+            <tr>
+              <td>
+                <kbd>K</kbd>
+              </td>
+              <td>已經會了</td>
             </tr>
           </tbody>
         </table>

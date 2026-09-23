@@ -68,13 +68,15 @@ export async function importBackup(json: string): Promise<void> {
   // 舊備份(pitch-accent 功能之前匯出)的 note 沒有 accent 欄,匯入時補成 ''
   // 以符合 NoteRecord.accent 的必填 string 型別(見 design spec:匯入舊備份缺 accent 時補 '')。
   const withDirtyNote = (r: { accent?: string }) => ({ ...r, accent: r.accent ?? '', dirty: 1 as const, updated_at: now })
+  // 同理,suspended 之前匯出的備份沒這欄,補 0(學習中)
+  const withDirtyCard = (r: { suspended?: number }) => ({ ...r, suspended: r.suspended ?? 0, dirty: 1 as const, updated_at: now })
   // parseBackup 已擋掉最容易出事的情況(不是陣列、缺 id、new_per_day 不是數字);
   // 其餘欄位沿用備份檔內容,這裡的 as 是把驗證過的資料交回原本的型別。
   const as = <T>(rows: unknown[]) => rows as T[]
   await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
     await db.decks.clear(); await db.decks.bulkAdd(as<Local<DeckRecord>>(data.decks.map(withDirty)))
     await db.notes.clear(); await db.notes.bulkAdd(as<Local<NoteRecord>>(data.notes.map(withDirtyNote)))
-    await db.cards.clear(); await db.cards.bulkAdd(as<Local<CardRecord>>(data.cards.map(withDirty)))
+    await db.cards.clear(); await db.cards.bulkAdd(as<Local<CardRecord>>(data.cards.map(withDirtyCard)))
     await db.review_logs.clear(); await db.review_logs.bulkAdd(as<Local<ReviewLogRecord>>(data.review_logs.map(withDirtyOnly)))
     await db.settings.clear(); await db.settings.bulkAdd(as<Local<SettingRecord>>(data.settings.map(withDirty)))
     await db.meta.delete('sync_cursor') // 下次同步全量重拉,restore-wins 讓還原內容覆蓋雲端與其他裝置

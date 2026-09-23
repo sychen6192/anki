@@ -216,9 +216,16 @@ textarea { resize: vertical; }
 .card-face { display: flex; flex-direction: column; align-items: center; gap: 16px; animation: card-in .16s ease; }
 @media (prefers-reduced-motion: reduce) { .flashcard, .card-face { animation: none; } }
 
-/* 牌組列表標題下的今日進度 */
+/* 牌組列表標題下的今日進度 + 全部一起複習 */
+.today-row { display: flex; align-items: center; justify-content: space-between; gap: 8px 14px; flex-wrap: wrap; margin: -14px 0 18px; }
+.today-row .today-line { margin: 0; }
 .today-line { color: var(--muted); margin: -14px 0 18px; font-size: 14px; }
 .today-line b { font-variant-numeric: tabular-nums; }
+/* 跨牌組複習時,標出這張卡屬於哪副牌組 */
+.deck-tag {
+  font-size: 12px; color: var(--faint); border: 1px solid var(--border-strong); border-radius: 999px;
+  padding: 2px 10px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 .settings-block label.check-row { flex-direction: row; align-items: center; }
 .settings-block .tabs { margin-bottom: 0; }
@@ -251,7 +258,7 @@ textarea { resize: vertical; }
 .rating-1 { background: var(--rate-again); } .rating-2 { background: var(--rate-hard); }
 .rating-3 { background: var(--rate-good); } .rating-4 { background: var(--rate-easy); }
 @media (hover: hover) { .rating-1:hover, .rating-2:hover, .rating-3:hover, .rating-4:hover { filter: brightness(1.06); background-image: none; } }
-.card-actions { display: flex; gap: 12px; justify-content: center; width: 100%; }
+.card-actions { display: flex; gap: 10px 12px; justify-content: center; width: 100%; flex-wrap: wrap; }
 /* 編輯/跳過每天都會用到,之前是灰字+文字符號,幾乎看不出可以按 —— 給膠囊外框 */
 .card-actions .link {
   min-height: 42px; display: inline-flex; align-items: center; gap: 7px;
@@ -434,6 +441,21 @@ textarea { resize: vertical; }
   border: 1px solid currentColor; opacity: .85;
 }
 .note-state.faint { color: var(--faint); }
+.note-state.c-known { color: var(--c-due-count); }
+.note-state.c-paused { color: var(--faint); border-style: dashed; }
+
+/* 批次選取:整列可點、勾選框夠大、選到的列上色 */
+.note-row.selectable { cursor: pointer; user-select: none; }
+.note-row.selected { border-color: var(--primary); background: var(--primary-weak); }
+.note-check { width: 20px; height: 20px; margin: 0; flex-shrink: 0; accent-color: var(--primary); }
+.batch-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px;
+  padding: 12px 14px; margin-bottom: 14px; font-size: 13.5px;
+  background: var(--primary-weak); border: 1px solid var(--primary); border-radius: var(--radius-sm);
+}
+.batch-bar .form-actions { width: 100%; margin-top: 6px; }
+.batch-bar .hint { width: 100%; margin: 4px 0 0; }
+.list-controls { flex-wrap: wrap; }
 
 .guide-steps { margin: 0 0 0 22px; display: flex; flex-direction: column; gap: 8px; }
 .guide-rates { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 9px; }

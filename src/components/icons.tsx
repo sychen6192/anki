@@ -28,6 +28,25 @@ export function PencilIcon({ size = 16 }: { size?: number }) {
   )
 }
 
+/** 已經會了:勾 */
+export function CheckIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <path d="m5 12.5 4.5 4.5L19 7" {...stroke} />
+    </svg>
+  )
+}
+
+/** 暫停:兩條直線 */
+export function PauseIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M9 5v14" {...stroke} />
+      <path d="M15 5v14" {...stroke} />
+    </svg>
+  )
+}
+
 /** 跳過:雙箭頭往前 */
 export function SkipIcon({ size = 16 }: { size?: number }) {
   return (

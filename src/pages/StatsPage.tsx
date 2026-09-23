@@ -53,7 +53,14 @@ export default function StatsPage() {
   const logs = deckFilter === 'all'
     ? allLogs
     : allLogs.filter((l) => cardDeck.get(l.card_id) === deckFilter)
-  const cards = allCards.filter((c) => !c.deleted && (deckFilter === 'all' || c.deck_id === deckFilter))
+  const inDeck = allCards.filter((c) => !c.deleted && (deckFilter === 'all' || c.deck_id === deckFilter))
+  // 已會 / 暫停的卡不在排程裡:狀態分布與到期預測都不算,另外報數量
+  const cards = inDeck.filter((c) => !c.suspended)
+  const parked = { known: 0, paused: 0 }
+  for (const c of inDeck) {
+    if (c.suspended === 2) parked.known += 1
+    else if (c.suspended === 1) parked.paused += 1
+  }
 
   const today = startOfToday()
 
@@ -223,6 +230,9 @@ export default function StatsPage() {
           </>
         )}
       </div>
+      {(parked.known > 0 || parked.paused > 0) && (
+        <p className="hint">不含已經會了 {parked.known} 張、暫停 {parked.paused} 張,牌組頁可以恢復。</p>
+      )}
     </div>
   )
 }

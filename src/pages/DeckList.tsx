@@ -78,12 +78,18 @@ export default function DeckList() {
     <div>
       <h1>牌組</h1>
       {decks.length > 0 && (
-        <p className="today-line">
-          {totalDue > 0
-            ? <>還有 <b>{totalDue}</b> 張到期</>
-            : todayLogs.length > 0 ? '今天清空了 🎉' : '今天沒有到期的卡'}
-          {todayLogs.length > 0 && <> · 已複習 <b>{todayLogs.length}</b> 張</>}
-        </p>
+        <div className="today-row">
+          <p className="today-line">
+            {totalDue > 0
+              ? <>還有 <b>{totalDue}</b> 張到期</>
+              : todayLogs.length > 0 ? '今天清空了 🎉' : '今天沒有到期的卡'}
+            {todayLogs.length > 0 && <> · 已複習 <b>{todayLogs.length}</b> 張</>}
+          </p>
+          {/* 兩副以上才有意義;沒東西可看時不放一顆點了只會看到完成畫面的按鈕 */}
+          {decks.length > 1 && totalDue > 0 && (
+            <Link to="/review/all" className="btn">全部一起複習</Link>
+          )}
+        </div>
       )}
       {/* 全新安裝(沒選過金鑰、也還沒有資料)先選空間;本機已有資料的舊安裝走下面的橫幅 */}
       {newKey !== null ? (

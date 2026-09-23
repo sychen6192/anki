@@ -169,7 +169,7 @@ describe('syncNow', () => {
       id: crypto.randomUUID(), note_id: notes[i % notes.length].id, deck_id: deck.id,
       direction: 'forward' as const, due: t, stability: 1, difficulty: 5,
       elapsed_days: 0, scheduled_days: 0, learning_steps: 0, reps: 0, lapses: 0, state: 0,
-      last_review: null, updated_at: t, deleted: 0 as const, dirty: 1 as const,
+      last_review: null, suspended: 0 as const, updated_at: t, deleted: 0 as const, dirty: 1 as const,
     }))
     await db.cards.bulkAdd(cards)
 
@@ -488,5 +488,32 @@ describe('syncNow:settings 表', () => {
     await clearLocalData()
     expect(await db.settings.count()).toBe(0)
     expect((await getFsrsSettings()).desired_retention).toBe(0.9)
+  })
+})
+
+describe('syncNow:cards.suspended', () => {
+  it('舊伺服器 pull 回來的卡片沒有 suspended 時補 0', async () => {
+    const oldServer = (async () => new Response(JSON.stringify({
+      decks: [], notes: [], review_logs: [], seq: 1,
+      cards: [{
+        id: 'c1', note_id: 'n1', deck_id: 'd1', direction: 'forward', due: 1, stability: 1, difficulty: 5,
+        elapsed_days: 0, scheduled_days: 0, learning_steps: 0, reps: 0, lapses: 0, state: 0, last_review: null,
+        updated_at: 1000, deleted: 0,
+      }],
+    }))) as typeof fetch
+    expect((await syncNow(oldServer)).ok).toBe(true)
+    expect((await db.cards.get('c1'))!.suspended).toBe(0)
+  })
+
+  it('已經會了的狀態會推上去', async () => {
+    const server = makeServer()
+    const deck = await createDeck('A')
+    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
+    await syncNow(server.fetchFn)
+    const { setNoteSuspended } = await import('../src/db/repo')
+    await setNoteSuspended(note.id, 2)
+    await syncNow(server.fetchFn)
+    const card = [...server.tables.cards.values()].find((c) => c.note_id === note.id)!
+    expect(card.suspended).toBe(2)
   })
 })

@@ -2,6 +2,7 @@ import type { RatingValue } from './fsrs'
 
 export type ReviewKeyAction =
   | { type: 'show' } | { type: 'edit' } | { type: 'skip' } | { type: 'undo' } | { type: 'cancel-edit' }
+  | { type: 'known' }
   | { type: 'rate'; rating: RatingValue }
 
 /** 只取 KeyboardEvent 裡用得到的欄位,測試不必造整個事件 */
@@ -23,6 +24,7 @@ export function reviewKeyAction(
     case 'e': return { type: 'edit' }
     case 's': return { type: 'skip' }
     case 'u': return { type: 'undo' }
+    case 'k': return { type: 'known' } // 已經會了:正面就能按,不必翻面
     case '1': case '2': case '3': case '4':
       return ctx.showBack ? { type: 'rate', rating: Number(e.key) as RatingValue } : null
     default: return null

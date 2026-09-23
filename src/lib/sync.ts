@@ -205,7 +205,8 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
       if ((typeof cur?.value === 'string' ? cur.value : '') !== space) { switched = true; return }
       await mergeTable(db.decks, data.decks)
       await mergeTable(db.notes, data.notes)
-      await mergeTable(db.cards, data.cards)
+      // 還沒套 0006 migration 的舊伺服器不回 suspended,補 0 讓本機的列形狀完整
+      await mergeTable(db.cards, data.cards.map((c) => ({ ...c, suspended: c.suspended ?? 0 })))
       await mergeTable(db.settings, data.settings ?? []) // 還沒套 0005 migration 的舊伺服器不回這張表
       for (const log of data.review_logs) {
         if (!(await db.review_logs.get(log.id))) await db.review_logs.put({ ...log, dirty: 0 })

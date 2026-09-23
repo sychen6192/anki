@@ -8,7 +8,7 @@ const NOW = new Date('2026-07-13T12:00:00Z').getTime()
 function makeCard(overrides: Partial<CardRecord> = {}): CardRecord {
   return {
     id: 'c1', note_id: 'n1', deck_id: 'd1', direction: 'forward',
-    ...newCardFields(NOW), updated_at: NOW, deleted: 0, ...overrides,
+    ...newCardFields(NOW), suspended: 0, updated_at: NOW, deleted: 0, ...overrides,
   }
 }
 

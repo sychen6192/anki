@@ -38,23 +38,43 @@ npm run build      # 型別檢查 + 打包,部署前務必跑過
 
 ## 部署
 
+**推到 `main` 就會自動部署**(`.github/workflows/ci.yml` 的 `deploy` job)。型別檢查、打包、單元測試與 Worker 測試都過了之後,依序:
+
+1. `npm run build`:打包失敗就不碰資料庫
+2. `wrangler d1 migrations apply anki-pwa --remote`:只套還沒套過的 migration,沒有新的就跳過
+3. `wrangler deploy`:發布 Worker 與 `dist/` 靜態檔
+4. `scripts/smoke-test.sh`:確認 `/api/health` 回 `{"ok":true}`,首頁帶著 COOP/COEP 標頭
+
+PR 與其他分支只跑檢查、不部署。同時只會有一個部署在跑,後來的排隊。
+要重新部署同一版(例如換了 token),到 Actions 頁面選 CI → Run workflow → main。
+
+### 第一次設定
+
+在 GitHub repo 的 Settings → Secrets and variables → Actions 加兩個 repository secret:
+
+| 名稱 | 內容 |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare 後台 → My Profile → API Tokens → Create Token,選「Edit Cloudflare Workers」範本;確認權限裡有 Account → D1 → Edit,沒有就加上(套 migration 要用) |
+| `CLOUDFLARE_ACCOUNT_ID` | 本機 `npx wrangler whoami` 印出的 Account ID |
+
+有裝 gh 的話也可以直接在 repo 目錄下設定,會提示你貼上值:
+
 ```bash
-npm run deploy
+gh secret set CLOUDFLARE_API_TOKEN
+gh secret set CLOUDFLARE_ACCOUNT_ID
 ```
 
-等同於 `npm run build && wrangler deploy`,會將 `dist/` 靜態檔與 Worker 一併發布到 Cloudflare。
+沒設的話,deploy job 會在第一步失敗並指回這一段。
 
-有新的 migration 時先套用再 deploy(例如 `0005_settings.sql` 的 settings 表):
+### migration 只能做加法
 
-```bash
-npx wrangler d1 migrations apply anki-pwa --remote
-```
+migration 在新版上線**之前**套用,那段時間是舊版程式碼跑在新 schema 上。所以 migration 只能加新表、加帶預設值的新欄位,不能刪欄位或改名。真的要刪,先上一版不再用它的程式碼,下一版再刪。
 
-沒先套的話,新版 worker 寫 settings 表會回 500,客戶端會保留 dirty 下次再推,資料不會掉,但同步會一直失敗到套用為止。
+### 手動部署與自架
 
-若要部署到自己的 Cloudflare 帳號,先 `npx wrangler d1 create anki-pwa` 並把回傳的 `database_id` 填入 `wrangler.jsonc`(本 repo 已填入原作者的 id),接著 `npx wrangler d1 migrations apply anki-pwa --remote` 套用資料庫結構。
+緊急時本機仍可 `npm run deploy`,它等同 `npm run build && wrangler deploy`,**不含** migration;有新的 migration 要先跑 `npx wrangler d1 migrations apply anki-pwa --remote`。部署完可以跑 `scripts/smoke-test.sh <網址>` 檢查。
 
-部署完成後 wrangler 會印出 `https://anki-pwa.<account>.workers.dev`,可用 `curl <URL>/api/health` 確認回傳 `{"ok":true}`。
+若要部署到自己的 Cloudflare 帳號,先 `npx wrangler d1 create anki-pwa` 並把回傳的 `database_id` 填入 `wrangler.jsonc`(本 repo 已填入原作者的 id),再照上面設定兩個 secret,推到 main 就會套好資料庫結構並部署。
 
 ## 複習
 
@@ -65,6 +85,7 @@ npx wrangler d1 migrations apply anki-pwa --remote
 | 編輯這張卡 | `e`(`Esc` 取消) |
 | 跳過這張卡 | `s` |
 | 復原上一張 | `u` |
+| 已經會了 | `k` |
 
 帶 Cmd / Ctrl / Alt 的組合鍵一律交還瀏覽器:Cmd+S、Ctrl+U、Cmd+1 不會被當成跳過、復原、評分。
 
@@ -76,6 +97,13 @@ npx wrangler d1 migrations apply anki-pwa --remote
 - **同一個字的正反兩面不會連著出現**:剛評完其中一面,另一面會排到這段佇列的最後
   (20 分鐘內看過就算)。同樣不是 bury、不會延到明天;佇列只剩這兩張時仍會相鄰。
 - 評分按鈕上的間隔就是評分後實際排進去的間隔(fuzz 的種子取自卡片,不取自時間)。
+- **全部一起複習**:牌組頁上方的按鈕(兩副以上、且有到期卡才出現)把所有牌組合成一次,網址是 `/review/all`。
+  到期卡跨牌組依到期時間排,新卡各牌組照自己的每日上限依序接上,「再學 N 張新卡」則是跨牌組共 N 張。
+  卡片上方會標示這張卡的牌組。
+- **已經會了 / 暫停**:整個字的正反兩張卡一起退出佇列,不評分、不寫複習紀錄,但會寫進資料庫並同步。
+  兩者只差標籤與意圖:「已經會了」是不用學,「暫停」是先不看。統計的狀態分布與到期預測不算它們。
+  剛按完可以「復原」;之後在牌組頁用「批次選取」勾多筆一起標記或恢復,狀態篩選可以只看已會或暫停的字。
+  範本牌組裡早就會的字,用這個一次清掉,每日新卡才真的是新的。
 - **換日時間是凌晨 4 點**(與 Anki 相同):半夜還在複習時算前一天的額度,
   不會一過午夜就重新發一份新卡配額。
 - 學習中的卡片若在 10 分鐘內到期,完成畫面會顯示倒數並自動接回複習。
@@ -168,7 +196,7 @@ npx wrangler d1 execute anki-pwa --remote --file=scripts/accent-dict.sql
    ```
 
 3. 前端 `syncNow`(`src/lib/sync.ts`)呼叫 `fetch` 時,在 headers 加上 `x-sync-token: <同一組密鑰>`
-4. 重新 `npm run deploy`
+4. 推到 main 讓 CI 部署(或本機 `npm run deploy`)
 
 ## 已知限制
 
