@@ -44,8 +44,7 @@ function Welcome({ onImport, onJoin, inBrowser }: { onImport: () => void; onJoin
       {inBrowser && (
         // 瀏覽器和裝好的 App 各存各的:先在這裡背,之後裝到主畫面會發現 App 裡是空的
         <p className="welcome-install">
-          <b>打算天天用？</b>先把這頁加到主畫面（iPhone：分享 →「加入主畫面」；Mac：加入 Dock），
-          從那裡打開再開始。在瀏覽器裡建立的牌組，裝好的 App 看不到。
+          <b>打算天天用？</b>先把這頁加到主畫面（iPhone：分享 →「加入主畫面」；Mac：加入 Dock），從那裡打開再開始。在瀏覽器裡建立的牌組，裝好的 App 看不到。
         </p>
       )}
       <div className="btn-stack">

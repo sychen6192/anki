@@ -14,8 +14,7 @@ export default function GuidePage() {
         <ol className="guide-steps">
           <li>
             在「牌組」按右上的 <span className="inline-icon"><PlusIcon size={15} /></span>，
-            <Link to="/import?mode=templates" className="inline-link">挑一份範本</Link>、匯入自己的 CSV / Anki 牌組，
-            或貼上朋友的分享連結
+            <Link to="/import?mode=templates" className="inline-link">挑一份範本</Link>、匯入自己的 CSV / Anki 牌組，或貼上朋友的分享連結
           </li>
           <li>回「牌組」按 <b>開始複習</b>；好幾副牌組會一起複習，也可以按每副右邊的小按鈕單獨複習</li>
           <li>先想答案 → 點卡片或「顯示答案」翻面 → 照記得的程度評分</li>

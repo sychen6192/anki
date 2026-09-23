@@ -156,7 +156,7 @@ app.post('/api/sync', async (c) => {
     if (rows === undefined || rows === null) continue
     if (!Array.isArray(rows)) return c.json({ error: `invalid ${t}` }, 400)
     for (const row of rows) {
-      const r = { ...(row as unknown as Record<string, unknown>), namespace: space }
+      const r: Record<string, unknown> = { ...(row as unknown as Record<string, unknown>), namespace: space }
       if (row === null || typeof row !== 'object' || !isStorableRow(t, r)) {
         skipped.push(typeof (row as { id?: unknown })?.id === 'string' ? (row as { id: string }).id : '')
         continue

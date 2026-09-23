@@ -427,8 +427,7 @@ export default function SettingsPage() {
         {localOnly ? (
           <div className="key-sheet">
             <p className="key-intro">
-              資料目前只存在這台。開始同步後，這台的牌組與紀錄會上傳到你的私人空間；
-              其他裝置輸入同一組金鑰就會同步在一起，不用註冊帳號。
+              資料目前只存在這台。開始同步後，這台的牌組與紀錄會上傳到你的私人空間；其他裝置輸入同一組金鑰就會同步在一起，不用註冊帳號。
             </p>
             <button type="button" className="btn lg" disabled={busy} onClick={() => void startNewSync()}>
               產生新金鑰並開始同步
