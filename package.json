@@ -6,7 +6,7 @@
     "dev": "vite",
     "dev:worker": "wrangler dev",
     "build": "tsc -b && vite build",
-    "deploy": "npm run build && wrangler d1 migrations apply anki-pwa --remote < /dev/null && wrangler deploy",
+    "deploy": "npm run build && node scripts/deploy.mjs",
     "test": "vitest run --config vitest.config.ts",
     "test:worker": "vitest run --config vitest.workers.config.ts",
     "typecheck": "tsc -b"

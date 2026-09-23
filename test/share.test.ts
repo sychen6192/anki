@@ -1,6 +1,6 @@
 import { afterEach, describe, it, expect, vi } from 'vitest'
 import {
-  createShare, fetchShare, isInAppBrowser, isStandaloneApp, isTouchDevice, normalizeSharedRows,
+  ShareNotFoundError, createShare, fetchShare, isInAppBrowser, isStandaloneApp, isTouchDevice, normalizeSharedRows,
   parseShareCode, shareUrlFor, storageSeparateFromApp,
 } from '../src/lib/share'
 
@@ -103,6 +103,13 @@ describe('fetchShare', () => {
     await expect(fetchShare('x', (async () => new Response('', { status: 404 })) as typeof fetch)).rejects.toThrow('找不到這個分享')
     await expect(fetchShare('x', (async () => new Response('', { status: 503 })) as typeof fetch)).rejects.toThrow('503')
   })
+
+  it('只有 404 是 ShareNotFoundError(重試也沒用),暫時性錯誤不是', async () => {
+    await expect(fetchShare('x', (async () => new Response('', { status: 404 })) as typeof fetch)).rejects.toBeInstanceOf(ShareNotFoundError)
+    const err = await fetchShare('x', (async () => new Response('', { status: 503 })) as typeof fetch).catch((e) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err).not.toBeInstanceOf(ShareNotFoundError)
+  })
 })
 
 describe('storageSeparateFromApp', () => {
@@ -117,8 +124,15 @@ describe('storageSeparateFromApp', () => {
   const MAC_FIREFOX = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5; rv:130.0) Gecko/20100101 Firefox/130.0'
   const IOS_CHROME = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/128.0 Mobile/15E148 Safari/604.1'
   const IOS_INSTAGRAM = IPHONE_SAFARI.replace(' Safari/604.1', ' Instagram 350.0.0.0')
+  // Threads、TikTok 等 App 的 iOS 內建瀏覽器(WKWebView)沒有 "Safari/" 字樣,也不一定帶自家名字
+  const IOS_THREADS = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Barcelona 350.0.0.0'
+  const IOS_GENERIC_WEBVIEW = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
+  const LINUX_FIREFOX = 'Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0'
+  const WINDOWS_FIREFOX = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
+  const ANDROID_FIREFOX = 'Mozilla/5.0 (Android 14; Mobile; rv:130.0) Gecko/130.0 Firefox/130.0'
 
   it('iPhone(含 iOS 的 Chrome)、偽裝成 Mac 的 iPad、Mac Safari、App 內建瀏覽器:資料和 App 分開', () => {
+    expect(storageSeparateFromApp(IOS_THREADS, 5)).toBe(true)
     expect(storageSeparateFromApp(IPHONE_SAFARI, 5)).toBe(true)
     expect(storageSeparateFromApp(IOS_CHROME, 5)).toBe(true)
     expect(storageSeparateFromApp(IPAD_DESKTOP_UA, 5)).toBe(true)
@@ -127,18 +141,24 @@ describe('storageSeparateFromApp', () => {
     expect(storageSeparateFromApp(KAKAO_WEBVIEW, 5)).toBe(true)
   })
 
-  it('Android Chrome 與桌機的 Chrome / Edge / Firefox:共用資料,不必提醒', () => {
+  it('Mac / Linux 的 Firefox:不能安裝網頁 App,App 一定在別的瀏覽器', () => {
+    expect(storageSeparateFromApp(MAC_FIREFOX, 0)).toBe(true)
+    expect(storageSeparateFromApp(LINUX_FIREFOX, 0)).toBe(true)
+  })
+
+  it('Android Chrome / Firefox 與桌機的 Chrome / Edge、Windows Firefox:共用資料,不必提醒', () => {
     expect(storageSeparateFromApp(ANDROID_CHROME, 5)).toBe(false)
+    expect(storageSeparateFromApp(ANDROID_FIREFOX, 5)).toBe(false)
     expect(storageSeparateFromApp(MAC_CHROME, 0)).toBe(false)
     expect(storageSeparateFromApp(MAC_EDGE, 0)).toBe(false)
-    expect(storageSeparateFromApp(MAC_FIREFOX, 0)).toBe(false)
+    expect(storageSeparateFromApp(WINDOWS_FIREFOX, 0)).toBe(false)
   })
 
   it('isInAppBrowser:認得各家內建瀏覽器與 Android WebView,一般瀏覽器不算', () => {
-    for (const ua of [LINE_ANDROID, KAKAO_WEBVIEW, IOS_INSTAGRAM, IPHONE_SAFARI + ' [FBAN/FBIOS;FBAV/480.0]', ANDROID_CHROME + ' MicroMessenger/8.0']) {
+    for (const ua of [LINE_ANDROID, KAKAO_WEBVIEW, IOS_INSTAGRAM, IOS_THREADS, IOS_GENERIC_WEBVIEW, IPHONE_SAFARI + ' [FBAN/FBIOS;FBAV/480.0]', ANDROID_CHROME + ' MicroMessenger/8.0']) {
       expect(isInAppBrowser(ua)).toBe(true)
     }
-    for (const ua of [IPHONE_SAFARI, IOS_CHROME, ANDROID_CHROME, MAC_CHROME, MAC_FIREFOX]) {
+    for (const ua of [IPHONE_SAFARI, IOS_CHROME, ANDROID_CHROME, ANDROID_FIREFOX, MAC_CHROME, MAC_FIREFOX, IPAD_DESKTOP_UA]) {
       expect(isInAppBrowser(ua)).toBe(false)
     }
   })

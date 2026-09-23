@@ -507,6 +507,8 @@ kbd {
   color: var(--muted); background: var(--surface-2); border: 1px solid var(--border);
   border-radius: var(--radius-sm); cursor: pointer;
 }
+/* 比 300px 還窄的螢幕排不下單行,讓標籤換行,總比整排溢出好 */
+@media (max-width: 299px) { .tab { white-space: normal; } }
 .tab.active { color: var(--primary); background: var(--primary-weak); border-color: var(--primary); }
 
 .import-form, .settings-block {

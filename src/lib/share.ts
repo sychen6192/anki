@@ -52,10 +52,13 @@ export async function createShare(
   return data.code
 }
 
+/** 分享不存在(貼錯或過期):重試也沒用,畫面據此不顯示「重試」 */
+export class ShareNotFoundError extends Error {}
+
 /** 讀取分享內容;404 講人話,其餘錯誤帶狀態碼 */
 export async function fetchShare(code: string, fetchFn: typeof fetch = fetch): Promise<SharedDeck> {
   const res = await fetchFn(`/api/share/${encodeURIComponent(code)}`)
-  if (res.status === 404) throw new Error('找不到這個分享,連結可能貼錯了或已經過期')
+  if (res.status === 404) throw new ShareNotFoundError('找不到這個分享,連結可能貼錯了或已經過期')
   if (!res.ok) throw new Error(`讀取分享失敗(HTTP ${res.status})`)
   const data = await res.json() as { name?: unknown; rows?: unknown }
   return {
@@ -76,24 +79,30 @@ export function isStandaloneApp(): boolean {
 }
 
 /**
- * App 的內建瀏覽器(LINE、Facebook、Instagram、微信…):資料只存在那個內建瀏覽器裡,
- * 使用者平常開字卡的地方(主畫面 App 或一般瀏覽器)都看不到。
- * Android 上幾乎所有內建瀏覽器都是 WebView,UA 會帶 "; wv)";iOS 的沒有,只能認品牌字樣。
+ * 看起來是 App 的內建瀏覽器(LINE、Facebook、Instagram、Threads、TikTok、微信…):
+ * 資料只存在那個內建瀏覽器裡,使用者平常開字卡的地方看不到。
+ * - Android:幾乎都是系統 WebView,UA 帶 "; wv)"。少數一般瀏覽器(例如 Vivo 瀏覽器)也用 WebView,
+ *   會被誤認 —— 所以提醒文字要保留「這就是你平常用的瀏覽器就直接匯入」的出路
+ * - iOS:WKWebView 做的內建瀏覽器 UA 沒有 "Safari/",真的 Safari 與 iOS 版 Chrome/Firefox/Edge 都有。
+ *   主畫面的 App 也沒有,但那時不會顯示提醒(isStandaloneApp)
  */
 export function isInAppBrowser(ua: string): boolean {
-  return /; wv\)|\bLine\/|FBAN|FBAV|Instagram|MicroMessenger|Twitter|KAKAOTALK/i.test(ua)
+  return /; wv\)|\bLine\/|FBAN|FBAV|Instagram|MicroMessenger|Twitter|KAKAOTALK|\bBarcelona\b|musical_ly|Bytedance|Snapchat/i.test(ua)
+    || /(iPhone|iPod|iPad)(?!.*Safari\/)/.test(ua)
 }
 
 /**
  * 在這個瀏覽器匯入的資料,會不會和另外裝的字卡 App 分開存。
  * - iPhone/iPad:主畫面的 App 與 Safari(以及 iOS 上的 Chrome 等)各有各的儲存空間
  * - Mac 的 Safari:「加入 Dock」的網頁 App 也不和 Safari 共用資料
+ * - Mac/Linux 的 Firefox:這兩個平台的 Firefox 不能安裝網頁 App,App 一定裝在別的瀏覽器
  * - App 的內建瀏覽器:自己一份
- * Android 的 Chrome、桌機的 Chrome/Edge/Firefox 與安裝的 App 共用資料,不必提醒。
+ * Android 的 Chrome、桌機的 Chrome/Edge 與從它安裝的 App 共用資料,不必提醒。
  */
 export function storageSeparateFromApp(ua: string, maxTouchPoints: number): boolean {
   const iOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && maxTouchPoints > 1)
   const macSafari = /Macintosh/.test(ua) && /Version\/[\d.]+ .*Safari\//.test(ua)
     && !/Chrome\/|Chromium\/|Edg\/|Firefox\/|OPR\//.test(ua)
-  return iOS || macSafari || isInAppBrowser(ua)
+  const desktopFirefox = /Firefox\//.test(ua) && /Macintosh|X11/.test(ua)
+  return iOS || macSafari || desktopFirefox || isInAppBrowser(ua)
 }

@@ -13,7 +13,8 @@ import { parseApkg, type ApkgParse } from '../lib/apkg'
 import { autoMapFields, mapApkgNotes, type ApkgMapping } from '../lib/apkgMap'
 import { fillMissingAccents } from '../lib/accent'
 import {
-  fetchShare, isInAppBrowser, isStandaloneApp, parseShareCode, storageSeparateFromApp, type SharedDeck,
+  fetchShare, isInAppBrowser, isStandaloneApp, parseShareCode, ShareNotFoundError, storageSeparateFromApp,
+  type SharedDeck,
 } from '../lib/share'
 import { useBusy } from '../lib/useBusy'
 import { Loading } from '../components/Loading'
@@ -75,7 +76,8 @@ interface ShareCardProps {
   shared: SharedDeck | null; loadError: string; importError: string
   result: ImportResult | null; busy: boolean
   withReverse: boolean; onWithReverse: (v: boolean) => void; onImport: () => void
-  onRetry: () => void
+  /** 只有重試可能有用時才給(離線、伺服器一時出錯);連結壞掉或分享過期就不給 */
+  onRetry?: () => void
 }
 
 /** 朋友分享的牌組:讀取中 → 內容與匯入鈕 → 匯入後在卡片裡直接顯示結果(按鈕收掉,不會重複匯入) */
@@ -89,7 +91,7 @@ function ShareCard({ shared, loadError, importError, result, busy, withReverse, 
       <div className="template-card share-card">
         <p className="err" role="alert">{loadError}</p>
         {/* 主畫面的 App 沒有重新整理鈕:離線或伺服器一時出錯時,要能在這裡再試一次 */}
-        <button className="btn secondary" onClick={onRetry}>重試</button>
+        {onRetry !== undefined && <button className="btn secondary" onClick={onRetry}>重試</button>}
       </div>
     )
   }
@@ -138,8 +140,8 @@ function BrowserNotice({ inApp }: { inApp: boolean }) {
     <div className="notice onboard" role="note">
       {inApp ? (
         <>
-          <p><b>你是在 LINE 之類 App 的內建瀏覽器裡打開這個連結的。</b>在這裡匯入的牌組只會存在這個內建瀏覽器,平常用的字卡裡看不到。</p>
-          <p className="hint">請複製連結:用主畫面上的字卡 App 的話,到「匯入」頁選「分享連結」貼上;平常在瀏覽器用字卡的話,把連結貼到那個瀏覽器的網址列。App 裡找不到「分享連結」的話,先按 App 下方的「更新」,或把 App 完全關掉再打開。</p>
+          <p><b>看起來你是在 LINE 之類 App 的內建瀏覽器裡打開這個連結的。</b>在這裡匯入的牌組只會存在這個內建瀏覽器,平常用的字卡裡看不到。</p>
+          <p className="hint">請複製連結:用主畫面上的字卡 App 的話,到「匯入」頁選「分享連結」貼上;平常在別的瀏覽器用字卡的話,把連結貼到那個瀏覽器的網址列。App 裡找不到「分享連結」的話,先按 App 下方的「更新」,或把 App 完全關掉再打開。如果這就是你平常用字卡的瀏覽器,直接在下面匯入就好。</p>
         </>
       ) : (
         <>
@@ -205,6 +207,7 @@ export default function ImportPage() {
   const activeShareCode = linkMode ? linkCode : pastedCode
   const [shared, setShared] = useState<SharedDeck | null>(null)
   const [shareLoadErr, setShareLoadErr] = useState('')
+  const [shareLoadRetryable, setShareLoadRetryable] = useState(false)
   const [shareImportErr, setShareImportErr] = useState('')
   const [shareResult, setShareResult] = useState<ImportResult | null>(null)
   useEffect(() => {
@@ -213,6 +216,7 @@ export default function ImportPage() {
     setShareLoadErr('')
     setShareImportErr('')
     setShareResult(null)
+    setShareLoadRetryable(false)
     if (activeShareCode === null) {
       if (linkMode) setShareLoadErr('這個分享連結不完整,請朋友重新傳一次')
       return
@@ -220,7 +224,11 @@ export default function ImportPage() {
     let cancelled = false
     fetchShare(activeShareCode)
       .then((d) => { if (!cancelled) setShared(d) })
-      .catch((e: unknown) => { if (!cancelled) setShareLoadErr(errText(e)) })
+      .catch((e: unknown) => {
+        if (cancelled) return
+        setShareLoadErr(errText(e))
+        setShareLoadRetryable(!(e instanceof ShareNotFoundError))
+      })
     return () => { cancelled = true }
   }, [activeShareCode, linkMode, loadNonce])
   // 提醒只在「從瀏覽器打開連結、而且這個瀏覽器的資料和 App 分開」時出現
@@ -404,7 +412,7 @@ export default function ImportPage() {
   const shareCard = (
     <ShareCard shared={shared} loadError={shareLoadErr} importError={shareImportErr} result={shareResult}
       busy={busy} withReverse={withReverse} onWithReverse={setWithReverse} onImport={importShared}
-      onRetry={() => setLoadNonce((n) => n + 1)} />
+      onRetry={shareLoadRetryable ? () => setLoadNonce((n) => n + 1) : undefined} />
   )
 
   // 從分享連結打開:只放分享卡片,不混進 CSV 表單;要用別的方式匯入再點下面的連結
