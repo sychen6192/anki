@@ -83,7 +83,7 @@ migration 在新版上線**之前**套用,那段時間是舊版程式碼跑在�
 
 ### 手動部署與自架
 
-緊急時本機仍可 `npm run deploy`,它等同 `npm run build && wrangler deploy`,**不含** migration;有新的 migration 要先跑 `npx wrangler d1 migrations apply anki-pwa --remote`。部署完可以跑 `scripts/smoke-test.sh <網址>` 檢查。
+緊急時本機仍可 `npm run deploy`,順序和 CI 相同:打包、套 migration、部署。有新的 migration 時 wrangler 會先問一次要不要繼續。部署完可以跑 `scripts/smoke-test.sh <網址>` 檢查。
 
 若要部署到自己的 Cloudflare 帳號,先 `npx wrangler d1 create anki-pwa` 並把回傳的 `database_id` 填入 `wrangler.jsonc`(本 repo 已填入原作者的 id),再照上面設定兩個 secret,推到 main 就會套好資料庫結構並部署。
 
