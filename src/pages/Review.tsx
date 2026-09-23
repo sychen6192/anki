@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useLiveQuery } from 'dexie-react-hooks'
 import { PitchAccent } from '../components/PitchAccent'
 import { isSpeechSupported, readAutoSpeak, speak, writeAutoSpeak } from '../lib/speak'
 import { SpeakerIcon } from '../components/SpeakerIcon'
@@ -11,12 +12,14 @@ import { ActionSheet, Sheet } from '../components/Sheet'
 import { db } from '../db/db'
 import { sortDecks } from '../lib/deckOrder'
 import {
-  applyReview, restoreCardsSuspended, setNoteSuspended, undoReview, updateNote, type SuspendedSnapshot,
+  applyReview, restoreCardsSuspended, setNoteSuspended, StaleCardError, undoReview, updateNote, type SuspendedSnapshot,
 } from '../db/repo'
 import { applyFsrsSettings, formatInterval, previewIntervals, rate, State, type RatingValue } from '../lib/fsrs'
 import { getFsrsSettings } from '../lib/fsrsSettings'
 import { isValidAccent, normalizeAccent } from '../lib/accent'
-import { buildMultiDeckQueue, countKind, deckQueue, splitCounts, startOfToday, type QueueCounts } from '../lib/queue'
+import {
+  buildMultiDeckQueue, countKind, deckQueue, newOverLimit, splitCounts, startOfToday, type QueueCounts,
+} from '../lib/queue'
 import { reviewKeyAction, type KeyTarget } from '../lib/reviewKeys'
 import { requestSync } from '../lib/sync'
 import type { CardRecord, DeckRecord, NoteRecord } from '../../shared/types'
@@ -66,18 +69,18 @@ function answerText(card: CardRecord, note: NoteRecord): string {
   return parts.filter((p) => p !== '').join('，')
 }
 
-/** 按鍵落在哪種元素上(規則見 reviewKeys.ts 的 KeyTarget) */
-function keyTarget(t: EventTarget | null): KeyTarget {
+/**
+ * 按鍵落在哪種元素上(規則見 reviewKeys.ts 的 KeyTarget)。keyboardNav:最近一次是用 Tab 在畫面上移動
+ * (而不是滑鼠或手指點的)。點過留著焦點的按鈕不算「移到按鈕上」—— 點完 ↶ 再按空白鍵應該是翻面、
+ * 點完 🔊 再按空白鍵應該是評分;用滑鼠開「⋯」再按 Esc 關掉,焦點回到「⋯」也一樣。
+ * 不看 :focus-visible:Chromium 在按下任何鍵的瞬間就會把目前的焦點標成 :focus-visible。
+ */
+function keyTarget(t: EventTarget | null, keyboardNav: boolean): KeyTarget {
   if (!(t instanceof HTMLElement)) return null
   if (t.isContentEditable || t.closest('input, textarea, select') !== null) return 'text'
   const control = t.closest('button, a[href], summary, [role="button"], [role="switch"], [role="radio"]')
   if (control === null) return null
-  // 滑鼠點過留著的焦點不算「移到按鈕上」:點完 ↶ 再按空白鍵,應該是翻面而不是再復原一次
-  try {
-    return control.matches(':focus-visible') ? 'control' : null
-  } catch {
-    return 'control'
-  }
+  return keyboardNav ? 'control' : null
 }
 
 export default function Review() {
@@ -127,6 +130,7 @@ export default function Review() {
   // 「再學 N 張新卡」:今日額度用完後自願加碼。只存在記憶體,離開頁面歸零,
   // 不動牌組設定 —— 明天的額度照舊。
   const bonusNew = useRef(0)
+  // 要加碼一輪:下一次 loadNext 拿到今天的紀錄時才算得出要加多少(見 newOverLimit)。
   // 牌組頁「今天完成 · 再學一點」帶 ?more=1:一進來就加碼一輪新卡,不必先經過完成畫面
   const [searchParams] = useSearchParams()
   const wantMore = useRef(searchParams.get('more') === '1')
@@ -144,6 +148,18 @@ export default function Review() {
   const wordRef = useRef<HTMLParagraphElement>(null)
   const answerRef = useRef<HTMLDivElement>(null)
   const doneRef = useRef<HTMLHeadingElement>(null)
+  // 最近一次是用 Tab 移動焦點(true),還是用滑鼠/手指點的(false),見 keyTarget
+  const keyboardNav = useRef(false)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Tab') keyboardNav.current = true }
+    const onPointer = () => { keyboardNav.current = false }
+    window.addEventListener('keydown', onKey, true)
+    window.addEventListener('pointerdown', onPointer, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('pointerdown', onPointer, true)
+    }
+  }, [])
 
   const pushUndo = useCallback((entry: UndoEntry) => {
     setUndoStack((s) => [...s.slice(-(UNDO_LIMIT - 1)), entry])
@@ -173,7 +189,9 @@ export default function Review() {
     newPerDayRef.current = Math.max(...decks.map((d) => d.new_per_day))
     if (wantMore.current) {
       wantMore.current = false
-      bonusNew.current += newPerDayRef.current > 0 ? newPerDayRef.current : 20
+      // 從今天已經超出上限的量往上加:今天之前加碼學過的,不能把這次的份抵掉
+      const unit = newPerDayRef.current > 0 ? newPerDayRef.current : 20
+      bonusNew.current = Math.max(bonusNew.current, newOverLimit(decks, cards, logs)) + unit
     }
     // 單副:加碼直接加在額度上;全部:各牌組各自的額度,加碼另計(跨牌組共 N 張)
     const built = allMode
@@ -222,6 +240,7 @@ export default function Review() {
       setCurrent(null)
       setDone(true)
       setNextDue(nextLearningDue)
+      setTick(Date.now())
       // 做完了也不立刻推:完成畫面上還能「復原上一次評分」
       requestSync(SYNC_DELAY_MS)
       return
@@ -282,6 +301,18 @@ export default function Review() {
     // 只在換卡、翻面、做完時移動(menuOpen/editing 故意不列):選單關掉時由對話框把焦點還給「⋯」
   }, [cardId, showBack, done])
 
+  // 同步拉到別台對這張卡的改動(那邊複習過、標成已會、刪掉):畫面上的是舊資料,直接換下一張。
+  // 自己的評分、復原也會改到這張卡,那段期間 answering 為 true,做完時畫面上已經是新的那份
+  const liveCard = useLiveQuery(() => (cardId === undefined ? undefined : db.cards.get(cardId)), [cardId])
+  useEffect(() => {
+    if (liveCard === undefined || current === null || liveCard.id !== current.card.id) return
+    if (answering.current || liveCard.updated_at === current.card.updated_at) return
+    answering.current = true
+    showToast(`「${current.note.expression}」在其他裝置更新過了，換下一張`, false)
+    void loadNext().finally(() => { answering.current = false })
+    // 只在這張卡的資料變了時檢查
+  }, [liveCard]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const answer = useCallback(async (rating: RatingValue, fromPointer = false) => {
     if (!current || answering.current) return
     // 「顯示答案」剛按下去,同一個位置冒出來的評分鍵要擋掉連點
@@ -311,7 +342,13 @@ export default function Review() {
         setErrMsg('載入下一張失敗，請回列表重新進入')
       }
     } catch (e) {
-      setErrMsg(`評分未儲存：${e instanceof Error ? e.message : String(e)}`)
+      if (e instanceof StaleCardError) {
+        // 畫面上這張在別台複習過(同步拉下來了):沒有評分,換成資料庫裡現在的佇列
+        showToast(`「${word}」在其他裝置更新過了，換下一張`, false)
+        await loadNext().catch(() => {})
+      } else {
+        setErrMsg(`評分未儲存：${e instanceof Error ? e.message : String(e)}`)
+      }
     } finally {
       answering.current = false
     }
@@ -415,7 +452,9 @@ export default function Review() {
       // 按住不放時系統會一直重送同一個鍵:按住空白鍵會「翻面、普通、翻面、普通…」一路刷過去
       if (e.repeat) return
       // 鍵 → 動作的對照表在 reviewKeys.ts(含「帶 Cmd/Ctrl/Alt 不接」的規則),這裡只負責執行
-      const action = reviewKeyAction(e, { editing: editing !== null, showBack, done, target: keyTarget(e.target) })
+      const action = reviewKeyAction(e, {
+        editing: editing !== null, showBack, done, target: keyTarget(e.target, keyboardNav.current),
+      })
       if (action === null) return
       switch (action.type) {
         case 'exit': e.preventDefault(); exit(); break
@@ -448,14 +487,19 @@ export default function Review() {
     }
   }, [showBack, current])
 
-  // 完成畫面上的倒數:只在馬上就有卡片到期時每秒更新,到期後自己停掉
+  // 完成畫面上的等待時間:平常每分鐘更新(「約 X後到期」不會越放越不準),最後 10 分鐘每秒倒數,到期後停
   useEffect(() => {
-    if (!done || nextDue === null || nextDue - Date.now() > AUTO_RESUME_WINDOW) return
-    const id = setInterval(() => {
-      setTick(Date.now())
-      if (Date.now() >= nextDue) clearInterval(id)
-    }, 1000)
-    return () => clearInterval(id)
+    if (!done || nextDue === null) return
+    let id = 0
+    const step = () => {
+      const now = Date.now()
+      setTick(now)
+      const left = nextDue - now
+      if (left <= 0) return
+      id = window.setTimeout(step, left > AUTO_RESUME_WINDOW ? Math.min(60_000, left - AUTO_RESUME_WINDOW) : 1000)
+    }
+    step()
+    return () => clearTimeout(id)
   }, [done, nextDue])
 
   // 完成畫面停在背景一陣子再回來:學習中的卡可能已經到期了,重新看一次佇列
@@ -466,10 +510,11 @@ export default function Review() {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [done, loadNext])
 
-  // 時間到自動接回複習。每個 nextDue 只排一次,萬一還是載不到卡也不會空轉。
+  // 時間到自動接回複習(完成畫面一直開著也會)。每個 nextDue 只排一次,萬一還是載不到卡也不會空轉。
   useEffect(() => {
-    if (!done || nextDue === null || nextDue - Date.now() > AUTO_RESUME_WINDOW) return
-    const id = setTimeout(() => { void loadNext() }, Math.max(0, nextDue - Date.now()) + 200)
+    if (!done || nextDue === null) return
+    // setTimeout 超過 2^31-1 毫秒會立刻觸發;學習中的卡不會等那麼久,保險起見夾住
+    const id = setTimeout(() => { void loadNext() }, Math.min(2 ** 31 - 1, Math.max(0, nextDue - Date.now()) + 200))
     return () => clearTimeout(id)
   }, [done, nextDue, loadNext])
 
@@ -509,7 +554,7 @@ export default function Review() {
           )}
           {moreNew > 0 && (
             <button className="btn lg tinted" onClick={() => {
-              bonusNew.current += newPerDayRef.current > 0 ? newPerDayRef.current : 20
+              wantMore.current = true
               void loadNext()
             }}>
               再學 {moreCount} 張新卡
@@ -623,7 +668,8 @@ export default function Review() {
       </div>
 
       {toast !== null && (!toast.undoable || lastAction !== null) && (
-        <div className="toast review-toast" role="status">
+        // 不當 live region:同一句已經寫進上面常駐的 aria-live,兩邊都唸會唸兩次
+        <div className="toast review-toast">
           <span>{toast.text}</span>
           {toast.undoable && <button className="link" onClick={() => void undo()}>復原</button>}
         </div>

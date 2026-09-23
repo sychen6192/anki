@@ -5,7 +5,7 @@ import {
   createDeck, updateDeck, softDeleteDeck,
   createNote, createNotes, updateNote, softDeleteNote, applyReview, undoReview,
   enableReverseCards, moveNote, setNoteSuspended, setNotesSuspended, restoreCardsSuspended,
-  restoreNote, setNotesSuspendedUndoable,
+  restoreNote, setNotesSuspendedUndoable, StaleCardError,
 } from '../src/db/repo'
 import { rate } from '../src/lib/fsrs'
 
@@ -113,6 +113,24 @@ describe('applyReview', () => {
     const logs = await db.review_logs.where('card_id').equals(card.id).toArray()
     expect(logs).toHaveLength(1)
     expect(logs[0]).toMatchObject({ rating: 3, dirty: 1 })
+  })
+
+  it('畫面上的那份已經過期(別台複習過、同步拉下來了)就不寫,丟 StaleCardError', async () => {
+    const deck = await createDeck('A')
+    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
+    const shown = (await db.cards.where('note_id').equals(note.id).toArray())[0]
+    // 同步拉到別台的複習:排程與 updated_at 都變了
+    const elsewhere = rate(shown, 4)
+    await db.cards.update(shown.id, { ...elsewhere.fields, updated_at: shown.updated_at + 5000 })
+    const before = (await db.cards.get(shown.id))!
+    const { fields, log } = rate(shown, 1)
+    await expect(applyReview(shown, fields, log)).rejects.toBeInstanceOf(StaleCardError)
+    expect(await db.cards.get(shown.id)).toEqual(before)
+    expect(await db.review_logs.where('card_id').equals(shown.id).count()).toBe(0)
+    // 刪掉的卡也一樣
+    await db.cards.update(shown.id, { deleted: 1 })
+    const fresh = (await db.cards.get(shown.id))!
+    await expect(applyReview(fresh, fields, log)).rejects.toBeInstanceOf(StaleCardError)
   })
 })
 

@@ -46,6 +46,22 @@ export function countTodayNew(logs: ReviewLogRecord[], now = Date.now()): number
 }
 
 /**
+ * 今天已經超出每日上限學了幾張新卡(之前按「再學 N 張」加碼學掉的);跨牌組時各副分開算再加總。
+ * 「再學 N 張」要從這個數往上加:加碼是「今天總共多學幾張」,之前加碼學過的會把這次的份抵掉 ——
+ * 同一天第二次按「再學一點」就會什麼都沒有。
+ */
+export function newOverLimit(
+  decks: Pick<DeckRecord, 'id' | 'new_per_day'>[], cards: CardRecord[], todayLogs: ReviewLogRecord[], now = Date.now(),
+): number {
+  let over = 0
+  for (const d of decks) {
+    const ids = new Set(cards.filter((c) => c.deck_id === d.id).map((c) => c.id))
+    over += Math.max(0, countTodayNew(todayLogs.filter((l) => ids.has(l.card_id)), now) - d.new_per_day)
+  }
+  return over
+}
+
+/**
  * 從既有的卡片與今日紀錄挑出某副牌組的佇列。
  * DeckList(一次算全部牌組)與 Review(只算一副)共用同一段篩選,
  * 免得兩邊各寫一次、日後改了 buildQueue 的語意只改到一邊。

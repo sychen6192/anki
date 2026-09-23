@@ -1,6 +1,10 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 
-interface Props { children: ReactNode }
+interface Props {
+  children: ReactNode
+  /** 這個值變了(換頁)就收掉錯誤畫面重來。不用 key:用 key 的話每次換網址整棵子樹都重建,頁面自己的狀態也跟著不見 */
+  resetKey?: string
+}
 interface State { error: Error | null }
 
 /**
@@ -12,6 +16,10 @@ export class ErrorBoundary extends Component<Props, State> {
 
   static getDerivedStateFromError(error: Error): State {
     return { error }
+  }
+
+  componentDidUpdate(prev: Props) {
+    if (this.state.error !== null && prev.resetKey !== this.props.resetKey) this.setState({ error: null })
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {

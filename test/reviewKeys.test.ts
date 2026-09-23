@@ -38,11 +38,14 @@ describe('reviewKeyAction', () => {
     expect(reviewKeyAction(key('s'), { ...front, target: 'text' })).toBeNull()
   })
 
-  it('完成畫面只認 Esc,Enter/空白鍵留給畫面上的按鈕', () => {
+  it('完成畫面只認 Esc 與 U,Enter/空白鍵留給畫面上的按鈕', () => {
     const done = { editing: false, showBack: true, done: true }
     expect(reviewKeyAction(key('Enter'), done)).toBeNull()
     expect(reviewKeyAction(key(' '), done)).toBeNull()
-    expect(reviewKeyAction(key('u'), done)).toBeNull()
+    expect(reviewKeyAction(key('1'), done)).toBeNull()
+    expect(reviewKeyAction(key('s'), done)).toBeNull()
+    // 剛評完最後一張最常想復原
+    expect(reviewKeyAction(key('u'), done)).toEqual({ type: 'undo' })
     expect(reviewKeyAction(key('Escape'), done)).toEqual({ type: 'exit' })
   })
 

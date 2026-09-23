@@ -171,6 +171,8 @@
   }
   .review-bar { padding-top: calc(4px + var(--safe-top)); }
   .flashcard { flex: 1; min-height: 0; margin-top: 4px; padding: 18px 22px 14px; }
+  /* 角落有牌組名或「新卡」標籤時,字往下讓出標籤的高度(不然長的字會壓在標籤底下) */
+  .flashcard:has(.card-deck, .card-tag) { padding-top: 40px; }
   .card-face { gap: 10px; }
   .card-answer { gap: 8px; }
   .review-actions {
@@ -181,8 +183,9 @@
   .review-actions > * { max-width: 688px; }
   .rating, .show-answer { min-height: 52px; }
   .rating-hint { display: none; }
+  /* 橫放時卡片矮,底部的提示條會蓋住答案的最後一行:改疊在頂列上(✕ 和 ⋯ 在兩端,蓋不到) */
   .app.no-tabbar .review-screen .review-toast, .app.no-tabbar .review-screen.with-hint .review-toast {
-    bottom: calc(var(--safe-bottom) + 72px);
+    top: calc(var(--safe-top) + 2px); bottom: auto;
   }
   .review-done { min-height: 0; }
 }

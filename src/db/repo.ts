@@ -160,12 +160,26 @@ export async function restoreNote(id: string): Promise<void> {
   })
 }
 
-/** 回傳新增的 review_log id,讓呼叫端可以復原這次評分。 */
+/** 評分用的是畫面上的舊資料:這張卡在那之後被改過(多半是同步拉到別台的複習),不能拿舊排程蓋掉 */
+export class StaleCardError extends Error {
+  constructor() {
+    super('這張卡在其他裝置更新過了')
+    this.name = 'StaleCardError'
+  }
+}
+
+/**
+ * 回傳新增的 review_log id,讓呼叫端可以復原這次評分。
+ * `card` 是評分時畫面上的那份:資料庫裡的已經不一樣(被刪、或 updated_at 變了)就丟 StaleCardError,什麼都不寫 ——
+ * 比對和寫入在同一個交易裡,中間不會被同步插隊。
+ */
 export async function applyReview(
   card: CardRecord, fields: FsrsFields, log: Omit<ReviewLogRecord, 'id' | 'card_id'>,
 ): Promise<string> {
   const logId = crypto.randomUUID()
   await db.transaction('rw', [db.cards, db.review_logs], async () => {
+    const cur = await db.cards.get(card.id)
+    if (cur === undefined || cur.deleted || cur.updated_at !== card.updated_at) throw new StaleCardError()
     await db.cards.update(card.id, { ...fields, updated_at: now(), dirty: 1 })
     await db.review_logs.add({ id: logId, card_id: card.id, ...log, dirty: 1 })
   })

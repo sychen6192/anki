@@ -67,8 +67,9 @@ function Shell() {
       {/* DOM 放在內容前面:手機上是 fixed 在底部,位置不受影響;寬螢幕時 sticky 在頂端要排第一個 */}
       {!hideTabbar && <TabBar tabs={TABS} />}
       <main className="page">
-        {/* 以網址當 key:出錯後點分頁列換頁就重新來過(不然錯誤畫面會一直留著,設定頁的修復工具也到不了) */}
-        <ErrorBoundary key={pathname}>
+        {/* 換網址就收掉錯誤畫面:出錯後點分頁列換頁就重新來過(不然錯誤畫面會一直留著,設定頁的修復工具也到不了)。
+            不當 key 用:複習完一副按「繼續複習其他牌組」只是換網址,復原紀錄要留著 */}
+        <ErrorBoundary resetKey={pathname}>
           <Suspense fallback={<Loading />}>
             <Routes>
               <Route path="/" element={<DeckList />} />
