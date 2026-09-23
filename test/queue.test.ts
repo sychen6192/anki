@@ -242,6 +242,20 @@ describe('buildMultiDeckQueue:跨牌組一次複習', () => {
     expect(ids(queue)).toEqual(ids([a[0], a[1], a[2], b[0], b[1], b[2]]))
   })
 
+  it('加碼學掉的新卡要扣掉:「再學 3 張」學完 3 張就沒了,不會每重算一次又給 3 張', () => {
+    const d3 = [{ id: 'A', new_per_day: 3 }, { id: 'B', new_per_day: 3 }]
+    const a = Array.from({ length: 15 }, (_, i) => card({ deck_id: 'A', state: State.New, updated_at: i }))
+    const b = Array.from({ length: 15 }, (_, i) => card({ deck_id: 'B', state: State.New, updated_at: i }))
+    // 今天各學了 3 張(額度用完),又加碼學了 A 的 2 張
+    const learned = [...a.slice(0, 5), ...b.slice(0, 3)]
+    const logs = learned.map((c) => log({ card_id: c.id, state: State.New, reviewed_at: NOW - 60_000 }))
+    // 學過的卡還在(進入學習中,10 分鐘後才到期),只是不再是新卡
+    const learning = learned.map((c) => ({ ...c, state: State.Learning, due: NOW + 600_000 }))
+    const rest = [...learning, ...a.slice(5), ...b.slice(3)]
+    const { queue } = buildMultiDeckQueue(d3, rest, logs, NOW, 3)
+    expect(queue.length).toBe(1) // 加碼 3 張,已經學掉 2 張,只剩 1 張
+  })
+
   it('剛看過的字,另一面排到整個到期段最後 —— 不會因為跨牌組重排 due 又黏回去', () => {
     const fwdA = card({ deck_id: 'A', note_id: 'nA', state: State.Learning, due: NOW - 30_000 })
     const revA = card({ deck_id: 'A', note_id: 'nA', direction: 'reverse', state: State.Review, due: NOW - 3600_000 })

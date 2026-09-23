@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { PitchAccent } from '../components/PitchAccent'
 import { isSpeechSupported, readAutoSpeak, speak, writeAutoSpeak } from '../lib/speak'
@@ -18,7 +18,7 @@ import { getFsrsSettings } from '../lib/fsrsSettings'
 import { isValidAccent, normalizeAccent } from '../lib/accent'
 import { buildMultiDeckQueue, countKind, deckQueue, splitCounts, startOfToday, type QueueCounts } from '../lib/queue'
 import { reviewKeyAction, type KeyTarget } from '../lib/reviewKeys'
-import { requestSync, syncNow } from '../lib/sync'
+import { requestSync } from '../lib/sync'
 import type { CardRecord, DeckRecord, NoteRecord } from '../../shared/types'
 import './review.css'
 
@@ -38,10 +38,18 @@ const AUTO_RESUME_WINDOW = 10 * 60 * 1000
  * 不必停在完成畫面乾等。
  */
 const LEARN_AHEAD = 20 * 60 * 1000
+/** 複習中評分後多久同步一次(期間再評分就重新計時) */
+const SYNC_DELAY_MS = 15_000
+
 /** 翻面或換卡後這段時間內的點擊不算:「顯示答案」和評分鍵在同一個位置,連點會誤評分 */
 const TAP_GUARD_MS = 350
 
-/** 卡上大字的字級:依字數分級,正反面共用,長字不會從中間斷行、翻面也不會跳字級 */
+/** 字數給 CSS 算字級(--n):依卡片的寬度把整個字放進一行,放不下才換行(review.css 的 .expression) */
+function charCount(text: string): CSSProperties {
+  return { '--n': Array.from(text).length } as CSSProperties
+}
+
+/** 卡上大字的行高與字重分級(字級本身依寬度算,見 charCount):正反面共用,翻面也不會跳 */
 function sizeClass(text: string): string {
   const n = Array.from(text).length
   if (n <= 6) return ''
@@ -107,6 +115,8 @@ export default function Review() {
   }, [])
   // 編輯綁定打開當下那張卡的 noteId:存檔只寫那一筆,不管畫面後來換到哪張
   const [editing, setEditing] = useState<EditState | null>(null)
+  // 編輯面板自己的錯誤:不掛到複習畫面上,關掉面板就消失
+  const [editErr, setEditErr] = useState<string | null>(null)
   const answering = useRef(false)
   // 這次 session 裡跳過的卡片。只存在記憶體,離開複習畫面就重來 —— 跳過是
   // 「現在不想看」,不是 Anki 的 bury,不該寫進資料庫影響排程。
@@ -171,6 +181,11 @@ export default function Review() {
       : deckQueue(deckId!, decks[0].new_per_day + bonusNew.current, cards, logs)
     const nextLearningDue = built.nextLearningDue
     let queue = built.queue.filter((c) => !skipped.current.has(c.id))
+    // 「跳過,等一下再看」:其他的都做完了,跳過的還沒做的就回來(排在最後)
+    if (queue.length === 0 && built.queue.length > 0) {
+      skipped.current.clear()
+      queue = built.queue
+    }
     // 該做的都做完了:20 分鐘內會到期的學習中卡片提前拿來,不讓人在完成畫面乾等
     if (queue.length === 0) {
       const horizon = Date.now() + LEARN_AHEAD
@@ -207,7 +222,8 @@ export default function Review() {
       setCurrent(null)
       setDone(true)
       setNextDue(nextLearningDue)
-      void syncNow() // 複習結束觸發同步
+      // 做完了也不立刻推:完成畫面上還能「復原上一次評分」
+      requestSync(SYNC_DELAY_MS)
       return
     }
     const card = preferred ?? queue[0]
@@ -227,7 +243,20 @@ export default function Review() {
     setDone(false)
     setNextDue(null)
     shownAt.current = performance.now()
+    window.scrollTo(0, 0)
   }, [deckId, allMode])
+
+  // 換到另一個複習(例如完成後按「繼續複習其他牌組」,同一個畫面換網址):這一輪的進度、
+  // 加碼、跳過都從頭算,不然進度條一開始就是 80%、上一副的加碼也會帶過來。復原紀錄保留。
+  const sessionDeck = useRef(deckId)
+  useEffect(() => {
+    if (sessionDeck.current === deckId) return
+    sessionDeck.current = deckId
+    bonusNew.current = 0
+    skipped.current.clear()
+    setSessionMax(0)
+    setDoneStats(null)
+  }, [deckId])
 
   useEffect(() => { void loadNext() }, [loadNext])
 
@@ -266,9 +295,10 @@ export default function Review() {
       // 評分已儲存成功,先清掉舊錯誤——loadNext 若失敗是另一回事,不代表評分沒存到。
       setErrMsg(null)
       pushUndo({ kind: 'rate', card: answered, logId })
-      // 每評一張就排一次同步(幾秒內連續評分會合併成一次):中途被打斷、改到另一台接著背,
-      // 才不會又看到同一批卡,兩邊的排程也不會互相蓋掉
-      requestSync()
+      // 每評一張就排一次同步(15 秒內連續評分會合併成一次):中途被打斷、改到另一台接著背,
+      // 才不會又看到同一批卡,兩邊的排程也不會互相蓋掉。不立刻推:評完馬上按「復原」時,
+      // 那筆紀錄多半還沒上傳 —— 上傳後就收不回來,別台會多算一次。切到背景時會補推(sync.ts)
+      requestSync(SYNC_DELAY_MS)
       // 顯示實際排進去的間隔,不是再算一次的預覽
       showToast(`「${word}」${RATING_LABELS[rating]} · ${formatInterval(fields.due - log.reviewed_at)}後`)
       try {
@@ -307,7 +337,7 @@ export default function Review() {
       const prev = await setNoteSuspended(current.note.id, value)
       setErrMsg(null)
       pushUndo({ kind: 'suspend', cardId: current.card.id, prev })
-      requestSync()
+      requestSync(SYNC_DELAY_MS)
       showToast(value === 2 ? `「${word}」已標為會了，不會再出現` : `「${word}」先不學了，牌組頁的「先不學」可以恢復`)
       await loadNext()
     } catch (e) {
@@ -319,6 +349,7 @@ export default function Review() {
 
   const openEdit = useCallback(() => {
     if (current === null) return
+    setEditErr(null)
     const n = current.note
     setEditing({ noteId: n.id, expression: n.expression, reading: n.reading, meaning: n.meaning, accent: n.accent })
   }, [current])
@@ -329,18 +360,22 @@ export default function Review() {
     try {
       // 只改文字,不動「反向卡」—— 複習到一半增刪卡片會讓當下的佇列對不上
       const { noteId, ...fields } = editing
+      if (!fields.expression.trim() || !fields.meaning.trim()) {
+        setEditErr('單字與意思為必填')
+        return
+      }
       const accent = normalizeAccent(fields.accent)
       if (!isValidAccent(accent)) {
-        setErrMsg('重音格式錯誤（只能是數字，多重音用逗號分隔，如 0 或 0,3）')
+        setEditErr('重音格式錯誤（只能是數字，多重音用逗號分隔，如 0 或 0,3）')
         return
       }
       await updateNote(noteId, { ...fields, accent })
       const fresh = await db.notes.get(noteId)
       if (fresh) setCurrent((c) => (c !== null && c.note.id === noteId ? { ...c, note: fresh } : c))
       setEditing(null)
-      setErrMsg(null)
+      setEditErr(null)
     } catch (e) {
-      setErrMsg(`儲存失敗：${e instanceof Error ? e.message : String(e)}`)
+      setEditErr(`儲存失敗：${e instanceof Error ? e.message : String(e)}`)
     } finally {
       answering.current = false
     }
@@ -354,7 +389,7 @@ export default function Review() {
       if (entry.kind === 'rate') await undoReview(entry.card, entry.logId)
       else if (entry.kind === 'suspend') await restoreCardsSuspended(entry.prev)
       else skipped.current.delete(entry.cardId)
-      if (entry.kind !== 'skip') requestSync()
+      if (entry.kind !== 'skip') requestSync(SYNC_DELAY_MS)
       setUndoStack((s) => s.slice(0, -1))
       setToast(null)
       setErrMsg(null)
@@ -370,13 +405,15 @@ export default function Review() {
   const exit = useCallback(() => {
     const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0
     if (idx > 0) navigate(-1)
-    else navigate('/')
+    else navigate('/', { replace: true })
   }, [navigate])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // 選單開著時鍵盤交給選單(Esc 關閉由 dialog 處理),不能在背後翻面或評分
       if (menuOpen) return
+      // 按住不放時系統會一直重送同一個鍵:按住空白鍵會「翻面、普通、翻面、普通…」一路刷過去
+      if (e.repeat) return
       // 鍵 → 動作的對照表在 reviewKeys.ts(含「帶 Cmd/Ctrl/Alt 不接」的規則),這裡只負責執行
       const action = reviewKeyAction(e, { editing: editing !== null, showBack, done, target: keyTarget(e.target) })
       if (action === null) return
@@ -548,12 +585,14 @@ export default function Review() {
           // 反向卡的正面是中文意思:提示要想的是日文
           <div className="card-face" key={`${card.id}-front`}>
             <span className="card-prompt">中 → 日</span>
-            <p ref={wordRef} tabIndex={-1} className={`expression prompt-text${sizeClass(note.meaning)}`}>{note.meaning}</p>
+            <p ref={wordRef} tabIndex={-1} className={`expression prompt-text${sizeClass(note.meaning)}`}
+              style={charCount(note.meaning)}>{note.meaning}</p>
             <p className="card-hint">日文怎麼說？</p>
           </div>
         ) : (
           <div className="card-face" key={card.id}>
-            <p ref={showBack ? undefined : wordRef} tabIndex={-1} className={`expression${sizeClass(note.expression)}`} lang="ja">
+            <p ref={showBack ? undefined : wordRef} tabIndex={-1} className={`expression${sizeClass(note.expression)}`} lang="ja"
+              style={charCount(note.expression)}>
               {note.expression}
             </p>
             {answerBlock}
@@ -600,7 +639,7 @@ export default function Review() {
         }] : []),
       ]} />
 
-      <Sheet open={editing !== null} onClose={() => { setEditing(null); setErrMsg(null) }} title="編輯卡片" full
+      <Sheet open={editing !== null} onClose={() => { setEditing(null); setEditErr(null) }} title="編輯卡片" full
         dirty={editing !== null && (editing.expression !== note.expression || editing.reading !== note.reading
           || editing.meaning !== note.meaning || editing.accent !== note.accent)}
         end={<button className="btn plain strong" onClick={() => void saveEdit()}>儲存</button>}>
@@ -623,7 +662,7 @@ export default function Review() {
               <input value={editing.accent} placeholder="例如 0 或 0,3" autoCapitalize="off" autoCorrect="off"
                 onChange={(e) => setEditing({ ...editing, accent: e.target.value })} />
             </label>
-            {errMsg && <p className="err" role="alert">{errMsg}</p>}
+            {editErr && <p className="err" role="alert">{editErr}</p>}
             {/* 讓鍵盤的「前往」也能送出 */}
             <button type="submit" hidden />
           </form>

@@ -51,8 +51,42 @@ export async function setSyncSpace(key: string): Promise<void> {
     await db.review_logs.clear()
     await db.settings.clear()
     await db.meta.delete('sync_cursor')
+    await db.meta.delete(LAST_SPACE) // 本機清空了,沒有哪一列還屬於之前的空間
     await db.meta.put({ key: 'sync_space', value: next })
   })
+}
+
+/** 停止同步時記下原本的空間:這台的資料列在伺服器上屬於它(見 adoptSyncSpace) */
+const LAST_SPACE = 'last_sync_space'
+
+/**
+ * 換一組新的 id(外鍵一起換),刪掉的列不帶。
+ * 伺服器以 id 當全部空間共用的主鍵:同一個 id 推進另一個空間,會把那一列從原本的空間「搬走」,
+ * 而且只有比較新的列會被搬 —— 新空間只拿到一部分、舊空間少了幾列。換了 id 就是兩份互不相干的資料。
+ */
+async function rekeyLocalRows(): Promise<void> {
+  const deckIds = new Map<string, string>()
+  const noteIds = new Map<string, string>()
+  const cardIds = new Map<string, string>()
+  const fresh = (ids: Map<string, string>, id: string): string => {
+    let v = ids.get(id)
+    if (v === undefined) { v = crypto.randomUUID(); ids.set(id, v) }
+    return v
+  }
+  const decks = (await db.decks.toArray()).filter((d) => !d.deleted)
+  const notes = (await db.notes.toArray()).filter((n) => !n.deleted)
+  const cards = (await db.cards.toArray()).filter((c) => !c.deleted)
+  const logs = await db.review_logs.toArray()
+  await db.decks.clear()
+  await db.notes.clear()
+  await db.cards.clear()
+  await db.review_logs.clear()
+  await db.decks.bulkAdd(decks.map((d) => ({ ...d, id: fresh(deckIds, d.id) })))
+  await db.notes.bulkAdd(notes.map((n) => ({ ...n, id: fresh(noteIds, n.id), deck_id: fresh(deckIds, n.deck_id) })))
+  await db.cards.bulkAdd(cards.map((c) => ({
+    ...c, id: fresh(cardIds, c.id), note_id: fresh(noteIds, c.note_id), deck_id: fresh(deckIds, c.deck_id),
+  })))
+  await db.review_logs.bulkAdd(logs.map((l) => ({ ...l, id: crypto.randomUUID(), card_id: fresh(cardIds, l.card_id) })))
 }
 
 /**
@@ -60,16 +94,24 @@ export async function setSyncSpace(key: string): Promise<void> {
  * 下一次同步就把這台的牌組與紀錄推進這個空間;空間裡原本就有資料的話,兩邊依 updated_at 合併。
  * (setSyncSpace 會清空本機,那是給「已經在同步、換到另一個空間」用的 ——
  * 純本機的人照「產生一組、儲存」的提示走那條路,會把只存在這台的資料整份清掉。)
+ *
+ * 這台的資料之前同步過別的空間(停止同步後改用別組金鑰):先換一組新的 id 再帶過去,
+ * 原本那個空間的資料原封不動。回到同一個空間則照原 id 合併。
+ * 設定(FSRS 參數、目標保持率)的時間戳歸零:空間裡已經有的(例如別台最佳化過的參數)優先,
+ * 空間裡沒有才用這台的。
  */
 export async function adoptSyncSpace(key: string): Promise<void> {
   const next = key.trim()
   await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
+    const last = await db.meta.get(LAST_SPACE)
+    if (typeof last?.value === 'string' && last.value !== '' && last.value !== next) await rekeyLocalRows()
     await db.decks.toCollection().modify({ dirty: 1 })
     await db.notes.toCollection().modify({ dirty: 1 })
     await db.cards.toCollection().modify({ dirty: 1 })
     await db.review_logs.toCollection().modify({ dirty: 1 })
-    await db.settings.toCollection().modify({ dirty: 1 })
+    await db.settings.toCollection().modify({ dirty: 1, updated_at: 0 })
     await db.meta.delete('sync_cursor')
+    await db.meta.delete(LAST_SPACE)
     await db.meta.put({ key: 'sync_space', value: next })
   })
 }
@@ -92,7 +134,11 @@ export async function countUnsynced(): Promise<number> {
  */
 export async function leaveSyncSpace(): Promise<void> {
   await db.transaction('rw', [db.meta], async () => {
+    const cur = await db.meta.get('sync_space')
+    if (typeof cur?.value === 'string' && cur.value !== '') await db.meta.put({ key: LAST_SPACE, value: cur.value })
     await db.meta.delete('sync_cursor')
+    // 不再連線,上次的同步錯誤也不再成立(不然導覽列紅點會一直掛著)
+    await db.meta.delete('sync_error')
     await db.meta.put({ key: 'sync_space', value: '' })
   })
 }

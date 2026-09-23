@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
-import { describeBackup, exportBackup, importBackup, type BackupSummary } from '../lib/backup'
+import { describeBackup, exportBackup, importBackup, pruneToBackup, type BackupSummary } from '../lib/backup'
 import { download } from '../lib/download'
 import { requestSync, syncNow } from '../lib/sync'
 import {
@@ -253,7 +253,8 @@ export default function SettingsPage() {
     if (!await confirm({
       title: '還原這份備份？',
       message: `${when}內容：${info.decks} 副牌組、${info.words} 個單字、${info.reviews} 次複習紀錄\n\n`
-        + `這台的資料會被備份內容取代${localOnly ? '。' : '，下次同步時也會覆蓋雲端與其他裝置。'}`,
+        + (localOnly ? '這台的資料會變回備份時的樣子。'
+          : '這台、雲端和其他裝置都會變回備份時的樣子：備份之後新增的牌組和字會刪掉，之後的複習進度也會不見。'),
       confirmLabel: '還原',
       destructive: true,
     })) return
@@ -261,8 +262,15 @@ export default function SettingsPage() {
       await importBackup(json)
       setMsg(localOnly ? '✓ 還原完成' : '✓ 還原完成，同步中…')
       if (!localOnly) {
+        // 先同步一次:備份推上去,雲端上備份之後才有的東西也會拉回來;再把那些標成刪除推上去
         const r = await syncNow()
-        setMsg(syncMessage(r, '✓ 還原完成並同步'))
+        if (!r.ok) {
+          setMsg(`這台已經還原，但沒連上雲端（${syncMessage(r, '')}）。雲端上備份之後新增的東西可能會同步回來，連上網路後再還原一次。`)
+          return
+        }
+        const pruned = await pruneToBackup(json)
+        const r2 = pruned > 0 ? await syncNow() : r
+        setMsg(syncMessage(r2, '✓ 還原完成，雲端和其他裝置也會變回備份時的樣子'))
       }
     } catch (err) {
       setMsg(`還原失敗：${err instanceof Error ? err.message : String(err)}`)

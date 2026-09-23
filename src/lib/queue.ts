@@ -123,7 +123,10 @@ function assembleQueue(groups: QueueGroup[], now: number, extraNew = 0): QueueRe
     .sort((a, b) => a.due - b.due), recent)
 
   let newRemaining = 0
-  let extraLeft = Math.max(0, extraNew)
+  // 加碼是「今天總共多學幾張」:今天已經超出各牌組額度的新卡(之前加碼學掉的)要先扣掉,
+  // 不然佇列每重算一次又給一輪加碼,「再學 3 張」會一路學到整副的新卡都出完
+  const overLimit = groups.reduce((sum, g) => sum + Math.max(0, countTodayNew(g.logs, now) - g.newPerDay), 0)
+  let extraLeft = Math.max(0, extraNew - overLimit)
   const news: CardRecord[] = []
   for (const g of groups) {
     const fresh = g.cards.filter((c) => isActive(c) && c.state === State.New)

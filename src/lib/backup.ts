@@ -102,3 +102,25 @@ export async function importBackup(json: string): Promise<void> {
     await db.meta.delete('sync_cursor') // 下次同步全量重拉,restore-wins 讓還原內容覆蓋雲端與其他裝置
   })
 }
+
+/**
+ * 同步中還原備份的第二步:還原後同步一次(備份推上去,雲端有、備份沒有的也會被拉回來),
+ * 再把「備份裡沒有的」牌組、字、卡片標成刪除,下一次同步推上去 ——
+ * 還原完的樣子才會跟備份一樣,而不是「備份 + 之後新增的東西」。回傳標成刪除的列數。
+ */
+export async function pruneToBackup(json: string): Promise<number> {
+  const data = parseBackup(json)
+  const idsOf = (rows: Record<string, unknown>[]) => new Set(rows.map((r) => r.id as string))
+  const keep = { decks: idsOf(data.decks), notes: idsOf(data.notes), cards: idsOf(data.cards) }
+  const now = Date.now()
+  let pruned = 0
+  await db.transaction('rw', [db.decks, db.notes, db.cards], async () => {
+    const tables = [[db.decks, keep.decks], [db.notes, keep.notes], [db.cards, keep.cards]] as const
+    for (const [table, ids] of tables) {
+      const extra = await (table as typeof db.decks).filter((r) => !r.deleted && !ids.has(r.id)).primaryKeys()
+      for (const id of extra) await (table as typeof db.decks).update(id, { deleted: 1, updated_at: now, dirty: 1 })
+      pruned += extra.length
+    }
+  })
+  return pruned
+}

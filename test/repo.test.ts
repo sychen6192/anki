@@ -347,6 +347,24 @@ describe('suspended:已經會了 / 暫停', () => {
   })
 })
 
+describe('反向卡復原跟著正向卡的狀態', () => {
+  it('先關掉反向卡、把字標成已經會了,再打開反向卡:復原的反向卡也是已經會了', async () => {
+    const deck = await createDeck('A')
+    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: true, accent: '' })
+    await updateNote(note.id, { reversed: false })
+    await setNotesSuspendedUndoable([note.id], 2)
+    await updateNote(note.id, { reversed: true })
+    const cards = await db.cards.where('note_id').equals(note.id).filter((c) => !c.deleted).toArray()
+    expect(cards.map((c) => [c.direction, c.suspended]).sort()).toEqual([['forward', 2], ['reverse', 2]])
+
+    // 整副開啟反向卡也一樣
+    await updateNote(note.id, { reversed: false })
+    await enableReverseCards(deck.id)
+    const again = await db.cards.where('note_id').equals(note.id).filter((c) => !c.deleted).toArray()
+    expect(again.every((c) => c.suspended === 2)).toBe(true)
+  })
+})
+
 describe('restoreNote(刪除後的復原)', () => {
   const word = { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: true, accent: '' }
 

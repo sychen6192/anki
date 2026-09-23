@@ -8,7 +8,7 @@ import { deckQueue, splitCounts, startOfToday } from '../lib/queue'
 import { nextLearningDue, useNow } from '../lib/useNow'
 import { streakDays } from '../lib/stats'
 import { adoptSyncSpace, generateSyncKey, getSyncSpace } from '../lib/space'
-import { humanizeSyncError } from '../lib/syncText'
+import { humanizeSyncError, syncMessage } from '../lib/syncText'
 import { isStandaloneApp, isTouchDevice, storageSeparateFromApp } from '../lib/share'
 import { syncNow } from '../lib/sync'
 import { useBusy } from '../lib/useBusy'
@@ -221,7 +221,8 @@ export default function DeckList() {
           <span className="notice-actions">
             <button className="link" disabled={retrying} onClick={() => void runRetry(async () => {
               const r = await syncNow() // 成功會清掉 sync_error meta,這條橫幅跟著消失
-              if (r.ok) toast.show('同步完成')
+              // 還是失敗(或離線)也要有回應,不然會以為沒按到、一直按
+              toast.show(syncMessage(r, '同步完成'))
             })}>{retrying ? '同步中…' : '重試'}</button>
           </span>
         </div>

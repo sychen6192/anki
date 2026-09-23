@@ -428,6 +428,58 @@ describe('純本機模式(沒設金鑰)', () => {
     expect((await syncNow(noFetch)).reason).toBe('local-only')
   })
 
+  it('停止同步後改用別組金鑰:帶過去的資料換一組新 id(伺服器 id 全空間共用,不能把列從原空間搬走)', async () => {
+    const server = makeServer()
+    const deck = await createDeck('A')
+    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
+    const card = (await db.cards.where('note_id').equals(note.id).first())!
+    await db.review_logs.put({ id: 'log1', card_id: card.id, rating: 3, state: 0, due: 0, stability: 1, difficulty: 5,
+      elapsed_days: 0, last_elapsed_days: 0, scheduled_days: 1, reviewed_at: Date.now(), dirty: 1 })
+    const gone = await createDeck('刪掉的')
+    await softDeleteDeck(gone.id)
+    await syncNow(server.fetchFn)
+    await leaveSyncSpace()
+    await adoptSyncSpace('another-space')
+
+    const decks = await db.decks.toArray()
+    expect(decks.map((d) => d.name)).toEqual(['A']) // 刪掉的不帶
+    const [d] = decks
+    expect(d.id).not.toBe(deck.id)
+    const [n] = await db.notes.toArray()
+    expect(n.id).not.toBe(note.id)
+    expect(n.deck_id).toBe(d.id)
+    const [c] = await db.cards.toArray()
+    expect(c.id).not.toBe(card.id)
+    expect([c.note_id, c.deck_id]).toEqual([n.id, d.id])
+    const [l] = await db.review_logs.toArray()
+    expect(l.id).not.toBe('log1')
+    expect(l.card_id).toBe(c.id)
+    for (const row of [d, n, c, l]) expect(row.dirty).toBe(1)
+    expect(await db.meta.get('last_sync_space')).toBeUndefined()
+  })
+
+  it('停止同步後用回同一組金鑰:照原 id 合併回去', async () => {
+    const server = makeServer()
+    const deck = await createDeck('A')
+    await syncNow(server.fetchFn)
+    const space = await getSyncSpace()
+    await leaveSyncSpace()
+    await adoptSyncSpace(space)
+    expect((await db.decks.toArray()).map((x) => x.id)).toEqual([deck.id])
+  })
+
+  it('合併進已有資料的空間:空間裡的設定(例如最佳化過的參數)優先,不被這台的預設值蓋掉', async () => {
+    await saveFsrsSettings({ ...DEFAULT_FSRS_SETTINGS, desired_retention: 0.91 })
+    const other = makeServer()
+    const optimized = { ...DEFAULT_FSRS_SETTINGS, desired_retention: 0.88, optimized_reviews: 2400 }
+    other.inject('settings', { id: 'fsrs', value: JSON.stringify(optimized), updated_at: 1000, deleted: 0 })
+    await leaveSyncSpace()
+    await adoptSyncSpace('shared-space')
+    await syncNow(other.fetchFn)
+    expect((await getFsrsSettings()).desired_retention).toBe(0.88)
+    expect(JSON.parse(other.tables.settings.get('fsrs')!.value).optimized_reviews).toBe(2400)
+  })
+
   it('hasLocalData:有牌組或複習紀錄才算', async () => {
     expect(await hasLocalData()).toBe(false)
     await createDeck('A')

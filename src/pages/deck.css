@@ -71,6 +71,10 @@
 .batch-actions .btn.sm { padding: 0 12px; }
 .page:has(.batch-bar) { padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 110px); }
 @media (min-width: 768px) { .batch-bar { bottom: 20px; } }
+/* 選取模式的提示浮在批次列上方:疊在上面的話,「復原」剛好落在批次按鈕的位置,連點一下就把剛才的批次復原了 */
+.page:has(.batch-bar) .toast { bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 10px + var(--batch-h, 54px) + 12px); }
+@media (max-width: 360px) { .page:has(.batch-bar) { --batch-h: 90px; } }
+@media (min-width: 768px) { .page:has(.batch-bar) .toast { bottom: calc(20px + var(--batch-h, 54px) + 12px); } }
 
 /* 新增 / 編輯卡片 */
 .note-form .list-section { margin-top: 0; }
@@ -88,3 +92,5 @@
 .share-uploading { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 120px; color: var(--text-2); }
 .share-link-input { font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--fs-small); color: var(--text-2); background: var(--surface); }
 .share-msg { text-align: center; }
+/* 牌組設定面板裡的動作結果(例如為整副開啟反向卡) */
+.settings-note { display: inline-flex; align-items: center; gap: 4px; color: var(--success); font-weight: 500; }

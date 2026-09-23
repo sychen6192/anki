@@ -1,6 +1,7 @@
 /* ---------- 複習(專注模式) ----------
    頂列(✕ 進度 剩幾張 ↶ ⋯)、中間卡片、底部固定的「顯示答案」/評分鍵(拇指區) */
-.page:has(.review-screen), .page:has(.review-done) { padding-bottom: 0; }
+/* 選擇器要比 .app.no-tabbar .page 重,不然複習畫面底下多一截可以捲的空白 */
+.app.no-tabbar .page:has(.review-screen), .app.no-tabbar .page:has(.review-done) { padding-bottom: 0; }
 
 .review-screen {
   --actions-h: 84px;
@@ -37,6 +38,8 @@
 
 .flashcard {
   position: relative;
+  /* 卡上的字級依卡片的寬度算(.expression 的 100cqi) */
+  container-type: inline-size;
   flex: 1;
   display: flex; flex-direction: column; align-items: center;
   /* 從上往下排、不置中:單字的位置正反面都一樣,翻面時不會往上跳 */
@@ -67,14 +70,15 @@
 /* 焦點跟著卡片移動是給讀螢幕的;畫面上不必畫框 */
 .expression:focus, .card-answer:focus, .review-done h1:focus { outline: none; }
 .expression {
-  font-size: var(--fs-display); font-weight: 700; letter-spacing: -0.01em; line-height: 1.25;
-  /* 日文單字盡量整個不斷;真的放不下才換行 */
+  /* 依卡片的寬度(100cqi)和字數(--n,Review.tsx 寫入)算字級:整個字放得進一行就不斷行,
+     最大 48px、最小 22px;太長的片語到最小字級還放不下才換行 */
+  font-size: clamp(var(--fs-title2), calc(100cqi / var(--n, 4) - 1px), var(--fs-display));
+  font-weight: 700; letter-spacing: -0.01em; line-height: 1.25;
   line-break: strict; overflow-wrap: anywhere;
 }
-/* 依字數分級,正反面同一個字級 */
-.expression.size-md { font-size: var(--fs-large); }
-.expression.size-sm { font-size: var(--fs-title1); line-height: 1.35; }
-.expression.size-xs { font-size: var(--fs-title2); line-height: 1.5; font-weight: 600; }
+/* 字多的行高鬆一點、字重輕一點(字級本身已經依寬度縮了) */
+.expression.size-sm { line-height: 1.35; }
+.expression.size-xs { line-height: 1.5; font-weight: 600; }
 /* 反向卡正面是中文意思:字重輕一點,跟日文單字分得出來 */
 .expression.prompt-text { font-weight: 600; }
 .card-prompt {
@@ -123,9 +127,10 @@
 .rating-interval { font-size: var(--fs-caption); font-weight: 500; font-variant-numeric: tabular-nums; }
 .rating-key { position: absolute; top: 5px; right: 8px; font-size: var(--fs-caption2); }
 
-/* 評分後的回饋(可復原):浮在評分鍵上方 */
-.review-toast { bottom: calc(var(--safe-bottom) + 96px); }
-.app.no-tabbar .review-toast { bottom: calc(var(--safe-bottom) + 96px); }
+/* 評分後的回饋(可復原):浮在評分鍵上方,絕不蓋住按鈕。
+   頁面 CSS 和元件 CSS 的載入順序不固定,同權重時會被 .app.no-tabbar .toast 蓋掉,所以選擇器寫長一點 */
+.app.no-tabbar .review-screen .review-toast { bottom: calc(var(--safe-bottom) + 96px); }
+.app.no-tabbar .review-screen.with-hint .review-toast { bottom: calc(var(--safe-bottom) + 124px); }
 
 /* ---------- 完成畫面 ---------- */
 .review-done {
@@ -154,16 +159,30 @@
   .flashcard { flex: none; min-height: 360px; margin-top: 12px; }
   .review-actions { position: static; padding: 16px 0 0; background: none; }
   .review-actions > * { max-width: none; }
-  .review-toast, .app.no-tabbar .review-toast { bottom: 24px; }
+  .app.no-tabbar .review-screen .review-toast, .app.no-tabbar .review-screen.with-hint .review-toast { bottom: 24px; }
   .review-done { min-height: 70vh; }
 }
 
-/* 手機橫放:高度放不下「頂列 + 卡片 + 固定在底部的評分鍵」,評分鍵改接在卡片後面 */
+/* 手機橫放(高度 500 以下;寬度常超過 768,會先套到上面的寬螢幕規則):
+   評分鍵照樣固定在底部、一定看得到,卡片變矮、留白收緊,新手提示先不出現 */
 @media (orientation: landscape) and (max-height: 500px) {
-  .review-screen, .review-screen.with-hint { min-height: 0; padding-bottom: 12px; }
-  .flashcard { flex: none; min-height: 0; padding-top: 32px; padding-bottom: 24px; }
-  .review-actions { position: static; padding: 12px 0 calc(12px + var(--safe-bottom)); background: none; }
-  .review-actions > * { max-width: none; }
-  .review-toast, .app.no-tabbar .review-toast { bottom: calc(var(--safe-bottom) + 12px); }
+  .review-screen, .review-screen.with-hint {
+    min-height: 100dvh; padding-bottom: calc(68px + var(--safe-bottom));
+  }
+  .review-bar { padding-top: calc(4px + var(--safe-top)); }
+  .flashcard { flex: 1; min-height: 0; margin-top: 4px; padding: 18px 22px 14px; }
+  .card-face { gap: 10px; }
+  .card-answer { gap: 8px; }
+  .review-actions {
+    position: fixed;
+    padding: 8px calc(16px + var(--safe-right)) calc(8px + var(--safe-bottom)) calc(16px + var(--safe-left));
+    background: linear-gradient(to top, var(--bg) 72%, color-mix(in srgb, var(--bg) 0%, transparent));
+  }
+  .review-actions > * { max-width: 688px; }
+  .rating, .show-answer { min-height: 52px; }
+  .rating-hint { display: none; }
+  .app.no-tabbar .review-screen .review-toast, .app.no-tabbar .review-screen.with-hint .review-toast {
+    bottom: calc(var(--safe-bottom) + 72px);
+  }
   .review-done { min-height: 0; }
 }

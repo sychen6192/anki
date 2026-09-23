@@ -459,7 +459,8 @@ dialog { color: var(--text); }
   bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 12px);
   transform: translateX(-50%);
   display: flex; align-items: center; gap: 6px;
-  max-width: calc(100vw - 24px);
+  /* 寬度照內容(left:50% 時預設只拿得到半個螢幕寬,字會被截掉),最多到螢幕寬 */
+  width: max-content; max-width: calc(100vw - 24px);
   padding: 8px 8px 8px 16px; min-height: 44px;
   background: var(--elevated); color: var(--text);
   border-radius: 999px; box-shadow: var(--shadow-md);
@@ -527,7 +528,9 @@ kbd {
 /* 讀音是內容不是連結:用灰階,主色只留給按得下去的東西 */
 .reading { font-size: var(--fs-title2); color: var(--text-2); font-weight: 500; }
 .pitch { display: inline-flex; align-items: flex-start; gap: 5px; }
-.pitch-morae { display: inline-flex; }
+/* 很長的讀音(十幾拍)放不下就換行,不要撐破卡片或整頁 */
+.pitch { max-width: 100%; }
+.pitch-morae { display: inline-flex; flex-wrap: wrap; min-width: 0; }
 .pitch-morae .mora { border-top: 2px solid transparent; line-height: 2; padding: 0 1px; }
 .pitch-morae .mora.high { border-top-color: currentColor; }
 .pitch-morae .mora.drop { border-right: 2px solid currentColor; }

@@ -90,7 +90,8 @@ export async function updateNote(id: string, patch: Partial<NoteInput>): Promise
     // 新建的反向卡跟著正向卡的狀態:已經會了的字,開反向卡也不該跑回佇列
     const inherited = cardsOfNote.find((c) => c.direction === 'forward' && !c.deleted)?.suspended ?? 0
     if (reversed && rev?.deleted) {
-      await db.cards.update(rev.id, { deleted: 0, updated_at: t, dirty: 1 }) // 復原保留舊複習進度
+      // 復原保留舊複習進度;狀態跟著正向卡(已經會了/先不學的字,復原的反向卡也不該跑回佇列)
+      await db.cards.update(rev.id, { deleted: 0, suspended: inherited, updated_at: t, dirty: 1 })
     } else if (reversed && !rev) {
       await db.cards.add(makeCard({ ...note, reversed }, 'reverse', t, inherited))
     } else if (!reversed && rev && !rev.deleted) {
@@ -115,7 +116,7 @@ export async function enableReverseCards(deckId: string): Promise<number> {
       const cardsOfNote = await db.cards.where('note_id').equals(note.id).toArray()
       const rev = cardsOfNote.find((c) => c.direction === 'reverse')
       const inherited = cardsOfNote.find((c) => c.direction === 'forward' && !c.deleted)?.suspended ?? 0
-      if (rev && rev.deleted) await db.cards.update(rev.id, { deleted: 0, updated_at: t, dirty: 1 })
+      if (rev && rev.deleted) await db.cards.update(rev.id, { deleted: 0, suspended: inherited, updated_at: t, dirty: 1 })
       else if (!rev) await db.cards.add(makeCard({ ...note, reversed: 1 }, 'reverse', t, inherited))
       changed++
     }

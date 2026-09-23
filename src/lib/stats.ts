@@ -3,14 +3,17 @@ import type { ReviewLogRecord } from '../../shared/types'
 
 /** 統計用的日期分桶:一律以凌晨 4 點換日(與排程的 startOfToday 同一套規則)。 */
 
-const FOUR_HOURS = 4 * 3600_000
 export const DAY = 86400_000
 
-/** 這個時間點屬於哪一天:回傳該天的起點(當地時間凌晨 4 點)。用 Date 算,不怕日光節約。 */
+/**
+ * 這個時間點屬於哪一天:回傳該天的起點(當地時間凌晨 4 點)。和 queue.ts 的 startOfToday 同一種算法
+ * —— 以前是「午夜 + 固定 4 小時」,日光節約那天會變成 5 點,和 startOfToday 對不上,連續天數少一天。
+ */
 export function dayStart(ts: number): number {
-  const d = new Date(ts - FOUR_HOURS)
-  d.setHours(0, 0, 0, 0)
-  return d.getTime() + FOUR_HOURS
+  const d = new Date(ts)
+  if (d.getHours() < 4) d.setDate(d.getDate() - 1)
+  d.setHours(4, 0, 0, 0)
+  return d.getTime()
 }
 
 /** 前一天的起點 */
