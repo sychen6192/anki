@@ -503,7 +503,7 @@ kbd {
 /* ---------- 匯入 / 設定 ---------- */
 .tabs { display: flex; gap: 6px; margin-bottom: 18px; }
 .tab {
-  flex: 1; padding: 9px 12px; font-size: 14px; font-weight: 600; font-family: inherit;
+  flex: 1; padding: 9px 6px; font-size: 14px; font-weight: 600; font-family: inherit; white-space: nowrap;
   color: var(--muted); background: var(--surface-2); border: 1px solid var(--border);
   border-radius: var(--radius-sm); cursor: pointer;
 }
@@ -535,8 +535,7 @@ input[type="file"]::file-selector-button {
 .preview th, .preview td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; }
 .preview th { background: var(--surface-2); font-weight: 600; color: var(--muted); }
 .summary { background: var(--good-weak); border: 1px solid color-mix(in srgb, var(--good) 25%, transparent); border-radius: var(--radius-sm); padding: 14px; }
-.summary ul { margin: 8px 0 14px; padding-left: 20px; }
-.summary ul { margin: 8px 0 0 20px; max-height: 200px; overflow-y: auto; }
+.summary ul { margin: 8px 0 14px; padding-left: 20px; max-height: 200px; overflow-y: auto; }
 
 /* ---------- 統計 ---------- */
 .stat-row { display: flex; gap: 10px; margin-bottom: 4px; }

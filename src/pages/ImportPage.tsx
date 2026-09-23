@@ -13,7 +13,7 @@ import { parseApkg, type ApkgParse } from '../lib/apkg'
 import { autoMapFields, mapApkgNotes, type ApkgMapping } from '../lib/apkgMap'
 import { fillMissingAccents } from '../lib/accent'
 import {
-  fetchShare, isStandaloneApp, parseShareCode, storageSeparateFromApp, type SharedDeck,
+  fetchShare, isInAppBrowser, isStandaloneApp, parseShareCode, storageSeparateFromApp, type SharedDeck,
 } from '../lib/share'
 import { useBusy } from '../lib/useBusy'
 import { Loading } from '../components/Loading'
@@ -75,15 +75,24 @@ interface ShareCardProps {
   shared: SharedDeck | null; loadError: string; importError: string
   result: ImportResult | null; busy: boolean
   withReverse: boolean; onWithReverse: (v: boolean) => void; onImport: () => void
+  onRetry: () => void
 }
 
 /** 朋友分享的牌組:讀取中 → 內容與匯入鈕 → 匯入後在卡片裡直接顯示結果(按鈕收掉,不會重複匯入) */
-function ShareCard({ shared, loadError, importError, result, busy, withReverse, onWithReverse, onImport }: ShareCardProps) {
+function ShareCard({ shared, loadError, importError, result, busy, withReverse, onWithReverse, onImport, onRetry }: ShareCardProps) {
   const resultRef = useRef<HTMLDivElement | null>(null)
   // 手機螢幕短,結果出現時捲進畫面
   useEffect(() => { if (result !== null) resultRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [result])
 
-  if (loadError !== '') return <div className="template-card share-card"><p className="err" role="alert">{loadError}</p></div>
+  if (loadError !== '') {
+    return (
+      <div className="template-card share-card">
+        <p className="err" role="alert">{loadError}</p>
+        {/* 主畫面的 App 沒有重新整理鈕:離線或伺服器一時出錯時,要能在這裡再試一次 */}
+        <button className="btn secondary" onClick={onRetry}>重試</button>
+      </div>
+    )
+  }
   if (shared === null) return <div className="template-card share-card"><p className="hint">讀取分享內容…</p></div>
   return (
     <div className="template-card share-card">
@@ -107,10 +116,11 @@ function ShareCard({ shared, loadError, importError, result, busy, withReverse, 
 }
 
 /**
- * iPhone 的瀏覽器、LINE 之類的內建瀏覽器,資料和主畫面的 App 分開存:在這裡匯入,App 裡看不到。
+ * iPhone/Mac 的 Safari、LINE 之類的內建瀏覽器,資料和另外裝的字卡 App 分開存:在這裡匯入,App 裡看不到。
  * 提醒一次,並給一顆「複製連結」讓人帶去 App 的「分享連結」分頁貼上。
+ * 內建瀏覽器另外說:在那裡匯入連平常用的瀏覽器都看不到,所以不建議「直接在這裡匯入」。
  */
-function BrowserNotice() {
+function BrowserNotice({ inApp }: { inApp: boolean }) {
   const [copied, setCopied] = useState<'no' | 'yes' | 'failed'>('no')
   const input = useRef<HTMLInputElement | null>(null)
   const href = typeof location !== 'undefined' ? location.href : ''
@@ -126,8 +136,17 @@ function BrowserNotice() {
   }
   return (
     <div className="notice onboard" role="note">
-      <p><b>你是在瀏覽器裡打開這個連結的。</b>在這裡匯入的牌組會存在這個瀏覽器,不會出現在主畫面上的字卡 App 裡。</p>
-      <p className="hint">要匯入到 App:複製連結,打開主畫面上的字卡,到「匯入」頁選「分享連結」貼上。沒有把字卡加到主畫面的話,直接在下面匯入就好。</p>
+      {inApp ? (
+        <>
+          <p><b>你是在 LINE 之類 App 的內建瀏覽器裡打開這個連結的。</b>在這裡匯入的牌組只會存在這個內建瀏覽器,平常用的字卡裡看不到。</p>
+          <p className="hint">請複製連結:用主畫面上的字卡 App 的話,到「匯入」頁選「分享連結」貼上;平常在瀏覽器用字卡的話,把連結貼到那個瀏覽器的網址列。App 裡找不到「分享連結」的話,先按 App 下方的「更新」,或把 App 完全關掉再打開。</p>
+        </>
+      ) : (
+        <>
+          <p><b>你是在瀏覽器裡打開這個連結的。</b>加到主畫面(或 Mac 的 Dock)的字卡 App 和瀏覽器的資料是分開的,在這裡匯入的牌組不會出現在 App 裡。</p>
+          <p className="hint">要匯入到 App:複製連結,打開字卡 App,到「匯入」頁選「分享連結」貼上;找不到這個分頁的話,先按 App 下方的「更新」,或把 App 完全關掉再打開。平常就在這個瀏覽器用字卡的話,直接在下面匯入就好。</p>
+        </>
+      )}
       <input ref={input} className="share-link-input" readOnly value={href} aria-label="分享連結"
         onFocus={(e) => e.currentTarget.select()} />
       <div className="form-actions">
@@ -179,12 +198,17 @@ export default function ImportPage() {
   const [pasteText, setPasteText] = useState('')
   const [pastedCode, setPastedCode] = useState<string | null>(null)
   const [pasteErr, setPasteErr] = useState('')
+  // 每按一次「讀取」或「重試」就加一:同一個碼也要重新讀(上次可能是離線失敗)
+  const [loadNonce, setLoadNonce] = useState(0)
+  // 目前卡片對應的是第幾次載入;匯入跑完時對不上,代表使用者已經換成別的分享,結果就丟掉
+  const shareGen = useRef(0)
   const activeShareCode = linkMode ? linkCode : pastedCode
   const [shared, setShared] = useState<SharedDeck | null>(null)
   const [shareLoadErr, setShareLoadErr] = useState('')
   const [shareImportErr, setShareImportErr] = useState('')
   const [shareResult, setShareResult] = useState<ImportResult | null>(null)
   useEffect(() => {
+    shareGen.current += 1
     setShared(null)
     setShareLoadErr('')
     setShareImportErr('')
@@ -198,16 +222,18 @@ export default function ImportPage() {
       .then((d) => { if (!cancelled) setShared(d) })
       .catch((e: unknown) => { if (!cancelled) setShareLoadErr(errText(e)) })
     return () => { cancelled = true }
-  }, [activeShareCode, linkMode])
+  }, [activeShareCode, linkMode, loadNonce])
   // 提醒只在「從瀏覽器打開連結、而且這個瀏覽器的資料和 App 分開」時出現
   const showBrowserNotice = linkMode && typeof navigator !== 'undefined'
     && !isStandaloneApp() && storageSeparateFromApp(navigator.userAgent, navigator.maxTouchPoints ?? 0)
+  const inAppBrowser = typeof navigator !== 'undefined' && isInAppBrowser(navigator.userAgent)
 
   const loadPasted = () => {
     const code = parseShareCode(pasteText)
     if (code === null) { setPasteErr('看不出分享碼,請貼上朋友傳來的完整連結'); return }
     setPasteErr('')
     setPastedCode(code)
+    setLoadNonce((n) => n + 1)
   }
 
   const rows = useMemo(() => (text.trim() ? parseCsv(text) : []), [text])
@@ -360,12 +386,15 @@ export default function ImportPage() {
   /** 分享的牌組匯入到同名牌組(沒有就建),結果顯示在分享卡片裡;匯入一次後按鈕就收掉 */
   const importShared = () => {
     if (shared === null || shareResult !== null) return
+    const gen = shareGen.current
     void runBusy(async () => {
       try {
         setShareImportErr('')
-        setShareResult(await importNamed(shared.name, shared.rows))
+        const r = await importNamed(shared.name, shared.rows)
+        // 匯入要查字典,可能好幾秒;這段期間若換成別的分享,結果不能掛到新卡片上
+        if (gen === shareGen.current) setShareResult(r)
       } catch (e) {
-        setShareImportErr(errText(e))
+        if (gen === shareGen.current) setShareImportErr(errText(e))
       }
     })
   }
@@ -374,7 +403,8 @@ export default function ImportPage() {
 
   const shareCard = (
     <ShareCard shared={shared} loadError={shareLoadErr} importError={shareImportErr} result={shareResult}
-      busy={busy} withReverse={withReverse} onWithReverse={setWithReverse} onImport={importShared} />
+      busy={busy} withReverse={withReverse} onWithReverse={setWithReverse} onImport={importShared}
+      onRetry={() => setLoadNonce((n) => n + 1)} />
   )
 
   // 從分享連結打開:只放分享卡片,不混進 CSV 表單;要用別的方式匯入再點下面的連結
@@ -382,7 +412,7 @@ export default function ImportPage() {
     return (
       <div>
         <h1>匯入分享的牌組</h1>
-        {showBrowserNotice && <BrowserNotice />}
+        {showBrowserNotice && <BrowserNotice inApp={inAppBrowser} />}
         {shareCard}
         <p className="hint"><Link to="/import" className="link">改用 CSV、Anki 牌組或範本匯入</Link></p>
       </div>
@@ -422,7 +452,7 @@ export default function ImportPage() {
             <form className="paste-share" onSubmit={(e) => { e.preventDefault(); loadPasted() }}>
               <input value={pasteText} onChange={(e) => setPasteText(e.target.value)}
                 placeholder="貼上分享連結" aria-label="分享連結" inputMode="url" autoCapitalize="off" autoCorrect="off" />
-              <button className="btn" type="submit" disabled={pasteText.trim() === ''}>讀取</button>
+              <button className="btn" type="submit" disabled={busy || pasteText.trim() === ''}>讀取</button>
             </form>
             {pasteErr !== '' && <p className="err" role="alert">{pasteErr}</p>}
             {pastedCode !== null && shareCard}

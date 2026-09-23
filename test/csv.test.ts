@@ -108,6 +108,12 @@ describe('findDuplicateNote', () => {
     expect(findDuplicateNote(notes, '犬', '')?.id).toBe('b')
   })
 
+  it('excludeId 只排除自己:同一個字還有另一筆時照樣找得到', () => {
+    expect(findDuplicateNote(notes, '試験', 'しけん', 'b')?.id).toBe('a')
+    const twins = [n('a', '試験', 'しけん'), n('x', '試験', 'しけん')]
+    expect(findDuplicateNote(twins, '試験', 'しけん', 'a')?.id).toBe('x')
+  })
+
   it('讀音不同、已刪除的、或是自己,都不算', () => {
     expect(findDuplicateNote(notes, '試験', 'しけんかん')).toBeUndefined()
     expect(findDuplicateNote(notes, '猫', 'ねこ')).toBeUndefined()

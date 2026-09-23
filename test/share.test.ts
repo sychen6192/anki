@@ -1,7 +1,10 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import {
-  createShare, fetchShare, normalizeSharedRows, parseShareCode, shareUrlFor, storageSeparateFromApp,
+  createShare, fetchShare, isInAppBrowser, isStandaloneApp, isTouchDevice, normalizeSharedRows,
+  parseShareCode, shareUrlFor, storageSeparateFromApp,
 } from '../src/lib/share'
+
+afterEach(() => vi.unstubAllGlobals())
 
 describe('parseShareCode', () => {
   it.each([
@@ -49,18 +52,32 @@ describe('createShare', () => {
   const rows = [{ expression: '犬', reading: 'いぬ', meaning: '狗', accent: '' }]
 
   it('gzip 上傳,帶 x-body-gzip,內容解壓回原本的 JSON', async () => {
-    let seen: { headers: Record<string, string>; json: unknown } | null = null
-    const fetchFn = (async (_url: unknown, init?: RequestInit) => {
+    let seen: { url: string; method?: string; headers: Record<string, string>; json: unknown } | null = null
+    const fetchFn = (async (url: unknown, init?: RequestInit) => {
       const headers = init!.headers as Record<string, string>
       const text = await new Response(
         (init!.body as Blob).stream().pipeThrough(new DecompressionStream('gzip')),
       ).text()
-      seen = { headers, json: JSON.parse(text) }
+      seen = { url: String(url), method: init!.method, headers, json: JSON.parse(text) }
       return new Response(JSON.stringify({ code: 'abcd2345' }))
     }) as typeof fetch
     expect(await createShare('日文', rows, fetchFn)).toBe('abcd2345')
+    expect(seen!.url).toBe('/api/share')
+    expect(seen!.method).toBe('POST')
     expect(seen!.headers['x-body-gzip']).toBe('1')
     expect(seen!.json).toEqual({ name: '日文', rows })
+  })
+
+  it('瀏覽器沒有 CompressionStream 時送未壓縮的 JSON,不帶 x-body-gzip', async () => {
+    vi.stubGlobal('CompressionStream', undefined)
+    let seen: { headers: Record<string, string>; body: unknown } | null = null
+    const fetchFn = (async (_url: unknown, init?: RequestInit) => {
+      seen = { headers: init!.headers as Record<string, string>, body: init!.body }
+      return new Response(JSON.stringify({ code: 'plain234' }))
+    }) as typeof fetch
+    expect(await createShare('日文', rows, fetchFn)).toBe('plain234')
+    expect(seen!.headers['x-body-gzip']).toBeUndefined()
+    expect(JSON.parse(seen!.body as string)).toEqual({ name: '日文', rows })
   })
 
   it('伺服器錯誤或沒回分享碼都丟出錯誤', async () => {
@@ -95,15 +112,58 @@ describe('storageSeparateFromApp', () => {
   const ANDROID_CHROME = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Mobile Safari/537.36'
   const MAC_CHROME = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36'
 
-  it('iPhone、偽裝成 Mac 的 iPad、App 內建瀏覽器:資料和 App 分開', () => {
+  const KAKAO_WEBVIEW = 'Mozilla/5.0 (Linux; Android 14; SM-S918N Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/128.0 Mobile Safari/537.36;KAKAOTALK 2410330'
+  const MAC_EDGE = MAC_CHROME + ' Edg/128.0'
+  const MAC_FIREFOX = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5; rv:130.0) Gecko/20100101 Firefox/130.0'
+  const IOS_CHROME = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/128.0 Mobile/15E148 Safari/604.1'
+  const IOS_INSTAGRAM = IPHONE_SAFARI.replace(' Safari/604.1', ' Instagram 350.0.0.0')
+
+  it('iPhone(含 iOS 的 Chrome)、偽裝成 Mac 的 iPad、Mac Safari、App 內建瀏覽器:資料和 App 分開', () => {
     expect(storageSeparateFromApp(IPHONE_SAFARI, 5)).toBe(true)
+    expect(storageSeparateFromApp(IOS_CHROME, 5)).toBe(true)
     expect(storageSeparateFromApp(IPAD_DESKTOP_UA, 5)).toBe(true)
+    expect(storageSeparateFromApp(IPAD_DESKTOP_UA, 0)).toBe(true) // 真的 Mac Safari:加入 Dock 的網頁 App 也分開存
     expect(storageSeparateFromApp(LINE_ANDROID, 5)).toBe(true)
+    expect(storageSeparateFromApp(KAKAO_WEBVIEW, 5)).toBe(true)
   })
 
-  it('Android Chrome 與桌機:共用資料,不必提醒', () => {
+  it('Android Chrome 與桌機的 Chrome / Edge / Firefox:共用資料,不必提醒', () => {
     expect(storageSeparateFromApp(ANDROID_CHROME, 5)).toBe(false)
     expect(storageSeparateFromApp(MAC_CHROME, 0)).toBe(false)
-    expect(storageSeparateFromApp(IPAD_DESKTOP_UA, 0)).toBe(false) // 真的 Mac Safari
+    expect(storageSeparateFromApp(MAC_EDGE, 0)).toBe(false)
+    expect(storageSeparateFromApp(MAC_FIREFOX, 0)).toBe(false)
+  })
+
+  it('isInAppBrowser:認得各家內建瀏覽器與 Android WebView,一般瀏覽器不算', () => {
+    for (const ua of [LINE_ANDROID, KAKAO_WEBVIEW, IOS_INSTAGRAM, IPHONE_SAFARI + ' [FBAN/FBIOS;FBAV/480.0]', ANDROID_CHROME + ' MicroMessenger/8.0']) {
+      expect(isInAppBrowser(ua)).toBe(true)
+    }
+    for (const ua of [IPHONE_SAFARI, IOS_CHROME, ANDROID_CHROME, MAC_CHROME, MAC_FIREFOX]) {
+      expect(isInAppBrowser(ua)).toBe(false)
+    }
+  })
+})
+
+describe('isStandaloneApp / isTouchDevice', () => {
+  const media = (matching: string[]) => (q: string) => ({ matches: matching.includes(q), media: q })
+
+  it('display-mode: standalone 或 iOS 的 navigator.standalone 都算從主畫面打開', () => {
+    vi.stubGlobal('matchMedia', media(['(display-mode: standalone)']))
+    vi.stubGlobal('navigator', {})
+    expect(isStandaloneApp()).toBe(true)
+    vi.stubGlobal('matchMedia', media([]))
+    vi.stubGlobal('navigator', { standalone: true })
+    expect(isStandaloneApp()).toBe(true)
+    vi.stubGlobal('navigator', { standalone: false })
+    expect(isStandaloneApp()).toBe(false)
+  })
+
+  it('hover: none 才算觸控裝置;沒有 matchMedia 的環境回 false', () => {
+    vi.stubGlobal('matchMedia', media(['(hover: none)']))
+    expect(isTouchDevice()).toBe(true)
+    vi.stubGlobal('matchMedia', media([]))
+    expect(isTouchDevice()).toBe(false)
+    vi.stubGlobal('matchMedia', undefined)
+    expect(isTouchDevice()).toBe(false)
   })
 })

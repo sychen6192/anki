@@ -76,13 +76,24 @@ export function isStandaloneApp(): boolean {
 }
 
 /**
- * 在這個瀏覽器匯入的資料,會不會和主畫面上的 App 分開存。
- * iPhone/iPad 上,主畫面的 App 與 Safari 各有各的儲存空間;LINE、Facebook、Instagram
- * 這類 App 的內建瀏覽器也是自己一份。這些情況下在瀏覽器裡匯入,App 裡看不到。
- * Android 的 Chrome 與安裝的 App 共用資料,不必提醒。
+ * App 的內建瀏覽器(LINE、Facebook、Instagram、微信…):資料只存在那個內建瀏覽器裡,
+ * 使用者平常開字卡的地方(主畫面 App 或一般瀏覽器)都看不到。
+ * Android 上幾乎所有內建瀏覽器都是 WebView,UA 會帶 "; wv)";iOS 的沒有,只能認品牌字樣。
+ */
+export function isInAppBrowser(ua: string): boolean {
+  return /; wv\)|\bLine\/|FBAN|FBAV|Instagram|MicroMessenger|Twitter|KAKAOTALK/i.test(ua)
+}
+
+/**
+ * 在這個瀏覽器匯入的資料,會不會和另外裝的字卡 App 分開存。
+ * - iPhone/iPad:主畫面的 App 與 Safari(以及 iOS 上的 Chrome 等)各有各的儲存空間
+ * - Mac 的 Safari:「加入 Dock」的網頁 App 也不和 Safari 共用資料
+ * - App 的內建瀏覽器:自己一份
+ * Android 的 Chrome、桌機的 Chrome/Edge/Firefox 與安裝的 App 共用資料,不必提醒。
  */
 export function storageSeparateFromApp(ua: string, maxTouchPoints: number): boolean {
   const iOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && maxTouchPoints > 1)
-  const inAppBrowser = /\bLine\/|FBAN|FBAV|Instagram|MicroMessenger|Twitter/i.test(ua)
-  return iOS || inAppBrowser
+  const macSafari = /Macintosh/.test(ua) && /Version\/[\d.]+ .*Safari\//.test(ua)
+    && !/Chrome\/|Chromium\/|Edg\/|Firefox\/|OPR\//.test(ua)
+  return iOS || macSafari || isInAppBrowser(ua)
 }

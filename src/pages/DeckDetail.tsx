@@ -234,7 +234,13 @@ export default function DeckDetail() {
       const siblings = targetDeckId === deck.id
         ? notes
         : await db.notes.where('deck_id').equals(targetDeckId).toArray()
-      const dup = findDuplicateNote(siblings, form.expression, form.reading, editingId === 'new' ? undefined : editingId ?? undefined)
+      // 編輯時只改意思或重音、也沒搬牌組,就不必再問:牌組裡本來就有的重複,不該每次存檔都跳出來
+      const orig = editingId !== 'new' && editingId !== null ? notes.find((n) => n.id === editingId) : undefined
+      const keyUnchanged = orig !== undefined && targetDeckId === deck.id
+        && orig.expression.trim() === form.expression.trim() && orig.reading.trim() === form.reading.trim()
+      const dup = keyUnchanged
+        ? undefined
+        : findDuplicateNote(siblings, form.expression, form.reading, editingId === 'new' ? undefined : editingId ?? undefined)
       if (dup !== undefined) {
         const label = dup.reading !== '' ? `${dup.expression}(${dup.reading})` : dup.expression
         const where = targetDeckId === deck.id ? '這副牌組' : '要搬去的牌組'
