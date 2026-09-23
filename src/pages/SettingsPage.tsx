@@ -286,6 +286,34 @@ export default function SettingsPage() {
     <>
       <PageHeader title="設定" />
 
+      {/* 同步放最前面:換裝置、看金鑰、確認有沒有同步,是最常來設定頁做的事 */}
+      <ListSection header="同步" withIcons footer={msg ? <span role="status" aria-live="polite">{msg}</span> : undefined}>
+        <div className="row">
+          <span className="row-icon"><SyncIcon size={17} /></span>
+          <span className="row-main">
+            <span className="row-title">{localOnly ? '只存在這台裝置' : '同步已開啟'}</span>
+            <span className="row-subtitle">
+              {localOnly ? '換手機或清掉瀏覽器資料就沒了'
+                : lastSync ? `上次同步：${formatWhen(Number(lastSync.value))}` : '還沒同步過'}
+            </span>
+          </span>
+          {!localOnly && (
+            <button type="button" className="btn sm tinted" disabled={busy} onClick={() => void doSync()}>立即同步</button>
+          )}
+        </div>
+        {syncError !== undefined && (
+          <div className="row"><span className="row-icon danger" aria-hidden="true">!</span>
+            <span className="row-main"><span className="row-subtitle err">上次同步沒成功：{humanizeSyncError(String(syncError.value))}</span></span>
+          </div>
+        )}
+        <button type="button" className="row" onClick={() => { setKeyInput(''); setAdoptChoice(null); setKeyOpen(true) }}>
+          <span className="row-icon"><span aria-hidden="true">🔑</span></span>
+          <span className="row-main"><span className="row-title">同步金鑰</span></span>
+          <span className="row-value">{localOnly ? '未設定' : currentSpace ? maskKey(currentSpace) : '…'}</span>
+          <span className="row-chevron"><ChevronRightIcon /></span>
+        </button>
+      </ListSection>
+
       <ListSection header="學習" footer={
         <>調高保持率：複習變頻繁、比較不會忘；調低：複習量少、忘得多。預設 90%，可以對照
           <Link to="/stats" className="inline-link">統計頁</Link>的「真實保持率」。</>
@@ -349,33 +377,6 @@ export default function SettingsPage() {
           <Segmented label="外觀" value={theme} options={THEME_OPTIONS}
             onChange={(p) => { setThemePref(p); setTheme(p) }} />
         </div>
-      </ListSection>
-
-      <ListSection header="同步" withIcons footer={msg ? <span role="status" aria-live="polite">{msg}</span> : undefined}>
-        <div className="row">
-          <span className="row-icon"><SyncIcon size={17} /></span>
-          <span className="row-main">
-            <span className="row-title">{localOnly ? '只存在這台裝置' : '同步已開啟'}</span>
-            <span className="row-subtitle">
-              {localOnly ? '換手機或清掉瀏覽器資料就沒了'
-                : lastSync ? `上次同步：${formatWhen(Number(lastSync.value))}` : '還沒同步過'}
-            </span>
-          </span>
-          {!localOnly && (
-            <button type="button" className="btn sm tinted" disabled={busy} onClick={() => void doSync()}>立即同步</button>
-          )}
-        </div>
-        {syncError !== undefined && (
-          <div className="row"><span className="row-icon danger" aria-hidden="true">!</span>
-            <span className="row-main"><span className="row-subtitle err">上次同步沒成功：{humanizeSyncError(String(syncError.value))}</span></span>
-          </div>
-        )}
-        <button type="button" className="row" onClick={() => { setKeyInput(''); setAdoptChoice(null); setKeyOpen(true) }}>
-          <span className="row-icon"><span aria-hidden="true">🔑</span></span>
-          <span className="row-main"><span className="row-title">同步金鑰</span></span>
-          <span className="row-value">{localOnly ? '未設定' : currentSpace ? maskKey(currentSpace) : '…'}</span>
-          <span className="row-chevron"><ChevronRightIcon /></span>
-        </button>
       </ListSection>
 
       <ListSection header="備份" withIcons footer="備份是一個 JSON 檔，包含所有牌組、卡片和複習紀錄。">
