@@ -202,6 +202,28 @@ describe('/api/sync', () => {
     expect((await pullNs('spaceA')).settings).toHaveLength(1)
   })
 
+  it('settings:兩個空間各有自己的 fsrs 設定,不會互相搶走(設定的 id 是固定名稱,不是 UUID)', async () => {
+    const setting = (value: string, updated_at: number) => ({ id: 'fsrs', value, updated_at, deleted: 0 })
+    await pushNs('spaceA', { ...empty, settings: [setting('A 的參數', 1000)] })
+    await pushNs('spaceB', { ...empty, settings: [setting('B 的參數', 2000)] }) // B 比較新
+    const a = (await pullNs('spaceA')).settings
+    const b = (await pullNs('spaceB')).settings
+    expect(a).toHaveLength(1)
+    expect(a[0]).toMatchObject({ id: 'fsrs', value: 'A 的參數' })
+    expect(b[0]).toMatchObject({ id: 'fsrs', value: 'B 的參數' })
+    // A 之後再改:照樣存得進去(以前會因為 B 的時間比較新而被擋掉)
+    await pushNs('spaceA', { ...empty, settings: [setting('A 改過', 1500)] })
+    expect((await pullNs('spaceA')).settings[0].value).toBe('A 改過')
+  })
+
+  it('settings:以前存的沒前綴的列照樣拉得到', async () => {
+    await env.DB.prepare(`INSERT INTO settings (id, value, updated_at, deleted, namespace, server_seq)
+      VALUES ('fsrs', '舊的', 500, 0, 'legacy', 1)`).run()
+    const out = (await pullNs('legacy')).settings
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ id: 'fsrs', value: '舊的' })
+  })
+
   it('push 忽略 client 送的 namespace,一律以 header 為準', async () => {
     await pushNs('real', { ...empty, decks: [deck({ id: 'dx', namespace: 'spoofed' })] })
     expect((await pullNs('real')).decks.map((d: { id: string }) => d.id)).toEqual(['dx'])

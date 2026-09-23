@@ -133,6 +133,16 @@ function isStorableRow(table: TableName, row: Record<string, unknown>): boolean 
   })
 }
 
+/**
+ * 設定列的 id 是固定的名稱(例如 'fsrs'),不像其他表是全域唯一的 UUID;而資料表以 id 當全表共用的主鍵
+ * —— 兩個空間都存 'fsrs' 就會搶同一列(較新的那個空間把它搬走,另一個空間從此拉不到自己的設定)。
+ * 所以存進資料庫時在 id 前面加上空間、讀出來再拿掉;以前存的(沒有前綴)照樣讀得到。
+ * 不改 schema,舊版 worker 與新版 schema 並存時也不會出錯。
+ */
+const settingStorageId = (space: string, id: string): string => `${space}:${id}`
+const settingClientId = (space: string, id: string): string =>
+  id.startsWith(`${space}:`) ? id.slice(space.length + 1) : id
+
 app.post('/api/sync', async (c) => {
   const body = await c.req.json<SyncPush>().catch(() => null)
   if (body === null || typeof body !== 'object') return c.json({ error: 'invalid body' }, 400)
@@ -151,6 +161,7 @@ app.post('/api/sync', async (c) => {
         skipped.push(typeof (row as { id?: unknown })?.id === 'string' ? (row as { id: string }).id : '')
         continue
       }
+      if (t === 'settings') r.id = settingStorageId(space, r.id as string)
       statements.push(...buildRowStatements(db, t, r))
     }
   }
@@ -176,7 +187,7 @@ app.get('/api/sync', async (c) => {
     notes: await pullTable<NoteRecord>('notes'),
     cards: await pullTable<CardRecord>('cards'),
     review_logs: await pullTable<ReviewLogRecord>('review_logs'),
-    settings: await pullTable<SettingRecord>('settings'),
+    settings: (await pullTable<SettingRecord>('settings')).map((s) => ({ ...s, id: settingClientId(space, s.id) })),
     seq: seqRow!.value,
   }
   return c.json(resp)
