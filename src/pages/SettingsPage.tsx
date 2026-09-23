@@ -53,6 +53,9 @@ export default function SettingsPage() {
   const fsrs = useLiveQuery(() => getFsrsSettings(), [])
   const logCount = useLiveQuery(() => db.review_logs.count(), [])
   const [fsrsMsg, setFsrsMsg] = useState('')
+  // 結果寫在按下去的那一區:同步區在頁面最上面,還原備份、清空本機在下面,寫到同步區會捲出畫面外看不到
+  const [backupMsg, setBackupMsg] = useState('')
+  const [resetMsg, setResetMsg] = useState('')
   // 這頁的動作共用一把鎖:清空本機、還原備份、最佳化參數都跑得久,不該在另一個跑到一半時插隊
   const [busy, run] = useBusy()
   const confirm = useConfirm()
@@ -231,9 +234,9 @@ export default function SettingsPage() {
       destructive: true,
     })) return
     await clearLocalData()
-    setMsg('本機已清空，重新同步中…')
+    setResetMsg('本機已清空，重新同步中…')
     const r = await syncNow()
-    setMsg(r.ok ? '✓ 已清空並重新同步'
+    setResetMsg(r.ok ? '✓ 已清空並重新同步'
       : r.reason === 'offline' ? '本機已清空（目前離線）' : syncMessage(r, ''))
   })
 
@@ -246,7 +249,7 @@ export default function SettingsPage() {
       json = await file.text()
       info = describeBackup(json)
     } catch (err) {
-      setMsg(`無法還原：${err instanceof Error ? err.message : String(err)}`)
+      setBackupMsg(`無法還原：${err instanceof Error ? err.message : String(err)}`)
       return
     }
     const when = info.exportedAt === null ? '' : `備份時間：${new Date(info.exportedAt).toLocaleString('zh-TW', { dateStyle: 'medium', timeStyle: 'short' })}\n`
@@ -260,20 +263,20 @@ export default function SettingsPage() {
     })) return
     try {
       await importBackup(json)
-      setMsg(localOnly ? '✓ 還原完成' : '✓ 還原完成，同步中…')
+      setBackupMsg(localOnly ? '✓ 還原完成' : '✓ 還原完成，同步中…')
       if (!localOnly) {
         // 先同步一次:備份推上去,雲端上備份之後才有的東西也會拉回來;再把那些標成刪除推上去
         const r = await syncNow()
         if (!r.ok) {
-          setMsg(`這台已經還原，但沒連上雲端（${syncMessage(r, '')}）。雲端上備份之後新增的東西可能會同步回來，連上網路後再還原一次。`)
+          setBackupMsg(`這台已經還原，但沒連上雲端（${syncMessage(r, '')}）。雲端上備份之後新增的東西可能會同步回來，連上網路後再還原一次。`)
           return
         }
         const pruned = await pruneToBackup(json)
         const r2 = pruned > 0 ? await syncNow() : r
-        setMsg(syncMessage(r2, '✓ 還原完成，雲端和其他裝置也會變回備份時的樣子'))
+        setBackupMsg(syncMessage(r2, '✓ 還原完成，雲端和其他裝置也會變回備份時的樣子'))
       }
     } catch (err) {
-      setMsg(`還原失敗：${err instanceof Error ? err.message : String(err)}`)
+      setBackupMsg(`還原失敗：${err instanceof Error ? err.message : String(err)}`)
     }
   })
 
@@ -379,7 +382,12 @@ export default function SettingsPage() {
         </div>
       </ListSection>
 
-      <ListSection header="備份" withIcons footer="備份是一個 JSON 檔，包含所有牌組、卡片和複習紀錄。">
+      <ListSection header="備份" withIcons footer={
+        <>
+          備份是一個 JSON 檔，包含所有牌組、卡片和複習紀錄。
+          {backupMsg && <span className="footer-status" role="status" aria-live="polite">{backupMsg}</span>}
+        </>
+      }>
         <button type="button" className="row accent" onClick={async () =>
           download(`字卡備份-${new Date().toISOString().slice(0, 10)}.json`, await exportBackup(), 'application/json')
         }>
@@ -404,7 +412,12 @@ export default function SettingsPage() {
       </ListSection>
 
       {!localOnly && (
-        <ListSection header="進階" footer="資料怪怪的時候用：清掉這台，再用目前的金鑰從雲端重新下載。">
+        <ListSection header="進階" footer={
+          <>
+            資料怪怪的時候用：清掉這台，再用目前的金鑰從雲端重新下載。
+            {resetMsg && <span className="footer-status" role="status" aria-live="polite">{resetMsg}</span>}
+          </>
+        }>
           <button type="button" className="row destructive" disabled={busy} onClick={() => void doClearLocal()}>
             清空這台並重新下載
           </button>
