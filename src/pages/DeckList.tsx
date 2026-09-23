@@ -96,7 +96,7 @@ function NewDeckSheet({ open, onClose }: { open: boolean; onClose: () => void })
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：N3 單字" data-autofocus
             enterKeyHint="done" />
         </label>
-        <p className="hint">建好之後可以一張一張加卡片，也可以從「+」匯入 CSV 或 Anki 牌組。</p>
+        <p className="hint">建好之後可以一張一張加卡片，也可以從「＋」匯入 CSV 或 Anki 牌組。</p>
       </form>
     </Sheet>
   )

@@ -266,7 +266,7 @@ export default function SettingsPage() {
     const when = info.exportedAt === null ? '' : `備份時間：${new Date(info.exportedAt).toLocaleString('zh-TW', { dateStyle: 'medium', timeStyle: 'short' })}\n`
     if (!await confirm({
       title: '還原這份備份？',
-      message: `${when}內容：${info.decks} 副牌組、${info.words} 個單字、${info.reviews} 次複習紀錄\n\n`
+      message: `${when}內容：${info.decks} 副牌組、${info.words} 個字、${info.reviews} 次複習紀錄\n\n`
         + (localOnly ? '這台的資料會變回備份時的樣子。'
           : '這台、雲端和其他裝置都會變回備份時的樣子：備份之後新增的牌組和字會刪掉，之後的複習進度也會不見。'),
       confirmLabel: '還原',

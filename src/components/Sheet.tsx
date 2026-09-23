@@ -56,7 +56,14 @@ export function Sheet({ open, onClose, title, full, start, cancelLabel, end, dir
     if (asking.current) return
     asking.current = true
     try {
-      if (await confirm({ title: '捨棄沒存的變更？', confirmLabel: '捨棄', cancelLabel: '繼續編輯', destructive: true })) onClose()
+      if (await confirm({ title: '捨棄沒存的變更？', confirmLabel: '捨棄', cancelLabel: '繼續編輯', destructive: true })) {
+        // 等確認框先關好再關面板:同一次一起關,焦點還不回打開面板的那一列,會掉到頁首
+        requestAnimationFrame(() => onClose())
+      } else {
+        // 繼續編輯:瀏覽器可能已經自己把面板關掉了(擋不下來的關閉要求,例如 Android 的返回手勢),重新打開
+        const d = dialogProps.ref.current
+        if (d !== null && !d.open && typeof d.showModal === 'function') d.showModal()
+      }
     } finally {
       asking.current = false
     }

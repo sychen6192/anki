@@ -20,7 +20,7 @@ export function Segmented<T extends string>({ value, options, onChange, label }:
     <div className="segmented" role="radiogroup" aria-label={label} onKeyDown={onKeyDown}>
       {options.map(([v, text]) => (
         <button key={v} type="button" role="radio" aria-checked={v === value}
-          tabIndex={v === value ? 0 : -1} onClick={() => onChange(v)}>{text}</button>
+          tabIndex={v === value ? 0 : -1} onClick={() => onChange(v)}><span>{text}</span></button>
       ))}
     </div>
   )

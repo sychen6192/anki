@@ -1,4 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, type MouseEvent, type PointerEvent, type SyntheticEvent } from 'react'
+import {
+  useEffect, useLayoutEffect, useRef, type KeyboardEvent, type MouseEvent, type PointerEvent, type SyntheticEvent,
+} from 'react'
 
 // 好幾層疊在一起(確認框開在面板上)時,各自記「開之前的值」再寫回去會互相蓋掉,
 // 關掉的順序一亂頁面就一直捲不動:用計數器,第一層打開時鎖、最後一層關掉才還原
@@ -47,7 +49,18 @@ export function useModalDialog(open: boolean, onClose: () => void) {
   const downOnBackdrop = useRef(false)
   const dialogProps = {
     ref,
-    // Esc:交給父層決定要不要關(不讓瀏覽器自己關,狀態才不會不同步)
+    // Esc 自己接:瀏覽器的 cancel 只讓網頁擋一次(Chrome 要有新的使用者操作才能再擋),連按幾次 Esc
+    // 瀏覽器就自己把對話框關掉,React 卻還以為它開著 —— 頁面鎖著捲不動、面板再也叫不出來。
+    // 選字中的 Esc 是取消選字,不算。這一下 Esc 到此為止:關掉的狀態已經生效,再往外傳,
+    // 頁面自己的 Esc(例如複習畫面的「離開」)會以為沒有對話框開著而接著動作
+    onKeyDown: (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.nativeEvent.isComposing || e.keyCode === 229) return
+      e.preventDefault()
+      e.stopPropagation()
+      onClose()
+    },
+    // 其他關閉要求(Android 的返回手勢):同樣交給父層決定要不要關。擋不下來時瀏覽器會自己關,
+    // 見 Sheet 的「繼續編輯」會把它重新打開
     onCancel: (e: SyntheticEvent) => { e.preventDefault(); onClose() },
     onPointerDown: (e: PointerEvent) => { downOnBackdrop.current = e.target === e.currentTarget },
     // 點到 dialog 本身(= 背景那層)就關閉;點到內容的事件 target 會是裡面的元素

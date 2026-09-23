@@ -447,8 +447,8 @@ export default function Review() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // 選單開著時鍵盤交給選單(Esc 關閉由 dialog 處理),不能在背後翻面或評分
-      if (menuOpen) return
+      // 選單開著時鍵盤交給選單(Esc 關閉由 dialog 處理),不能在背後翻面或評分;別的地方已經處理過的鍵也不接
+      if (menuOpen || e.defaultPrevented) return
       // 按住不放時系統會一直重送同一個鍵:按住空白鍵會「翻面、普通、翻面、普通…」一路刷過去
       if (e.repeat) return
       // 鍵 → 動作的對照表在 reviewKeys.ts(含「帶 Cmd/Ctrl/Alt 不接」的規則),這裡只負責執行

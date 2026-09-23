@@ -124,7 +124,7 @@ function readCollection(db: Database): ApkgParse {
       // notetype 被改過時,note 的欄位數可能和目前定義不同 — 用序號補齊,讓使用者仍能對應
       const fieldNames = [...(t?.fieldNames ?? [])]
       while (fieldNames.length < widest) fieldNames.push(`欄位 ${fieldNames.length + 1}`)
-      return { id, name: t?.name || `樣板 ${id}`, fieldNames, noteCount }
+      return { id, name: t?.name || `筆記類型 ${id}`, fieldNames, noteCount }
     })
     .sort((a, b) => b.noteCount - a.noteCount)
 

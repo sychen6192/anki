@@ -42,7 +42,7 @@
 }
 .summary-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-weight: 600; color: var(--success); }
 .summary-sub { font-weight: 500; color: var(--text-2); }
-.summary-skipped summary { cursor: pointer; color: var(--accent); font-size: var(--fs-small); font-weight: 500; }
+.summary-skipped summary { cursor: pointer; color: var(--accent-text); font-size: var(--fs-small); font-weight: 500; }
 .summary-skipped ul { margin: 8px 0 4px; padding-left: 20px; max-height: 200px; overflow-y: auto; font-size: var(--fs-small); }
 .summary .btn-row { margin-top: 4px; }
 

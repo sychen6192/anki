@@ -178,9 +178,11 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
   flex: 1; min-width: 0; min-height: 34px; padding: 0 8px;
   border: none; border-radius: 8px; background: none; color: var(--text);
   font-family: inherit; font-size: var(--fs-small); font-weight: 500; cursor: pointer;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
   transition: background-color .15s ease, box-shadow .15s ease;
 }
+/* 字太長時截在裡面這層:按鈕本身不能 overflow: hidden,不然觸控時往外撐的可點範圍(::after)會被裁掉 */
+.segmented button > span { display: block; overflow: hidden; text-overflow: ellipsis; }
 .segmented button[aria-checked="true"] {
   background: var(--surface); font-weight: 600;
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.12), 0 0 0 0.5px rgb(0 0 0 / 0.04);
@@ -253,7 +255,8 @@ input.switch:disabled { opacity: .4; cursor: default; }
 }
 .notice > .notice-text { flex: 1; min-width: 12em; }
 .notice .notice-actions { display: flex; gap: 4px; align-items: center; margin-left: auto; }
-.notice .link { min-height: 32px; font-weight: 600; }
+/* 淡色底上的連結用深一階的 --accent-text,疊在灰底上才有 4.5:1 */
+.notice .link { min-height: 32px; font-weight: 600; color: var(--accent-text); }
 .notice.error { background: var(--danger-tint); }
 .notice.error .link { color: var(--danger); }
 .notice + .notice { margin-top: 10px; }
@@ -383,9 +386,13 @@ dialog { color: var(--text); }
   flex: 1; overflow-y: auto; overscroll-behavior: contain;
   padding: 16px 16px calc(24px + var(--safe-bottom));
 }
-@media (min-width: 768px) {
+/* 寬又高的螢幕才置中(手機橫放也有 800 多寬,但只有 390 高,鍵盤一跳出來就剩一小條:照手機的底部面板走)。
+   置中在看得見的那一塊裡:iPad 的鍵盤跳出來時 visualViewport 變小,面板跟著往上、變矮,不會被蓋住 */
+@media (min-width: 768px) and (min-height: 600px) {
   .sheet, .sheet.full {
-    inset: 0; margin: auto; height: auto; max-height: min(86vh, 760px);
+    inset: var(--vv-top, 0px) 0 calc(100% - var(--vv-top, 0px) - var(--vvh, 100%)) 0;
+    margin: auto; height: auto;
+    max-height: min(86vh, 760px, calc(var(--vvh, 100dvh) - 24px));
     border-radius: var(--radius-xl);
   }
   .sheet[open] { animation: pop-in .22s cubic-bezier(.2, .8, .2, 1); }
@@ -463,11 +470,13 @@ dialog { color: var(--text); }
   width: max-content; max-width: calc(100vw - 24px);
   padding: 8px 8px 8px 16px; min-height: 44px;
   background: var(--elevated); color: var(--text);
-  border-radius: 999px; box-shadow: var(--shadow-md);
-  font-size: var(--fs-subhead); font-weight: 500;
+  /* 22px = 一行時是膠囊,訊息長到換行時是圓角框 */
+  border-radius: 22px; box-shadow: var(--shadow-md);
+  font-size: var(--fs-subhead); font-weight: 500; line-height: 1.35;
   animation: toast-in .25s cubic-bezier(.2, .8, .2, 1);
 }
-.toast > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 放不下就換行,不截成「…」:被截掉的常常是最重要的後半句(例如「牌組頁的『先不學』可以恢復」) */
+.toast > span { overflow-wrap: anywhere; padding: 4px 0; }
 .toast.no-action { padding-right: 16px; }
 .toast .link { font-weight: 600; min-height: 32px; flex-shrink: 0; }
 .app.no-tabbar .toast { bottom: calc(var(--safe-bottom) + 16px); }
@@ -476,9 +485,10 @@ dialog { color: var(--text); }
 
 /* 有新版可用時從上方滑出的提示 */
 .update-banner {
-  /* 放在畫面上方:底部是提示條(含「復原」)和拇指常按的按鈕,不能被它蓋住 */
+  /* 放在畫面上方:底部是提示條(含「復原」)和拇指常按的按鈕,不能被它蓋住;
+     也不蓋住頂端的導覽列(返回、⋯、+),接在它下面 */
   position: fixed; left: 50%; z-index: 50;
-  top: calc(var(--safe-top) + 8px);
+  top: calc(var(--safe-top) + var(--header-h) + 8px);
   transform: translateX(-50%);
   width: min(calc(100% - 24px), 420px);
   display: flex; align-items: center; justify-content: space-between; gap: 12px;

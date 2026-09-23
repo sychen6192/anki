@@ -13,7 +13,9 @@ export const MEANING_ALIASES = ['中文翻譯', '中文翻译', '中文', '意�
 export const ACCENT_ALIASES = ['重音', 'アクセント', 'accent', 'pitch', 'pitchaccent']
 
 export function parseCsv(text: string): string[][] {
-  return Papa.parse<string[]>(text.trim(), { skipEmptyLines: true }).data
+  // greedy:只有逗號或空白的列(Excel 常在表格下面留一堆「,,」)也不算一列,
+  // 不然預覽會說「有 N 列缺少單字或意思」,讓人去找根本不存在的資料
+  return Papa.parse<string[]>(text.trim(), { skipEmptyLines: 'greedy' }).data
 }
 
 export function autoMapHeaders(headers: string[]): CsvMapping | null {
@@ -77,19 +79,34 @@ export function exportCsv(notes: NoteRecord[]): string {
   return '\uFEFF' + csv.replace(/\r/g, '')
 }
 
-export type TextEncodingName = 'utf-8' | 'big5' | 'shift_jis'
+/** unknown:哪一種都解不開,只好照 UTF-8 硬解(內容多半有亂碼,畫面要提醒) */
+export type TextEncodingName = 'utf-8' | 'big5' | 'shift_jis' | 'utf-16le' | 'utf-16be' | 'unknown'
 
 /**
  * 讀使用者選的 CSV 檔。Excel 預設存的「CSV(逗號分隔)」不是 UTF-8:繁中 Windows 是 Big5,
  * 日文 Windows 是 Shift_JIS。先照 UTF-8 嚴格解,解不開再依序試 Big5、Shift_JIS,並回報用了哪一種。
+ * 開頭有 UTF-16 的 BOM(Excel 的「Unicode 文字」、Numbers 匯出)就直接照它解。
  */
 export function decodeCsvBytes(bytes: ArrayBuffer | Uint8Array): { text: string; encoding: TextEncodingName } {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
+  if (b[0] === 0xff && b[1] === 0xfe) return { text: new TextDecoder('utf-16le').decode(b), encoding: 'utf-16le' }
+  if (b[0] === 0xfe && b[1] === 0xff) return { text: new TextDecoder('utf-16be').decode(b), encoding: 'utf-16be' }
   for (const encoding of ['utf-8', 'big5', 'shift_jis'] as const) {
     try {
-      return { text: new TextDecoder(encoding, { fatal: true }).decode(bytes), encoding }
+      return { text: new TextDecoder(encoding, { fatal: true }).decode(b), encoding }
     } catch {
       // 這個編碼解不開,換下一個
     }
   }
-  return { text: new TextDecoder('utf-8').decode(bytes), encoding: 'utf-8' }
+  return { text: new TextDecoder('utf-8').decode(b), encoding: 'unknown' }
+}
+
+/** 選檔後的編碼說明(UTF-8 不必說) */
+export function encodingNote(encoding: TextEncodingName): string {
+  if (encoding === 'utf-8') return ''
+  if (encoding === 'unknown') {
+    return '看不出這個檔案用的是哪種編碼，下面的字可能是亂碼。在 Excel 用「另存新檔」選「CSV UTF-8」再匯入。'
+  }
+  const name = encoding === 'big5' ? 'Big5' : encoding === 'shift_jis' ? 'Shift_JIS' : 'UTF-16'
+  return `這個檔案是 ${name} 編碼，已自動轉換。字看起來不對的話，在 Excel 用「另存新檔」選「CSV UTF-8」再匯入。`
 }

@@ -16,7 +16,7 @@
   --border: rgb(60 60 67 / 0.14);
 
   --text: #1c1c1e;
-  --text-2: #6b6b70;             /* 次要文字:白底與灰底都 4.5:1 以上 */
+  --text-2: #636368;             /* 次要文字:白底、灰底、灰底上的淡色框(匯入結果、提醒)都 4.5:1 以上 */
   --text-3: #8e8e93;             /* 只給 placeholder、箭頭、圖示(3:1);要讀的字一律用 --text-2 */
 
   --accent: #5b57d6;
@@ -27,11 +27,11 @@
   --accent-text: #4f4bc9;
   --on-accent: #ffffff;
 
-  /* 語意色都是「當字用也有 4.5:1」的深度(灰底、淡色底上都算過) */
-  --danger: #c62f2f;
-  --danger-tint: rgb(198 47 47 / 0.1);
-  --success: #1f7a45;
-  --success-tint: rgb(31 122 69 / 0.1);
+  /* 語意色都是「當字用也有 4.5:1」的深度:白底、灰底,以及淡色框直接疊在灰底上(匯入結果、捨棄鈕)都算過 */
+  --danger: #b52a2a;
+  --danger-tint: rgb(181 42 42 / 0.1);
+  --success: #1a6b3c;
+  --success-tint: rgb(26 107 60 / 0.1);
   --warning: #b86e00;
   --warning-text: #8a5300;
 
@@ -108,10 +108,11 @@
   --text-2: #a1a1a6;
   --text-3: #7c7c80;
 
-  --accent: #8683f0;
-  --accent-pressed: #9a97f4;
-  --accent-tint: rgb(134 131 240 / 0.2);
-  --accent-tint-pressed: rgb(134 131 240 / 0.3);
+  /* 浮層(#2c2c2e:提示條的「復原」、動作選單、確認框)上也要 4.5:1 */
+  --accent: #9390f4;
+  --accent-pressed: #a19ef6;
+  --accent-tint: rgb(147 144 244 / 0.2);
+  --accent-tint-pressed: rgb(147 144 244 / 0.3);
   --accent-text: #a5a3f7;
   --on-accent: #12121a;
 

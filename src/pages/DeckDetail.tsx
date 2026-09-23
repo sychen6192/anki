@@ -115,6 +115,8 @@ export default function DeckDetail() {
   const firstField = useRef<HTMLInputElement | null>(null)
   const readingField = useRef<HTMLInputElement | null>(null)
   const meaningField = useRef<HTMLInputElement | null>(null)
+  const accentField = useRef<HTMLInputElement | null>(null)
+  const batchBar = useRef<HTMLDivElement | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [sortOpen, setSortOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -156,6 +158,18 @@ export default function DeckDetail() {
     io.observe(el)
     return () => io.disconnect()
   }, [notes, search])
+
+  // 選取模式底部的動作列會依寬度與已選的數字換行,高度不固定:量出來給提示條讓位(deck.css 的 --batch-h)
+  useEffect(() => {
+    const bar = batchBar.current
+    const page = bar?.closest<HTMLElement>('.page')
+    if (!selecting || bar == null || page == null || typeof ResizeObserver !== 'function') return
+    const measure = () => page.style.setProperty('--batch-h', `${bar.offsetHeight}px`)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(bar)
+    return () => { ro.disconnect(); page.style.removeProperty('--batch-h') }
+  }, [selecting])
   const [errMsg, setErrMsg] = useState<string | null>(null)
   const [looking, setLooking] = useState(false)
   // 每次查重音編一個號;換表單(新增完一個、打開別筆、關掉面板)就作廢還在路上的查詢
@@ -164,17 +178,25 @@ export default function DeckDetail() {
   const shareAttempt = useRef(0)
   // 失焦自動查重音的結果提示(查無時告訴人可以手動輸入)
   const [accentHint, setAccentHint] = useState('')
+  // 重音格式錯誤:寫在重音欄正下方並捲進畫面(寫在表單最下面會被鍵盤蓋住,看起來像按了沒反應)
+  const [accentErr, setAccentErr] = useState('')
+  const accentErrRef = useRef<HTMLParagraphElement | null>(null)
+  useEffect(() => {
+    if (accentErr !== '') accentErrRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [accentErr])
   // 跑很久的工作(自動標註)進行中的訊息;結果用 toast
   const [progressMsg, setProgressMsg] = useState<string | null>(null)
   const [shareMsg, setShareMsg] = useState<string | null>(null)
 
   if (deck === undefined || !notes || !todayLogs) return <Loading />
   if (deck === null || deck.deleted) {
+    // 這台根本沒有這副(換過金鑰後按上一頁、清空重新下載還沒下載完、從別台複製的網址)不等於被刪了
+    const missing = deck === null
     return (
       <>
-        <PageHeader title="牌組已刪除" back={{ to: '/', label: '牌組' }} />
+        <PageHeader title={missing ? '找不到這副牌組' : '牌組已刪除'} back={{ to: '/', label: '牌組' }} />
         <div className="empty-state">
-          <p>這副牌組已經刪除了。</p>
+          <p>{missing ? '這台沒有這副牌組：可能還沒同步過來，或在另一組同步金鑰的空間裡。' : '這副牌組已經刪除了。'}</p>
           <Link to="/" className="btn">回牌組</Link>
         </div>
       </>
@@ -303,7 +325,7 @@ export default function DeckDetail() {
 
   const openNew = () => {
     lookupSeq.current++
-    setEditingId('new'); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setErrMsg(null); setAccentHint(''); setLooking(false)
+    setEditingId('new'); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setErrMsg(null); setAccentHint(''); setAccentErr(''); setLooking(false)
   }
   const openEdit = (n: NoteRecord) => {
     lookupSeq.current++
@@ -313,6 +335,7 @@ export default function DeckDetail() {
     setAddedLabel(null)
     setErrMsg(null)
     setAccentHint('')
+    setAccentErr('')
     setForm({ expression: n.expression, reading: n.reading, meaning: n.meaning, reversed: n.reversed === 1, accent: n.accent ?? '' })
   }
   /** 單字、讀音欄按 return 跳到下一欄,不是送出;日文輸入法選字時的 Enter 不算 */
@@ -323,7 +346,7 @@ export default function DeckDetail() {
   }
   const closeNote = () => {
     lookupSeq.current++
-    setEditingId(null); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setErrMsg(null); setLooking(false)
+    setEditingId(null); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setErrMsg(null); setAccentErr(''); setLooking(false)
   }
 
   const saveNote = () => run(async () => {
@@ -332,17 +355,20 @@ export default function DeckDetail() {
       ;(form.expression.trim() ? meaningField : firstField).current?.focus()
       return
     }
-    // 連續新增:在點下去的當下就把焦點放回「單字」欄。iOS 只有在使用者手勢裡 focus 才會留住鍵盤,
-    // 等存完(await 之後)才 focus,每新增一張鍵盤就收起來一次
-    if (editingId === 'new') firstField.current?.focus()
     // 「０、３」「0，3」這類手機上打出來的寫法先統一成「0,3」
     const accent = normalizeAccent(form.accent)
     if (accent !== form.accent) setForm((f) => ({ ...f, accent }))
     const input = { ...form, accent }
     if (!isValidAccent(accent)) {
-      setErrMsg('重音格式錯誤（只能是數字，多重音用逗號分隔，如 0 或 0,3）')
+      setAccentErr('重音格式錯誤：只能是數字，多重音用逗號分隔，例如 0 或 0,3')
+      // 焦點留在重音欄(不跳去「單字」),錯誤寫在它正下方
+      accentField.current?.focus()
       return
     }
+    setAccentErr('')
+    // 連續新增:在點下去的當下就把焦點放回「單字」欄。iOS 只有在使用者手勢裡 focus 才會留住鍵盤,
+    // 等存完(await 之後)才 focus,每新增一張鍵盤就收起來一次
+    if (editingId === 'new') firstField.current?.focus()
     try {
       // 同一副牌組裡「單字+讀音」相同就先問一聲(和匯入去重同一個判準);搬到別副時比對目標牌組
       const targetDeckId = editingId !== 'new' && moveTo !== null ? moveTo : deck.id
@@ -606,7 +632,8 @@ export default function DeckDetail() {
               {/* 按鍵盤的「搜尋」就收起鍵盤,結果才不會被擋住一半 */}
               <input type="search" placeholder="搜尋單字、讀音或意思" value={search} aria-label="搜尋卡片" enterKeyHint="search"
                 onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.currentTarget.blur() }} />
+                // Safari 用 Enter 確定日文選字時,keydown 的 isComposing 已經是 false,只剩 keyCode 229 看得出來
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) e.currentTarget.blur() }} />
               {search !== '' && (
                 <button className="search-clear" aria-label="清除搜尋" onClick={() => setSearch('')}><CloseIcon size={16} /></button>
               )}
@@ -670,7 +697,7 @@ export default function DeckDetail() {
       )}
 
       {selecting && (
-        <div className="batch-bar" role="region" aria-label="批次操作">
+        <div ref={batchBar} className="batch-bar" role="region" aria-label="批次操作">
           <span className="batch-count">已選 <b>{selected.size}</b> 個字</span>
           <div className="batch-actions">
             <button className="btn sm" disabled={busy || selected.size === 0} onClick={() => void applyStatus(2)}>已經會了</button>
@@ -724,13 +751,14 @@ export default function DeckDetail() {
           <div className="field-row">
             <label className="field"><span className="field-label">重音（可空）</span>
               {/* 不用 numeric 鍵盤:iPhone 的數字鍵盤打不出「0,3」的逗號 */}
-              <input placeholder="例如 0 或 0,3" value={form.accent} autoCapitalize="off" autoCorrect="off"
-                onChange={(e) => { setForm({ ...form, accent: e.target.value }); setAccentHint('') }} />
+              <input ref={accentField} placeholder="例如 0 或 0,3" value={form.accent} autoCapitalize="off" autoCorrect="off"
+                onChange={(e) => { setForm({ ...form, accent: e.target.value }); setAccentHint(''); setAccentErr('') }} />
             </label>
             <button type="button" className="btn secondary field-btn" disabled={looking} onClick={() => void lookupOne()}>
               {looking ? '查詢中…' : '查字典'}
             </button>
           </div>
+          {accentErr !== '' && <p ref={accentErrRef} className="err accent-hint" role="alert">{accentErr}</p>}
           {accentHint !== '' && <p className="field-hint accent-hint">{accentHint}</p>}
           {form.reading.trim() !== '' && form.accent.trim() !== '' && isValidAccent(form.accent.trim()) && (
             <div className="accent-preview"><PitchAccent reading={form.reading.trim()} accent={form.accent.trim()} /></div>

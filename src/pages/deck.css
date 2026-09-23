@@ -71,9 +71,9 @@
 .batch-actions .btn.sm { padding: 0 12px; }
 .page:has(.batch-bar) { padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 110px); }
 @media (min-width: 768px) { .batch-bar { bottom: 20px; } }
-/* 選取模式的提示浮在批次列上方:疊在上面的話,「復原」剛好落在批次按鈕的位置,連點一下就把剛才的批次復原了 */
+/* 選取模式的提示浮在批次列上方:疊在上面的話,「復原」剛好落在批次按鈕的位置,連點一下就把剛才的批次復原了。
+   --batch-h 是批次列實際的高度(DeckDetail 量的,換行時會變高);量到之前先用一行的高度 */
 .page:has(.batch-bar) .toast { bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 10px + var(--batch-h, 54px) + 12px); }
-@media (max-width: 360px) { .page:has(.batch-bar) { --batch-h: 90px; } }
 @media (min-width: 768px) { .page:has(.batch-bar) .toast { bottom: calc(20px + var(--batch-h, 54px) + 12px); } }
 
 /* 新增 / 編輯卡片 */

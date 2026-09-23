@@ -10,10 +10,14 @@ import { startOfToday } from '../lib/queue'
 import { useNow } from '../lib/useNow'
 import { lastNDays, streakDays, trueRetention } from '../lib/stats'
 import { getFsrsSettings } from '../lib/fsrsSettings'
+import { MIN_REVIEWS_TO_OPTIMIZE } from '../lib/fsrsOptimizer'
 import { Loading } from '../components/Loading'
 import { PageHeader } from '../components/PageHeader'
 import { Link } from 'react-router-dom'
 import './stats.css'
+
+/** 真實保持率至少要幾次才標偏高偏低、給調整建議 */
+const MIN_TONE_SAMPLE = 30
 
 /** 熱力圖顏色:單一色相由淺到深(0 張另外用底色) */
 function heatColor(count: number): string {
@@ -118,12 +122,14 @@ export default function StatsPage() {
     return first === undefined ? -1 : new Date(first.start).getMonth()
   }
 
+  // 次數太少時的百分比跳動很大(答對 2 次就是 100%):不標偏高偏低、不給調整建議
   const retentionTone = (r: { passed: number; total: number }): '' | 'low' | 'high' => {
-    if (r.total === 0) return ''
+    if (r.total < MIN_TONE_SAMPLE) return ''
     const p = (r.passed / r.total) * 100
     return p < targetPct - 5 ? 'low' : p > targetPct + 4 ? 'high' : ''
   }
   const overallTone = retentionTone(retentionAll)
+  const canOptimize = logs.length >= MIN_REVIEWS_TO_OPTIMIZE
 
   // 圖表的文字摘要:讀螢幕拿得到數字,手機上也不必一格一格點
   const heatTotal = heatDays.reduce((a, d) => a + d.count, 0)
@@ -176,9 +182,13 @@ export default function StatsPage() {
             </div>
             <p className="hint">
               到期時答對的比例，只算學過的字到期時的那一次（共 {retentionAll.total} 次）。
-              {overallTone === 'low'
-                ? <>比目標低：可以到<Link to="/settings" className="inline-link">設定</Link>用自己的紀錄最佳化排程。</>
-                : overallTone === 'high' ? '比目標高：可以把目標調低，少複習一點。' : '在目標附近，不用調整。'}
+              {retentionAll.total < MIN_TONE_SAMPLE
+                ? `次數還少，至少 ${MIN_TONE_SAMPLE} 次比較準，先不用照這個調整。`
+                : overallTone === 'low'
+                  ? canOptimize
+                    ? <>比目標低：可以到<Link to="/settings" className="inline-link">設定</Link>用自己的紀錄最佳化排程。</>
+                    : '比目標低：照常複習就好，紀錄多了之後可以到設定用自己的紀錄最佳化排程。'
+                  : overallTone === 'high' ? '比目標高：可以把目標調低，少複習一點。' : '在目標附近，不用調整。'}
             </p>
           </>
         )}
@@ -251,8 +261,10 @@ export default function StatsPage() {
 
       <section className="stat-card card">
         <div className="stat-card-head"><h2>卡片狀態</h2></div>
-        {cards.length === 0 ? (
-          <p className="stat-empty">還沒有卡片 —— 到「牌組」右上的「+」新增或匯入</p>
+        {inDeck.length === 0 ? (
+          <p className="stat-empty">還沒有卡片 —— 到「牌組」右上的「＋」新增或匯入</p>
+        ) : cards.length === 0 ? (
+          <p className="stat-empty">每張卡都標成已經會了或先不學了</p>
         ) : (
           <div className="state-dist">
             <ResponsiveContainer width={150} height={150}>
@@ -271,7 +283,10 @@ export default function StatsPage() {
           </div>
         )}
         {(parked.known > 0 || parked.paused > 0) && (
-          <p className="hint">不含已經會了 {parked.known} 張、先不學 {parked.paused} 張（牌組頁可以恢復）。</p>
+          <p className="hint">
+            不含{[parked.known > 0 && `已經會了 ${parked.known} 張`, parked.paused > 0 && `先不學 ${parked.paused} 張`]
+              .filter(Boolean).join('、')}（牌組頁可以恢復）。
+          </p>
         )}
       </section>
     </>

@@ -5,7 +5,10 @@ import { db } from '../db/db'
 import { sortDecks } from '../lib/deckOrder'
 import { createDeck, createNotes } from '../db/repo'
 import { requestSync } from '../lib/sync'
-import { autoMapHeaders, decodeCsvBytes, dedupeRows, mapRows, noteKey, parseCsv, type CsvMapping, type ParsedRow } from '../lib/csv'
+import {
+  autoMapHeaders, decodeCsvBytes, dedupeRows, encodingNote as describeEncoding, mapRows, noteKey, parseCsv,
+  type CsvMapping, type ParsedRow,
+} from '../lib/csv'
 import { DECK_TEMPLATES, type DeckTemplate } from '../data/templates'
 import { parseApkg, type ApkgParse } from '../lib/apkg'
 import { autoMapFields, mapApkgNotes, type ApkgMapping } from '../lib/apkgMap'
@@ -218,6 +221,9 @@ export default function ImportPage() {
   const autoName = useRef('')
   // 每切一次分頁加一:匯入(查字典可能好幾秒)跑完時分頁已經換了,結果就不掛到新分頁的表單上
   const modeGen = useRef(0)
+  // 每改一次表單(換檔案、改內容、改目標或名稱)加一:匯入跑完時使用者已經在填下一批,
+  // 就只回報結果,不把目標牌組和名稱改回去(不然下一批會默默匯進上一批的牌組)
+  const formGen = useRef(0)
   // 範本:目前在匯哪一份、結果屬於哪一份(結果顯示在那一份的卡片裡)
   const [importingTemplate, setImportingTemplate] = useState<string | null>(null)
   const [resultTemplate, setResultTemplate] = useState<string | null>(null)
@@ -337,6 +343,7 @@ export default function ImportPage() {
   }
 
   const onTextLoaded = (t: string) => {
+    formGen.current++
     setText(t)
     setSummary(null)
     const first = parseCsv(t)[0]
@@ -355,6 +362,7 @@ export default function ImportPage() {
   }
 
   const onApkgFile = async (file: File) => {
+    formGen.current++
     setSummary(null)
     setErrMsg('')
     setApkg(null)
@@ -456,11 +464,18 @@ export default function ImportPage() {
   const doImport = () => {
     if (parsed.length === 0) return
     const gen = modeGen.current
+    const form = formGen.current
     runImport(async () => {
       // 新牌組也等查完重音才在交易裡建:不會先冒出一副空牌組
       const target = deckId === 'new' ? { newName: newDeckName.trim() || '新牌組' } : { id: deckId }
       const r = await importParsed(target, parsed, mode === 'apkg' ? otherNoteCount : 0)
-      if (gen === modeGen.current) showResult(r)
+      if (gen !== modeGen.current) return
+      if (form !== formGen.current) {
+        setSummary(r.summary)
+        setLastDeckId(r.deckId)
+        return
+      }
+      showResult(r)
     })
   }
 
@@ -547,7 +562,7 @@ export default function ImportPage() {
     <ListSection header="匯入到">
       <label className="row">
         <span className="row-main"><span className="row-title">牌組</span></span>
-        <select className="row-select" value={deckId} onChange={(e) => setDeckId(e.target.value)} aria-label="目標牌組">
+        <select className="row-select" value={deckId} onChange={(e) => { formGen.current++; setDeckId(e.target.value) }} aria-label="目標牌組">
           <option value="new">＋ 建立新牌組</option>
           {decks.map((d) => (
             <option key={d.id} value={d.id}>{d.name}（{noteCounts?.get(d.id) ?? 0} 個字）</option>
@@ -557,7 +572,8 @@ export default function ImportPage() {
       {deckId === 'new' && (
         <label className="row">
           <span className="row-main"><span className="row-title">名稱</span></span>
-          <input className="row-input" placeholder="新牌組名稱" value={newDeckName} onChange={(e) => setNewDeckName(e.target.value)} />
+          <input className="row-input" placeholder="新牌組名稱" value={newDeckName}
+            onChange={(e) => { formGen.current++; setNewDeckName(e.target.value) }} />
         </label>
       )}
     </ListSection>
@@ -582,7 +598,7 @@ export default function ImportPage() {
       <div className="import-body">
         {mode === 'templates' && (
           <>
-            <p className="import-intro">挑一副開始。每天只會出 20 個新字，其他照複習排程出現；重音會自動標好。</p>
+            <p className="import-intro">挑一副開始。每天只會出 20 張新卡，其他照複習排程出現；重音會自動標好。</p>
             {reverseToggle}
             <div className="template-list">
               {DECK_TEMPLATES.map((t) => {
@@ -657,10 +673,9 @@ export default function ImportPage() {
                       autoName.current = f.name.replace(/\.csv$/i, '')
                       setNewDeckName(autoName.current)
                     }
-                    // Excel 存的 CSV 常是 Big5 / Shift_JIS:自動認出來,並說一聲
+                    // Excel 存的 CSV 常是 Big5 / Shift_JIS / UTF-16:自動認出來,並說一聲
                     const { text: decoded, encoding } = decodeCsvBytes(await f.arrayBuffer())
-                    setEncodingNote(encoding === 'utf-8' ? ''
-                      : `這個檔案是 ${encoding === 'big5' ? 'Big5' : 'Shift_JIS'} 編碼，已自動轉換。字看起來不對的話，在 Excel 用「另存新檔」選「CSV UTF-8」再匯入。`)
+                    setEncodingNote(describeEncoding(encoding))
                     onTextLoaded(decoded)
                   }} />
                 <span className="btn tinted">{mode === 'csv' ? <FileIcon size={18} /> : <UploadIcon size={18} />}

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { parseCsv, autoMapHeaders, mapRows, noteKey, dedupeRows, exportCsv, findDuplicateNote, decodeCsvBytes } from '../src/lib/csv'
+import {
+  parseCsv, autoMapHeaders, mapRows, noteKey, dedupeRows, exportCsv, findDuplicateNote, decodeCsvBytes, encodingNote,
+} from '../src/lib/csv'
 import type { NoteRecord } from '../shared/types'
 
 const VOCAB_SAMPLE = `id,漢字,拼音,中文翻譯
@@ -113,6 +115,36 @@ describe('decodeCsvBytes', () => {
     // 「單字,意思」的 Big5:B3E6 A672 2C B74E AB E4
     const big5 = new Uint8Array([0xb3, 0xe6, 0xa6, 0x72, 0x2c, 0xb7, 0x4e, 0xab, 0xe4])
     expect(decodeCsvBytes(big5)).toEqual({ text: '單字,意思', encoding: 'big5' })
+  })
+
+  it('開頭有 BOM 的 UTF-16(Excel 的「Unicode 文字」)照 BOM 解,表頭認得出來', () => {
+    const text = '單字\t意思\n犬\t狗\n'
+    const le = new Uint8Array(2 + text.length * 2)
+    le.set([0xff, 0xfe])
+    const be = new Uint8Array(2 + text.length * 2)
+    be.set([0xfe, 0xff])
+    for (let i = 0; i < text.length; i++) {
+      const c = text.charCodeAt(i)
+      le[2 + i * 2] = c & 0xff; le[3 + i * 2] = c >> 8
+      be[2 + i * 2] = c >> 8; be[3 + i * 2] = c & 0xff
+    }
+    expect(decodeCsvBytes(le)).toEqual({ text, encoding: 'utf-16le' })
+    expect(decodeCsvBytes(be)).toEqual({ text, encoding: 'utf-16be' })
+    expect(autoMapHeaders(parseCsv(decodeCsvBytes(le).text)[0])).not.toBeNull()
+  })
+
+  it('哪一種都解不開就照實說,不假裝是 UTF-8', () => {
+    const junk = new Uint8Array([0xc3, 0x28, 0xa0, 0xa1, 0xff, 0x80, 0x81])
+    expect(decodeCsvBytes(junk).encoding).toBe('unknown')
+    expect(encodingNote('unknown')).toMatch(/亂碼/)
+    expect(encodingNote('utf-8')).toBe('')
+    expect(encodingNote('utf-16le')).toMatch(/UTF-16/)
+  })
+})
+
+describe('parseCsv:Excel 留下的空白列', () => {
+  it('只有逗號或空白的列不算一列', () => {
+    expect(parseCsv('單字,意思\n犬,狗\n,,\n  \n , \n猫,貓\n,,\n')).toEqual([['單字', '意思'], ['犬', '狗'], ['猫', '貓']])
   })
 })
 
