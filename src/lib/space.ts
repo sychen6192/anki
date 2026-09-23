@@ -85,3 +85,14 @@ export async function countUnsynced(): Promise<number> {
     .map((t) => (t as typeof db.decks).where('dirty').equals(1).count()))
   return counts.reduce((a, b) => a + b, 0)
 }
+
+/**
+ * 停止同步但**保留這台的資料**:只把金鑰清成空白、游標歸零。純本機模式不連雲端,
+ * 不會和別的空間混在一起;之後要再同步就走 adoptSyncSpace,這台的東西會一起帶上去。
+ */
+export async function leaveSyncSpace(): Promise<void> {
+  await db.transaction('rw', [db.meta], async () => {
+    await db.meta.delete('sync_cursor')
+    await db.meta.put({ key: 'sync_space', value: '' })
+  })
+}

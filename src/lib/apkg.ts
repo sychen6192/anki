@@ -136,7 +136,7 @@ function extractCollectionBytes(apkg: Uint8Array): Uint8Array {
   try {
     files = unzipSync(apkg)
   } catch {
-    throw new Error('這不像是 Anki 牌組檔(.apkg):無法解開壓縮檔')
+    throw new Error('這不像是 Anki 牌組檔（.apkg）：無法解開壓縮檔')
   }
   for (const { name, zstd } of COLLECTION_FILES) {
     const raw = files[name]
@@ -145,10 +145,10 @@ function extractCollectionBytes(apkg: Uint8Array): Uint8Array {
     try {
       return zstdDecompress(raw)
     } catch {
-      throw new Error(`無法解壓縮 ${name}(zstd 解壓失敗)`)
+      throw new Error(`無法解壓縮 ${name}（zstd 解壓失敗）`)
     }
   }
-  throw new Error('這不像是 Anki 牌組檔(.apkg):裡面找不到 collection 資料')
+  throw new Error('這不像是 Anki 牌組檔（.apkg）：裡面找不到 collection 資料')
 }
 
 /** 解析 .apkg 位元組,取出 note 文字與欄位名稱。不含排程、媒體與 tags。 */

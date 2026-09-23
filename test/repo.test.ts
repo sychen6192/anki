@@ -5,6 +5,7 @@ import {
   createDeck, updateDeck, softDeleteDeck,
   createNote, createNotes, updateNote, softDeleteNote, applyReview, undoReview,
   enableReverseCards, moveNote, setNoteSuspended, setNotesSuspended, restoreCardsSuspended,
+  restoreNote, setNotesSuspendedUndoable,
 } from '../src/db/repo'
 import { rate } from '../src/lib/fsrs'
 
@@ -317,6 +318,19 @@ describe('suspended:已經會了 / 暫停', () => {
     expect(await setNotesSuspended([a.id, b.id], 0)).toBe(3)
   })
 
+  it('setNotesSuspendedUndoable 回傳改動前的狀態,交給 restoreCardsSuspended 就復原', async () => {
+    const deck = await createDeck('A')
+    const a = await createNote(deck.id, input)                          // 2 張
+    const b = await createNote(deck.id, { ...input, reversed: false })  // 1 張,先擱置
+    await setNoteSuspended(b.id, 1)
+    const prev = await setNotesSuspendedUndoable([a.id, b.id], 2)
+    expect(prev).toHaveLength(3)
+    expect(prev.filter((p) => p.suspended === 1)).toHaveLength(1)
+    await restoreCardsSuspended(prev)
+    for (const c of await db.cards.where('note_id').equals(a.id).toArray()) expect(c.suspended).toBe(0)
+    expect((await db.cards.where('note_id').equals(b.id).first())!.suspended).toBe(1)
+  })
+
   it('已經會了的字之後才開反向卡:新的反向卡跟著正向卡的狀態,不會跑回佇列', async () => {
     const deck = await createDeck('A')
     const single = await createNote(deck.id, { ...input, reversed: false })
@@ -330,5 +344,40 @@ describe('suspended:已經會了 / 暫停', () => {
     await enableReverseCards(deck.id)
     const rev2 = (await db.cards.where('note_id').equals(other.id).toArray()).find((c) => c.direction === 'reverse')!
     expect(rev2.suspended).toBe(1)
+  })
+})
+
+describe('restoreNote(刪除後的復原)', () => {
+  const word = { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: true, accent: '' }
+
+  it('救回筆記與一起刪掉的卡片,時間戳往前推並標成待同步', async () => {
+    const deck = await createDeck('A')
+    const note = await createNote(deck.id, word)
+    await softDeleteNote(note.id)
+    const deletedAt = (await db.notes.get(note.id))!.updated_at
+    await db.notes.update(note.id, { dirty: 0 })
+    await restoreNote(note.id)
+    const row = (await db.notes.get(note.id))!
+    expect(row.deleted).toBe(0)
+    expect(row.dirty).toBe(1)
+    expect(row.updated_at).toBeGreaterThan(deletedAt)
+    const cards = await db.cards.where('note_id').equals(note.id).toArray()
+    expect(cards).toHaveLength(2)
+    for (const c of cards) expect(c.deleted).toBe(0)
+  })
+
+  it('之前就刪掉的卡(不是這次一起刪的)維持刪除;沒刪的筆記不動', async () => {
+    const deck = await createDeck('A')
+    const note = await createNote(deck.id, word)
+    const rev = (await db.cards.where('note_id').equals(note.id).toArray()).find((c) => c.direction === 'reverse')!
+    await db.cards.update(rev.id, { deleted: 1, updated_at: 1 })
+    await softDeleteNote(note.id)
+    await restoreNote(note.id)
+    expect((await db.cards.get(rev.id))!.deleted).toBe(1)
+
+    const other = await createNote(deck.id, { ...word, expression: '猫' })
+    const before = (await db.notes.get(other.id))!.updated_at
+    await restoreNote(other.id)
+    expect((await db.notes.get(other.id))!.updated_at).toBe(before)
   })
 })

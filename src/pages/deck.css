@@ -26,18 +26,18 @@
   display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
   min-height: 34px; padding: 0 14px; border-radius: 999px;
   border: none; background: var(--surface); color: var(--text);
-  font-family: inherit; font-size: 14px; font-weight: 550; cursor: pointer;
+  font-family: inherit; font-size: var(--fs-small); font-weight: 500; cursor: pointer;
 }
 .chip.active { background: var(--accent); color: var(--on-accent); }
-.chip-count { font-size: 12.5px; opacity: .7; font-variant-numeric: tabular-nums; }
+.chip-count { font-size: var(--fs-caption); opacity: .7; font-variant-numeric: tabular-nums; }
 
 /* 卡片列表:第一行單字 + 狀態;第二行讀音 · 意思;點整列開編輯 */
 .note-list { margin-top: 12px; }
 .note-row { min-height: 60px; padding: 10px 12px 10px 16px; }
 .note-line1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.note-expr { font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
+.note-expr { font-size: var(--fs-headline); font-weight: 600; overflow-wrap: anywhere; }
 .note-line2 { display: flex; gap: 0 10px; flex-wrap: wrap; }
-.note-reading { color: var(--accent); }
+.note-reading { color: var(--text-2); }
 .note-meaning { color: var(--text-2); overflow-wrap: anywhere; }
 .note-row.selected { background: var(--accent-tint); }
 .select-mark {
@@ -46,9 +46,10 @@
   border: 1.5px solid var(--text-3); color: transparent;
 }
 .select-mark.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.list-empty { text-align: center; color: var(--text-2); padding: 28px 0; }
-.list-count { text-align: center; color: var(--text-3); font-size: 13px; margin-top: 14px; }
-.list-count .link { font-size: 13px; }
+.list-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; color: var(--text-2); padding: 28px 0; }
+.accent-hint { margin-top: -8px; padding: 0 2px; }
+.list-count { text-align: center; color: var(--text-3); font-size: var(--fs-footnote); margin-top: 14px; }
+.list-count .link { font-size: var(--fs-footnote); }
 
 /* 批次選取時,底部浮一條動作列(在分頁列上方) */
 .batch-bar {
@@ -59,7 +60,7 @@
   padding: 10px 10px 10px 16px;
   background: var(--elevated); border-radius: var(--radius-lg); box-shadow: var(--shadow-md);
 }
-.batch-count { font-size: 14.5px; white-space: nowrap; }
+.batch-count { font-size: var(--fs-subhead); white-space: nowrap; }
 .batch-actions { display: flex; gap: 6px; margin-left: auto; }
 .batch-actions .btn.sm { padding: 0 12px; }
 .page:has(.batch-bar) { padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 110px); }
@@ -69,15 +70,15 @@
 .note-form .list-section { margin-top: 0; }
 .field-btn { flex-shrink: 0; min-height: 44px; }
 .field-row > .speak-btn.field-btn { width: 44px; height: 44px; }
-.accent-preview { font-size: 20px; color: var(--accent); padding: 0 2px; }
+.accent-preview { font-size: var(--fs-title3); color: var(--text-2); padding: 0 2px; }
 .added-line {
   display: flex; align-items: center; gap: 6px;
   padding: 10px 12px; border-radius: var(--radius);
-  background: var(--success-tint); color: var(--success); font-size: 14.5px; font-weight: 550;
+  background: var(--success-tint); color: var(--success); font-size: var(--fs-subhead); font-weight: 500;
 }
 
 /* 分享 */
 .share-sheet { display: flex; flex-direction: column; gap: 14px; }
 .share-uploading { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 120px; color: var(--text-2); }
-.share-link-input { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 14px; color: var(--text-2); background: var(--surface); }
+.share-link-input { font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--fs-small); color: var(--text-2); background: var(--surface); }
 .share-msg { text-align: center; }

@@ -136,7 +136,26 @@ export async function softDeleteNote(id: string): Promise<void> {
   await db.transaction('rw', [db.notes, db.cards], async () => {
     const t = now()
     await db.notes.update(id, { deleted: 1, updated_at: t, dirty: 1 })
-    await db.cards.where('note_id').equals(id).modify({ deleted: 1, updated_at: t, dirty: 1 })
+    // 已經刪掉的卡不再蓋章:保留原本的刪除時間,restoreNote 才分得出哪些是這次一起刪的
+    await db.cards.where('note_id').equals(id).filter((c) => !c.deleted)
+      .modify({ deleted: 1, updated_at: t, dirty: 1 })
+  })
+}
+
+/**
+ * 復原剛刪掉的筆記:筆記與「跟著它一起刪」的卡片(同一個時間戳)改回未刪除,時間戳往前推讓 LWW 傳播。
+ * 在這之前就刪掉的卡(例如先前關掉的反向卡)維持刪除。
+ */
+export async function restoreNote(id: string): Promise<void> {
+  await db.transaction('rw', [db.notes, db.cards], async () => {
+    const note = await db.notes.get(id)
+    if (note === undefined || note.deleted !== 1) return
+    const deletedAt = note.updated_at
+    const t = Math.max(now(), deletedAt + 1)
+    await db.notes.update(id, { deleted: 0, updated_at: t, dirty: 1 })
+    await db.cards.where('note_id').equals(id)
+      .filter((c) => c.deleted === 1 && c.updated_at === deletedAt)
+      .modify({ deleted: 0, updated_at: t, dirty: 1 })
   })
 }
 
@@ -193,14 +212,22 @@ export async function setNoteSuspended(noteId: string, value: CardSuspended): Pr
 
 /** 批次版(牌組頁勾選多筆)。回傳實際改到的卡片數,已經是該狀態的不動。 */
 export async function setNotesSuspended(noteIds: string[], value: CardSuspended): Promise<number> {
-  let changed = 0
+  return (await setNotesSuspendedUndoable(noteIds, value)).length
+}
+
+/** 同 setNotesSuspended,回傳改動前的狀態:交給 restoreCardsSuspended 就能復原 */
+export async function setNotesSuspendedUndoable(noteIds: string[], value: CardSuspended): Promise<SuspendedSnapshot[]> {
+  const prev: SuspendedSnapshot[] = []
   await db.transaction('rw', [db.cards], async () => {
     const t = now()
     await db.cards.where('note_id').anyOf(noteIds)
       .filter((c) => !c.deleted && (c.suspended ?? 0) !== value)
-      .modify((c) => { c.suspended = value; c.updated_at = t; c.dirty = 1; changed += 1 })
+      .modify((c) => {
+        prev.push({ id: c.id, suspended: (c.suspended ?? 0) as CardSuspended })
+        c.suspended = value; c.updated_at = t; c.dirty = 1
+      })
   })
-  return changed
+  return prev
 }
 
 /** 復原 setNoteSuspended:逐張寫回原值。用新的 updated_at,其他裝置才會經 LWW 收到復原結果。 */

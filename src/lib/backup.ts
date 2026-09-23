@@ -50,7 +50,7 @@ function parseBackup(json: string): Record<string, Record<string, unknown>[]> {
   // new_per_day 若不是數字,之後每日新卡額度會算成 NaN,佇列會靜默變成空的
   for (const deck of out.decks) {
     if (typeof deck.new_per_day !== 'number' || !Number.isFinite(deck.new_per_day)) {
-      throw new Error('備份檔的牌組缺少每日新卡上限(new_per_day)')
+      throw new Error('備份檔的牌組缺少每日新卡上限（new_per_day）')
     }
   }
   return out

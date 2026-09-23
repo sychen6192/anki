@@ -337,7 +337,7 @@ app.get('/import', async (c) => {
   const count = (JSON.parse(row.payload) as unknown[]).length
   const meta =
     `<meta property="og:title" content="${escapeHtml(row.name)} — 字卡牌組分享">` +
-    `<meta property="og:description" content="${count} 個單字,點開直接匯入">` +
+    `<meta property="og:description" content="${count} 個單字，點開直接匯入">` +
     `<meta property="og:type" content="website">`
   return new HTMLRewriter()
     .on('head', { element(el) { el.append(meta, { html: true }) } })

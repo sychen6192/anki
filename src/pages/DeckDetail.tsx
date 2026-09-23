@@ -3,12 +3,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
 import {
-  createNote, enableReverseCards, moveNote, setNotesSuspended, softDeleteDeck, softDeleteNote,
-  updateDeck, updateNote, type NoteInput,
+  createNote, enableReverseCards, moveNote, restoreCardsSuspended, restoreNote, setNotesSuspendedUndoable,
+  softDeleteDeck, softDeleteNote, updateDeck, updateNote, type NoteInput,
 } from '../db/repo'
 import { exportCsv, findDuplicateNote } from '../lib/csv'
 import { download } from '../lib/download'
-import { fillMissingAccents, isValidAccent, lookupAccents } from '../lib/accent'
+import { fillMissingAccents, isValidAccent, lookupAccents, normalizeAccent } from '../lib/accent'
 import { PitchAccent } from '../components/PitchAccent'
 import { isSpeechSupported, speak } from '../lib/speak'
 import { requestSync } from '../lib/sync'
@@ -35,11 +35,14 @@ const EMPTY: NoteInput = { expression: '', reading: '', meaning: '', reversed: f
 const PAGE_SIZE = 60
 
 type SortKey = 'added-desc' | 'added-asc' | 'kana'
+// 排序依 updated_at:編輯過的字會移到「最近改動」那一端,所以不叫「匯入順序」
 const SORTS: readonly (readonly [SortKey, string])[] = [
-  ['added-desc', '最近新增/編輯'],
-  ['added-asc', '匯入順序'],
+  ['added-desc', '最近改動'],
+  ['added-asc', '最早改動'],
   ['kana', '五十音'],
 ]
+/** 批次一次改超過這麼多筆,先確認一次(「全選」會選到整副) */
+const BATCH_CONFIRM_AT = 50
 
 type NoteStatus = 'active' | 'paused' | 'known'
 type CardLite = { state: number; due: number; suspended?: number }
@@ -144,6 +147,8 @@ export default function DeckDetail() {
   }, [notes, search])
   const [errMsg, setErrMsg] = useState<string | null>(null)
   const [looking, setLooking] = useState(false)
+  // 失焦自動查重音的結果提示(查無時告訴人可以手動輸入)
+  const [accentHint, setAccentHint] = useState('')
   // 跑很久的工作(自動標註)進行中的訊息;結果用 toast
   const [progressMsg, setProgressMsg] = useState<string | null>(null)
   const [shareMsg, setShareMsg] = useState<string | null>(null)
@@ -185,36 +190,51 @@ export default function DeckDetail() {
   const applyStatus = (value: CardSuspended) => run(async () => {
     const ids = [...selected].filter((id) => notes.some((n) => n.id === id))
     if (ids.length === 0) return
+    const label = value === 2 ? '已經會了' : value === 1 ? '擱置' : '恢復學習'
+    if (ids.length > BATCH_CONFIRM_AT && !await confirm({
+      title: `把 ${ids.length} 筆標為「${label}」？`,
+      message: value === 0 ? '這些字會回到複習裡。' : '這些字之後不會出現在複習裡，隨時可以在這裡恢復。',
+      confirmLabel: label,
+    })) return
     try {
-      await setNotesSuspended(ids, value)
-      const label = value === 2 ? '已經會了' : value === 1 ? '擱置' : '恢復學習'
-      toast.show(`已把 ${ids.length} 筆標為「${label}」`)
+      const prev = await setNotesSuspendedUndoable(ids, value)
+      toast.show(`已把 ${ids.length} 筆標為「${label}」`, {
+        label: '復原',
+        onClick: () => void restoreCardsSuspended(prev).then(() => requestSync()),
+      })
       setSelected(new Set())
       setErrMsg(null)
       requestSync()
     } catch (e) {
-      setErrMsg(`操作失敗:${errText(e)}`)
+      setErrMsg(`操作失敗：${errText(e)}`)
     }
   })
 
-  const lookupOne = async () => {
-    if (!form.expression.trim()) { setErrMsg('請先輸入單字'); return }
+  /** 查字典補重音。quiet:讀音欄失焦時自動查,查無或離線只在欄位下方小字提示,不當成錯誤 */
+  const lookupOne = async (quiet = false) => {
+    if (!form.expression.trim()) { if (!quiet) setErrMsg('請先輸入單字'); return }
     setLooking(true)
     try {
       const [pitch] = await lookupAccents([{ expression: form.expression.trim(), reading: form.reading.trim() }])
-      if (pitch != null) { setForm((f) => ({ ...f, accent: pitch })); setErrMsg(null) }
+      if (pitch != null) { setForm((f) => (f.accent.trim() === '' || !quiet ? { ...f, accent: pitch } : f)); setAccentHint(''); setErrMsg(null) }
+      else if (quiet) setAccentHint('字典查無，可以手動輸入')
       else setErrMsg('字典查無此字的重音')
     } catch (e) {
-      setErrMsg(`查詢失敗:${errText(e)}`)
+      if (!quiet) setErrMsg(`查詢失敗：${errText(e)}`)
     } finally {
       setLooking(false)
     }
+  }
+  const autoLookup = () => {
+    if (form.accent.trim() !== '' || form.expression.trim() === '' || looking) return
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+    void lookupOne(true)
   }
 
   const annotateDeck = () => run(async () => {
     const blanks = notes.filter((n) => !n.accent)
     if (blanks.length === 0) { toast.show('這副牌組沒有待標註的卡片'); return }
-    setProgressMsg(`標註重音中…(${blanks.length} 筆)`)
+    setProgressMsg(`標註重音中…（${blanks.length} 筆）`)
     try {
       const { rows, filled, missed } = await fillMissingAccents(
         blanks.map((n) => ({ id: n.id, expression: n.expression, reading: n.reading, accent: n.accent ?? '' })),
@@ -225,11 +245,11 @@ export default function DeckDetail() {
           if (r.accent !== '') await updateNote(r.id, { accent: r.accent })
         }
       })
-      toast.show(`標註完成:${filled} 筆,查無 ${missed} 筆`)
+      toast.show(`標註完成：${filled} 筆，查無 ${missed} 筆`)
       setErrMsg(null)
       requestSync()
     } catch (e) {
-      setErrMsg(`自動標註失敗:${errText(e)}`)
+      setErrMsg(`自動標註失敗：${errText(e)}`)
     } finally {
       setProgressMsg(null)
     }
@@ -239,7 +259,7 @@ export default function DeckDetail() {
     const missing = notes.filter((n) => n.reversed === 0).length
     if (missing === 0) { toast.show('所有卡片都已開啟反向卡'); return }
     const ok = await confirm({
-      title: `為 ${missing} 筆開啟反向卡?`,
+      title: `為 ${missing} 筆開啟反向卡？`,
       message: '反向卡是看意思想單字。新的反向卡從新卡開始排程。',
       confirmLabel: '開啟',
     })
@@ -251,16 +271,17 @@ export default function DeckDetail() {
       setErrMsg(null)
       requestSync()
     } catch (e) {
-      setErrMsg(`開啟反向卡失敗:${errText(e)}`)
+      setErrMsg(`開啟反向卡失敗：${errText(e)}`)
     }
   })
 
-  const openNew = () => { setEditingId('new'); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setErrMsg(null) }
+  const openNew = () => { setEditingId('new'); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setErrMsg(null); setAccentHint('') }
   const openEdit = (n: NoteRecord) => {
     setEditingId(n.id)
     setMoveTo(null)
     setAddedLabel(null)
     setErrMsg(null)
+    setAccentHint('')
     setForm({ expression: n.expression, reading: n.reading, meaning: n.meaning, reversed: n.reversed === 1, accent: n.accent ?? '' })
   }
   const closeNote = () => { setEditingId(null); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setErrMsg(null) }
@@ -270,8 +291,12 @@ export default function DeckDetail() {
       setErrMsg('單字與意思為必填')
       return
     }
-    if (!isValidAccent(form.accent.trim())) {
-      setErrMsg('重音格式錯誤(只能是數字,多重音用逗號分隔,如 0 或 0,3)')
+    // 「０、３」「0，3」這類手機上打出來的寫法先統一成「0,3」
+    const accent = normalizeAccent(form.accent)
+    if (accent !== form.accent) setForm((f) => ({ ...f, accent }))
+    const input = { ...form, accent }
+    if (!isValidAccent(accent)) {
+      setErrMsg('重音格式錯誤（只能是數字，多重音用逗號分隔，如 0 或 0,3）')
       return
     }
     try {
@@ -292,23 +317,24 @@ export default function DeckDetail() {
         const where = targetDeckId === deck.id ? '這副牌組' : '要搬去的牌組'
         const ok = await confirm({
           title: `${where}已經有「${label}」了`,
-          message: `還要${editingId === 'new' ? '新增' : '儲存'}嗎?`,
+          message: `還要${editingId === 'new' ? '新增' : '儲存'}嗎？`,
           confirmLabel: editingId === 'new' ? '仍要新增' : '仍要儲存',
         })
         if (!ok) return
       }
       if (editingId === 'new') {
-        await createNote(deck.id, form)
+        await createNote(deck.id, input)
         // 新增完不關面板:一課的單字通常是一口氣輸入,清空後直接打下一個
         setAddedLabel(form.expression.trim())
         setForm({ ...EMPTY, reversed: form.reversed })
+        setAccentHint('')
         setErrMsg(null)
         requestSync()
         firstField.current?.focus()
         return
       }
       if (editingId) {
-        await updateNote(editingId, form)
+        await updateNote(editingId, input)
         if (moveTo !== null && moveTo !== deck.id) {
           await moveNote(editingId, moveTo)
           const target = allDecks?.find((d) => d.id === moveTo)
@@ -318,7 +344,7 @@ export default function DeckDetail() {
       closeNote()
       requestSync()
     } catch (e) {
-      setErrMsg(`操作失敗:${errText(e)}`)
+      setErrMsg(`操作失敗：${errText(e)}`)
     }
   })
 
@@ -345,7 +371,7 @@ export default function DeckDetail() {
       toast.show('已儲存牌組設定')
       requestSync()
     } catch (e) {
-      setErrMsg(`操作失敗:${errText(e)}`)
+      setErrMsg(`操作失敗：${errText(e)}`)
     }
   })
 
@@ -364,15 +390,15 @@ export default function DeckDetail() {
       const url = shareUrlFor(location.origin, code)
       setShareLink(url)
       setErrMsg(null)
-      if (canNativeShare) { setShareMsg('連結好了,按「分享…」傳給朋友'); return }
+      if (canNativeShare) { setShareMsg('連結好了，按「分享…」傳給朋友'); return }
       try {
         await navigator.clipboard.writeText(url)
-        setShareMsg('已複製連結,貼給朋友就好')
+        setShareMsg('已複製連結，貼給朋友就好')
       } catch {
-        setShareMsg('連結好了,按「複製連結」')
+        setShareMsg('連結好了，按「複製連結」')
       }
     } catch (e) {
-      setShareMsg(`分享失敗:${errText(e)}`)
+      setShareMsg(`分享失敗：${errText(e)}`)
     }
   })
 
@@ -380,11 +406,11 @@ export default function DeckDetail() {
   const nativeShare = async () => {
     if (shareLink === null) return
     try {
-      await navigator.share({ title: `字卡牌組:${deck.name}`, url: shareLink })
+      await navigator.share({ title: `字卡牌組：${deck.name}`, url: shareLink })
       setShareMsg('已分享')
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') return // 自己關掉面板
-      setShareMsg('系統分享沒有成功,改按「複製連結」')
+      setShareMsg('系統分享沒有成功，改按「複製連結」')
     }
   }
 
@@ -392,16 +418,16 @@ export default function DeckDetail() {
     if (shareLink === null) return
     try {
       await navigator.clipboard.writeText(shareLink)
-      setShareMsg('已複製連結,貼給朋友就好')
+      setShareMsg('已複製連結，貼給朋友就好')
     } catch {
       shareInput.current?.select()
-      setShareMsg('沒辦法自動複製,連結已選取,請手動拷貝')
+      setShareMsg('沒辦法自動複製，連結已選取，請手動拷貝')
     }
   }
 
   const removeDeck = () => run(async () => {
     const ok = await confirm({
-      title: `刪除「${deck.name}」?`,
+      title: `刪除「${deck.name}」？`,
       message: `牌組裡的 ${notes.length} 筆卡片和複習進度會一起刪除。`,
       confirmLabel: '刪除',
       destructive: true,
@@ -413,7 +439,7 @@ export default function DeckDetail() {
       requestSync()
       navigate('/')
     } catch (e) {
-      setErrMsg(`操作失敗:${errText(e)}`)
+      setErrMsg(`操作失敗：${errText(e)}`)
     }
   })
 
@@ -421,15 +447,18 @@ export default function DeckDetail() {
     const id = editingId
     if (id === null || id === 'new') return
     const label = notes.find((n) => n.id === id)?.expression ?? form.expression
-    const ok = await confirm({ title: `刪除「${label}」?`, message: '這筆卡片和它的複習進度會一起刪除。', confirmLabel: '刪除', destructive: true })
+    const ok = await confirm({ title: `刪除「${label}」？`, message: '這筆卡片和它的複習進度會一起刪除。', confirmLabel: '刪除', destructive: true })
     if (!ok) return
     try {
       await softDeleteNote(id)
       closeNote()
-      toast.show(`已刪除「${label}」`)
+      toast.show(`已刪除「${label}」`, {
+        label: '復原',
+        onClick: () => void restoreNote(id).then(() => requestSync()),
+      })
       requestSync()
     } catch (e) {
-      setErrMsg(`操作失敗:${errText(e)}`)
+      setErrMsg(`操作失敗：${errText(e)}`)
     }
   })
 
@@ -437,7 +466,7 @@ export default function DeckDetail() {
   const isNew = editingId === 'new'
   const statusChips: readonly (readonly ['all' | NoteStatus, string, number])[] = [
     ['all', '全部', notes.length],
-    ['active', '學習中', notes.length - statusCounts.known - statusCounts.paused],
+    ['active', '進行中', notes.length - statusCounts.known - statusCounts.paused],
     ['known', '已會', statusCounts.known],
     ['paused', '擱置', statusCounts.paused],
   ]
@@ -489,7 +518,7 @@ export default function DeckDetail() {
         <div className="empty-state">
           <span className="empty-icon"><FileIcon size={28} /></span>
           <h2>還沒有卡片</h2>
-          <p>一張一張加,或是把整份單字表用 CSV 匯進來。</p>
+          <p>一張一張加，或是把整份單字表用 CSV 匯進來。</p>
           <div className="btn-stack">
             <button className="btn lg" onClick={openNew}>新增卡片</button>
             <Link to={`/import?mode=csv&deck=${deck.id}`} className="btn lg secondary">匯入 CSV</Link>
@@ -506,7 +535,7 @@ export default function DeckDetail() {
                 <button className="search-clear" aria-label="清除搜尋" onClick={() => setSearch('')}><CloseIcon size={16} /></button>
               )}
             </div>
-            <button className="icon-btn filled" aria-label={`排序:${SORTS.find(([k]) => k === sort)?.[1]}`}
+            <button className="icon-btn filled" aria-label={`排序：${SORTS.find(([k]) => k === sort)?.[1]}`}
               onClick={() => setSortOpen(true)}><SortIcon /></button>
           </div>
           {(hasParked || status !== 'all') && (
@@ -546,7 +575,14 @@ export default function DeckDetail() {
               )
             })}
           </ul>
-          {filtered.length === 0 && <p className="list-empty">沒有符合的卡片</p>}
+          {filtered.length === 0 && (
+            <div className="list-empty">
+              <p>{search !== '' ? `找不到「${search}」` : '這個分類裡沒有卡片'}</p>
+              <button className="btn plain" onClick={() => { setSearch(''); setStatus('all') }}>
+                {search !== '' ? '清除搜尋' : '顯示全部'}
+              </button>
+            </div>
+          )}
           <div ref={sentinel} />
           <p className="list-count">
             顯示 {shown.length} / {filtered.length} 筆
@@ -586,16 +622,16 @@ export default function DeckDetail() {
         end={<button type="button" className="btn plain strong" disabled={busy} onClick={() => void saveNote()}>{isNew ? '新增' : '儲存'}</button>}>
         <form className="form note-form" onSubmit={(e) => { e.preventDefault(); void saveNote() }}>
           {isNew && addedLabel !== null && (
-            <p className="added-line" role="status"><CheckIcon size={16} />已新增「{addedLabel}」,可以繼續輸入下一個</p>
+            <p className="added-line" role="status"><CheckIcon size={16} />已新增「{addedLabel}」，可以繼續輸入下一個</p>
           )}
           <label className="field"><span className="field-label">單字</span>
             <input ref={firstField} lang="ja" placeholder="例如 勉強" value={form.expression} autoFocus={isNew}
               onChange={(e) => setForm({ ...form, expression: e.target.value })} />
           </label>
           <div className="field-row">
-            <label className="field"><span className="field-label">讀音(可空)</span>
+            <label className="field"><span className="field-label">讀音（可空）</span>
               <input lang="ja" placeholder="例如 べんきょう" value={form.reading}
-                onChange={(e) => setForm({ ...form, reading: e.target.value })} />
+                onChange={(e) => setForm({ ...form, reading: e.target.value })} onBlur={autoLookup} />
             </label>
             {isSpeechSupported() && (
               <button type="button" className="speak-btn field-btn" aria-label="播放發音"
@@ -607,25 +643,27 @@ export default function DeckDetail() {
               onChange={(e) => setForm({ ...form, meaning: e.target.value })} />
           </label>
           <div className="field-row">
-            <label className="field"><span className="field-label">重音(可空)</span>
-              <input placeholder="例如 0、2 或 0,3" inputMode="numeric" value={form.accent}
-                onChange={(e) => setForm({ ...form, accent: e.target.value })} />
+            <label className="field"><span className="field-label">重音（可空）</span>
+              {/* 不用 numeric 鍵盤:iPhone 的數字鍵盤打不出「0,3」的逗號 */}
+              <input placeholder="例如 0 或 0,3" value={form.accent} autoCapitalize="off" autoCorrect="off"
+                onChange={(e) => { setForm({ ...form, accent: e.target.value }); setAccentHint('') }} />
             </label>
             <button type="button" className="btn secondary field-btn" disabled={looking} onClick={() => void lookupOne()}>
               {looking ? '查詢中…' : '查字典'}
             </button>
           </div>
+          {accentHint !== '' && <p className="field-hint accent-hint">{accentHint}</p>}
           {form.reading.trim() !== '' && form.accent.trim() !== '' && isValidAccent(form.accent.trim()) && (
             <div className="accent-preview"><PitchAccent reading={form.reading.trim()} accent={form.accent.trim()} /></div>
           )}
-          <ListSection footer="反向卡:看中文意思,想出日文單字。">
+          <ListSection footer="反向卡：看中文意思，想出日文單字。">
             <label className="row">
               <span className="row-main"><span className="row-title">同時建立反向卡</span></span>
               <Switch label="同時建立反向卡" checked={form.reversed} onChange={(v) => setForm({ ...form, reversed: v })} />
             </label>
           </ListSection>
           {!isNew && allDecks !== undefined && allDecks.length > 1 && (
-            <label className="field"><span className="field-label">牌組(換一副 = 搬過去,進度保留)</span>
+            <label className="field"><span className="field-label">牌組（換一副 = 搬過去，進度保留）</span>
               <select value={moveTo ?? deck.id} onChange={(e) => setMoveTo(e.target.value)}>
                 {allDecks.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
@@ -652,10 +690,10 @@ export default function DeckDetail() {
             <input type="number" min={0} inputMode="numeric"
               value={newPerDay !== null && Number.isNaN(newPerDay) ? '' : newPerDay ?? deck.new_per_day}
               onChange={(e) => setNewPerDay(e.target.value === '' ? NaN : Number(e.target.value))} />
-            <span className="field-hint">沒看過的字每天最多出現幾張;複習到期的卡不受限制。</span>
+            <span className="field-hint">沒看過的字每天最多出現幾張；複習到期的卡不受限制。</span>
           </label>
           {errMsg && <p className="err" role="alert">{errMsg}</p>}
-          <ListSection footer="反向卡:看中文意思,想出日文單字。新的反向卡從新卡開始排程。">
+          <ListSection footer="反向卡：看中文意思，想出日文單字。新的反向卡從新卡開始排程。">
             <button type="button" className="row accent" disabled={busy} onClick={() => void bulkReverse()}>為整副開啟反向卡</button>
           </ListSection>
           <ListSection>
@@ -669,7 +707,7 @@ export default function DeckDetail() {
         start={<span />}
         end={<button type="button" className="btn plain strong" onClick={() => { setShareOpen(false); setShareLink(null); setShareMsg(null) }}>完成</button>}>
         <div className="share-sheet">
-          <p className="hint">朋友打開連結就能匯入「{deck.name}」的單字,不含你的複習進度。連結半年後失效。</p>
+          <p className="hint">朋友打開連結就能匯入「{deck.name}」的單字，不含你的複習進度。連結半年後失效。</p>
           {shareLink === null ? (
             <div className="share-uploading" role="status">
               {shareMsg?.startsWith('分享失敗') ? <p className="err">{shareMsg}</p> : <><span className="spinner" aria-hidden="true" />{shareMsg ?? '準備中…'}</>}

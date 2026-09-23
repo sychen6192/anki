@@ -1,5 +1,16 @@
 import { describe, it, expect, vi } from 'vitest'
-import { isValidAccent, lookupAccents, fillMissingAccents } from '../src/lib/accent'
+import { isValidAccent, lookupAccents, fillMissingAccents, normalizeAccent } from '../src/lib/accent'
+
+describe('normalizeAccent', () => {
+  it('全形數字、頓號、全形逗號、空白都統一成半形「0,3」', () => {
+    expect(normalizeAccent('０、３')).toBe('0,3')
+    expect(normalizeAccent('0，3')).toBe('0,3')
+    expect(normalizeAccent(' 0 3 ')).toBe('0,3')
+    expect(normalizeAccent('2,')).toBe('2')
+    expect(normalizeAccent('')).toBe('')
+    expect(isValidAccent(normalizeAccent('１，２'))).toBe(true)
+  })
+})
 
 describe('isValidAccent', () => {
   it('接受空字串與數字/逗號組合,拒絕其他', () => {

@@ -30,7 +30,7 @@
 }
 .review-remaining {
   min-width: 30px; margin-right: 2px; text-align: right;
-  font-size: 14px; font-weight: 650; color: var(--text-2); font-variant-numeric: tabular-nums;
+  font-size: var(--fs-small); font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums;
 }
 .review-err { margin: 4px 4px 0; }
 
@@ -54,25 +54,25 @@
 /* 跨牌組複習時,左上角標出這張卡屬於哪副牌組 */
 .card-deck {
   position: absolute; top: 14px; left: 18px; right: 18px;
-  font-size: 12.5px; font-weight: 600; color: var(--text-3); text-align: left;
+  font-size: var(--fs-caption); font-weight: 600; color: var(--text-3); text-align: left;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .expression {
-  font-size: 48px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.25;
+  font-size: var(--fs-display); font-weight: 700; letter-spacing: -0.01em; line-height: 1.25;
   /* 日文單字盡量整個不斷;真的放不下才換行 */
   line-break: strict; overflow-wrap: anywhere;
 }
 /* 依字數分級,正反面同一個字級 */
-.expression.size-md { font-size: 36px; }
-.expression.size-sm { font-size: 29px; line-height: 1.35; }
-.expression.size-xs { font-size: 23px; line-height: 1.5; font-weight: 650; }
+.expression.size-md { font-size: var(--fs-large); }
+.expression.size-sm { font-size: var(--fs-title1); line-height: 1.35; }
+.expression.size-xs { font-size: var(--fs-title2); line-height: 1.5; font-weight: 600; }
 /* 反向卡正面是中文意思:字重輕一點,跟日文單字分得出來 */
 .expression.prompt-text { font-weight: 600; }
 .card-prompt {
-  font-size: 12.5px; font-weight: 650; color: var(--accent); letter-spacing: .04em;
+  font-size: var(--fs-caption); font-weight: 600; color: var(--accent); letter-spacing: .04em;
   padding: 3px 10px; border-radius: 999px; background: var(--accent-tint);
 }
-.card-hint { font-size: 14px; color: var(--text-3); }
+.card-hint { font-size: var(--fs-small); color: var(--text-3); }
 
 /* 答案:正面時先佔好位置但看不見,翻面只淡入,不推動上面的單字 */
 .card-answer { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; }
@@ -83,7 +83,7 @@
 .reading-row .speak-btn { width: 44px; height: 44px; }
 .card-divider { width: 40px; height: 3px; border-radius: 2px; background: var(--separator); margin: 2px 0; }
 /* 意思是這張卡的「答案」,不該是最灰的一層 */
-.meaning { font-size: 22px; font-weight: 550; line-height: 1.5; overflow-wrap: anywhere; }
+.meaning { font-size: var(--fs-title2); font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
 
 .review-actions {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
@@ -91,8 +91,8 @@
   background: linear-gradient(to top, var(--bg) 72%, color-mix(in srgb, var(--bg) 0%, transparent));
 }
 .review-actions > * { max-width: 688px; margin: 0 auto; }
-.show-answer { min-height: 60px; font-size: 18px; border-radius: 16px; }
-.show-answer .kbd-hint { font-size: 13px; font-weight: 500; }
+.show-answer { min-height: 60px; font-size: var(--fs-headline); border-radius: 16px; }
+.show-answer .kbd-hint { font-size: var(--fs-footnote); font-weight: 500; }
 
 .ratings { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .rating {
@@ -105,9 +105,9 @@
 }
 .rating:active { transform: scale(0.96); filter: brightness(.94); }
 @media (hover: hover) { .rating:hover { filter: brightness(1.06); } }
-.rating-label { font-size: 17px; font-weight: 650; }
-.rating-interval { font-size: 12.5px; font-weight: 500; opacity: .9; font-variant-numeric: tabular-nums; }
-.rating-key { position: absolute; top: 5px; right: 8px; font-size: 11px; }
+.rating-label { font-size: var(--fs-headline); font-weight: 600; }
+.rating-interval { font-size: var(--fs-caption); font-weight: 500; opacity: .9; font-variant-numeric: tabular-nums; }
+.rating-key { position: absolute; top: 5px; right: 8px; font-size: var(--fs-caption2); }
 
 /* 評分後的回饋(可復原):浮在評分鍵上方 */
 .review-toast { bottom: calc(var(--safe-bottom) + 96px); }
@@ -126,12 +126,12 @@
   background: var(--success-tint); color: var(--success);
   animation: pop-in .35s cubic-bezier(.2, .8, .2, 1);
 }
-.review-done h1 { font-size: 28px; font-weight: 750; }
-.done-stats { color: var(--text-2); font-size: 16px; }
+.review-done h1 { font-size: var(--fs-title1); font-weight: 700; }
+.done-stats { color: var(--text-2); font-size: var(--fs-body); }
 .done-stats b { color: var(--text); font-variant-numeric: tabular-nums; }
-.done-wait { color: var(--text-2); font-size: 15px; max-width: 24em; }
+.done-wait { color: var(--text-2); font-size: var(--fs-subhead); max-width: 24em; }
 .review-done .btn-stack { width: 100%; max-width: 340px; margin-top: 16px; }
-.btn-note { font-size: 13px; font-weight: 500; opacity: .75; }
+.btn-note { font-size: var(--fs-footnote); font-weight: 500; opacity: .75; }
 
 /* 寬螢幕:按鈕接在卡片下面,不必跑到畫面最底 */
 @media (min-width: 768px) {

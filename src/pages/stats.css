@@ -4,15 +4,15 @@
 
 .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
 .stat { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 14px 6px; }
-.stat b { font-size: 26px; font-weight: 750; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.stat span { font-size: 13px; color: var(--text-2); font-weight: 550; }
+.stat b { font-size: var(--fs-title1); font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.stat span { font-size: var(--fs-footnote); color: var(--text-2); font-weight: 500; }
 
 .stat-card { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; }
 .stat-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.stat-card-head h2 { font-size: 17px; font-weight: 700; }
-.stat-card-note { font-size: 13px; color: var(--text-2); }
-.stat-empty { color: var(--text-2); font-size: 14.5px; text-align: center; padding: 20px 8px; }
-.inline-link { color: var(--accent); text-decoration: none; font-weight: 550; }
+.stat-card-head h2 { font-size: var(--fs-headline); font-weight: 700; }
+.stat-card-note { font-size: var(--fs-footnote); color: var(--text-2); }
+.stat-empty { color: var(--text-2); font-size: var(--fs-subhead); text-align: center; padding: 20px 8px; }
+.inline-link { color: var(--accent); text-decoration: none; font-weight: 500; }
 
 /* 真實保持率:三個區間並排,低於/高於目標上色 */
 .retention-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -20,21 +20,21 @@
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: 10px 4px; border-radius: var(--radius); background: var(--fill-2);
 }
-.retention b { font-size: 24px; font-weight: 750; font-variant-numeric: tabular-nums; }
-.retention span { font-size: 12.5px; color: var(--text-2); text-align: center; }
+.retention b { font-size: var(--fs-title2); font-weight: 700; font-variant-numeric: tabular-nums; }
+.retention span { font-size: var(--fs-caption); color: var(--text-2); text-align: center; }
 .retention.low b { color: var(--danger); }
 .retention.high b { color: var(--success); }
 
 .heatmap { display: flex; gap: 3px; justify-content: center; padding: 2px 0; overflow-x: auto; }
 .heat-week { display: flex; flex-direction: column; gap: 3px; }
-.heat-month { height: 13px; width: 13px; font-size: 10px; line-height: 1.2; color: var(--text-2); white-space: nowrap; overflow: visible; }
+.heat-month { height: 13px; width: 13px; font-size: var(--fs-caption2); line-height: 1.2; color: var(--text-2); white-space: nowrap; overflow: visible; }
 .heat-cell { width: 13px; height: 13px; border-radius: 3.5px; background: var(--fill); }
 .heat-cell.pad { visibility: hidden; }
-.heat-legend { display: flex; align-items: center; justify-content: flex-end; gap: 4px; font-size: 12px; color: var(--text-2); }
+.heat-legend { display: flex; align-items: center; justify-content: flex-end; gap: 4px; font-size: var(--fs-caption); color: var(--text-2); }
 
 .state-dist { display: flex; align-items: center; gap: 16px; }
 .dist-legend { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; flex: 1; }
-.dist-legend li { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.dist-legend li { display: flex; align-items: center; gap: 8px; font-size: var(--fs-subhead); }
 .dist-legend li b { margin-left: auto; font-variant-numeric: tabular-nums; }
 .dist-legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 
@@ -49,4 +49,4 @@
 .recharts-default-tooltip .recharts-tooltip-item { color: var(--text) !important; }
 /* hover 時蓋在長條上的游標矩形,預設 #ccc 在深色下是一塊亮斑 */
 .recharts-tooltip-cursor { fill: color-mix(in srgb, var(--text) 8%, transparent); }
-.recharts-cartesian-axis-tick text { fill: var(--text-2); font-size: 11.5px; }
+.recharts-cartesian-axis-tick text { fill: var(--text-2); font-size: var(--fs-caption2); }

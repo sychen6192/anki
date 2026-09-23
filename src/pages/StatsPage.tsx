@@ -156,8 +156,8 @@ export default function StatsPage() {
               ))}
             </div>
             <p className="hint">
-              到期時答對的比例。明顯低於目標可以到<Link to="/settings" className="inline-link">設定</Link>用自己的紀錄最佳化參數;
-              明顯高於目標可以把目標調低,少複習一點。
+              到期時答對的比例。明顯低於目標可以到<Link to="/settings" className="inline-link">設定</Link>用自己的紀錄最佳化參數；
+              明顯高於目標可以把目標調低，少複習一點。
             </p>
           </>
         )}
@@ -242,7 +242,7 @@ export default function StatsPage() {
           </div>
         )}
         {(parked.known > 0 || parked.paused > 0) && (
-          <p className="hint">不含已經會了 {parked.known} 張、擱置 {parked.paused} 張(牌組頁可以恢復)。</p>
+          <p className="hint">不含已經會了 {parked.known} 張、擱置 {parked.paused} 張（牌組頁可以恢復）。</p>
         )}
       </section>
     </>

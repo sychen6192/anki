@@ -14,6 +14,7 @@ import {
 } from '../db/repo'
 import { applyFsrsSettings, formatInterval, previewIntervals, rate, State, type RatingValue } from '../lib/fsrs'
 import { getFsrsSettings } from '../lib/fsrsSettings'
+import { isValidAccent, normalizeAccent } from '../lib/accent'
 import { buildMultiDeckQueue, deckQueue, startOfToday } from '../lib/queue'
 import { reviewKeyAction } from '../lib/reviewKeys'
 import { syncNow } from '../lib/sync'
@@ -216,10 +217,10 @@ export default function Review() {
         // 否則評分按鈕還掛著舊狀態,再按一次會用過期資料重複評分。
         setCurrent(null)
         setDone(true)
-        setErrMsg('載入下一張失敗,請回列表重新進入')
+        setErrMsg('載入下一張失敗，請回列表重新進入')
       }
     } catch (e) {
-      setErrMsg(`評分未儲存:${e instanceof Error ? e.message : String(e)}`)
+      setErrMsg(`評分未儲存：${e instanceof Error ? e.message : String(e)}`)
     } finally {
       answering.current = false
     }
@@ -245,10 +246,10 @@ export default function Review() {
       const prev = await setNoteSuspended(current.note.id, value)
       setErrMsg(null)
       pushUndo({ kind: 'suspend', cardId: current.card.id, prev })
-      showToast(value === 2 ? `「${word}」已標為會了,不會再出現` : `已擱置「${word}」,牌組頁可以恢復`)
+      showToast(value === 2 ? `「${word}」已標為會了，不會再出現` : `已擱置「${word}」，牌組頁可以恢復`)
       await loadNext()
     } catch (e) {
-      setErrMsg(`${value === 2 ? '標記' : '擱置'}失敗:${e instanceof Error ? e.message : String(e)}`)
+      setErrMsg(`${value === 2 ? '標記' : '擱置'}失敗：${e instanceof Error ? e.message : String(e)}`)
     } finally {
       answering.current = false
     }
@@ -266,13 +267,18 @@ export default function Review() {
     try {
       // 只改文字,不動「反向卡」—— 複習到一半增刪卡片會讓當下的佇列對不上
       const { noteId, ...fields } = editing
-      await updateNote(noteId, fields)
+      const accent = normalizeAccent(fields.accent)
+      if (!isValidAccent(accent)) {
+        setErrMsg('重音格式錯誤（只能是數字，多重音用逗號分隔，如 0 或 0,3）')
+        return
+      }
+      await updateNote(noteId, { ...fields, accent })
       const fresh = await db.notes.get(noteId)
       if (fresh) setCurrent((c) => (c !== null && c.note.id === noteId ? { ...c, note: fresh } : c))
       setEditing(null)
       setErrMsg(null)
     } catch (e) {
-      setErrMsg(`儲存失敗:${e instanceof Error ? e.message : String(e)}`)
+      setErrMsg(`儲存失敗：${e instanceof Error ? e.message : String(e)}`)
     } finally {
       answering.current = false
     }
@@ -291,7 +297,7 @@ export default function Review() {
       setErrMsg(null)
       await loadNext(entry.kind === 'rate' ? entry.card.id : entry.cardId)
     } catch (e) {
-      setErrMsg(`復原失敗:${e instanceof Error ? e.message : String(e)}`)
+      setErrMsg(`復原失敗：${e instanceof Error ? e.message : String(e)}`)
     } finally {
       answering.current = false
     }
@@ -373,10 +379,10 @@ export default function Review() {
         )}
         {errMsg && <p className="err" role="alert">{errMsg}</p>}
         {waitMs !== null && (waitMs > AUTO_RESUME_WINDOW ? (
-          <p className="done-wait">還有學習中的卡片,約 {formatInterval(waitMs)}後到期</p>
+          <p className="done-wait">還有學習中的卡片，約 {formatInterval(waitMs)}後到期</p>
         ) : (
           <p className="done-wait" role="status">
-            還有學習中的卡片,{waitMs > 0 ? `${Math.ceil(waitMs / 1000)} 秒後自動繼續` : '正在繼續…'}
+            還有學習中的卡片，{waitMs > 0 ? `${Math.ceil(waitMs / 1000)} 秒後自動繼續` : '正在繼續…'}
           </p>
         ))}
         <div className="btn-stack">
@@ -433,14 +439,14 @@ export default function Review() {
   return (
     <div className="review-screen">
       <header className="review-bar">
-        <button className="icon-btn" aria-label="結束複習" title="結束複習(Esc)" onClick={exit}><CloseIcon /></button>
+        <button className="icon-btn" aria-label="結束複習" title="結束複習（Esc）" onClick={exit}><CloseIcon /></button>
         <div className="review-progress" role="progressbar" aria-label="這次的進度"
           aria-valuemin={0} aria-valuemax={sessionMax} aria-valuenow={sessionMax - remaining}>
           <span style={{ width: `${progress}%` }} />
         </div>
         <span className="review-remaining" aria-label={`剩 ${remaining} 張`}>{remaining}</span>
         <button className="icon-btn" aria-label="復原上一步" disabled={lastAction === null}
-          onClick={() => void undo()} title="復原上一步(U)"><UndoIcon size={21} /></button>
+          onClick={() => void undo()} title="復原上一步（U）"><UndoIcon size={21} /></button>
         <button className="icon-btn" aria-label="更多動作" aria-haspopup="dialog"
           onClick={() => setMenuOpen(true)}><MoreIcon /></button>
       </header>
@@ -454,7 +460,7 @@ export default function Review() {
           <div className="card-face" key={`${card.id}-front`}>
             <span className="card-prompt">中 → 日</span>
             <p className={`expression prompt-text${sizeClass(note.meaning)}`}>{note.meaning}</p>
-            <p className="card-hint">日文怎麼說?</p>
+            <p className="card-hint">日文怎麼說？</p>
           </div>
         ) : (
           <div className="card-face" key={card.id}>
@@ -491,8 +497,8 @@ export default function Review() {
 
       <ActionSheet open={menuOpen} onClose={() => setMenuOpen(false)} actions={[
         { label: '編輯這張', icon: <PencilIcon size={20} />, onSelect: openEdit },
-        { label: '跳過,等一下再看', icon: <SkipIcon size={20} />, onSelect: () => void skip() },
-        { label: '已經會了,不用再出現', icon: <CheckIcon size={20} />, onSelect: () => void markSuspended(2) },
+        { label: '跳過，等一下再看', icon: <SkipIcon size={20} />, onSelect: () => void skip() },
+        { label: '已經會了，不用再出現', icon: <CheckIcon size={20} />, onSelect: () => void markSuspended(2) },
         { label: '擱置這個字', icon: <ArchiveIcon size={20} />, onSelect: () => void markSuspended(1) },
       ]} />
 
@@ -500,7 +506,7 @@ export default function Review() {
         end={<button className="btn plain strong" onClick={() => void saveEdit()}>儲存</button>}>
         {editing !== null && (
           <form className="form" onSubmit={(e) => { e.preventDefault(); void saveEdit() }}>
-            {!showBack && <p className="hint">打開編輯就會看到答案,這張等一下建議按「重來」。</p>}
+            {!showBack && <p className="hint">打開編輯就會看到答案，這張等一下建議按「重來」。</p>}
             <label className="field"><span className="field-label">單字</span>
               <input value={editing.expression} lang="ja"
                 onChange={(e) => setEditing({ ...editing, expression: e.target.value })} />
@@ -514,7 +520,7 @@ export default function Review() {
                 onChange={(e) => setEditing({ ...editing, meaning: e.target.value })} />
             </label>
             <label className="field"><span className="field-label">重音</span>
-              <input value={editing.accent} inputMode="numeric" placeholder="例如 0、2 或 0,3"
+              <input value={editing.accent} placeholder="例如 0 或 0,3" autoCapitalize="off" autoCorrect="off"
                 onChange={(e) => setEditing({ ...editing, accent: e.target.value })} />
             </label>
             {errMsg && <p className="err" role="alert">{errMsg}</p>}

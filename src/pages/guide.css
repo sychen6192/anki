@@ -1,7 +1,7 @@
 /* ---------- 使用說明 ---------- */
 .guide-card { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; line-height: 1.6; }
 .guide-card:first-of-type { margin-top: 16px; }
-.guide-card h2 { font-size: 18px; font-weight: 700; }
+.guide-card h2 { font-size: var(--fs-headline); font-weight: 700; }
 .guide-steps { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; }
 .guide-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
 .guide-rates { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 10px; }
@@ -9,14 +9,14 @@
 .rate-chip {
   display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
   min-width: 56px; padding: 3px 10px; border-radius: 999px;
-  color: #fff; font-size: 13.5px; font-weight: 600;
+  color: #fff; font-size: var(--fs-footnote); font-weight: 600;
 }
 .inline-icon {
   display: inline-flex; align-items: center; justify-content: center; vertical-align: -3px;
   width: 22px; height: 22px; margin: 0 2px; border-radius: 6px;
   background: var(--accent-tint); color: var(--accent);
 }
-.inline-link { color: var(--accent); text-decoration: none; font-weight: 550; }
-.kbd-table { border-collapse: collapse; font-size: 14.5px; }
+.inline-link { color: var(--accent); text-decoration: none; font-weight: 500; }
+.kbd-table { border-collapse: collapse; font-size: var(--fs-subhead); }
 .kbd-table td { padding: 5px 14px 5px 0; vertical-align: middle; }
 .guide-btn { align-self: flex-start; }

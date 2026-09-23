@@ -58,8 +58,8 @@ export class ShareNotFoundError extends Error {}
 /** 讀取分享內容;404 講人話,其餘錯誤帶狀態碼 */
 export async function fetchShare(code: string, fetchFn: typeof fetch = fetch): Promise<SharedDeck> {
   const res = await fetchFn(`/api/share/${encodeURIComponent(code)}`)
-  if (res.status === 404) throw new ShareNotFoundError('找不到這個分享,連結可能貼錯了或已經過期')
-  if (!res.ok) throw new Error(`讀取分享失敗(HTTP ${res.status})`)
+  if (res.status === 404) throw new ShareNotFoundError('找不到這個分享，連結可能貼錯了或已經過期')
+  if (!res.ok) throw new Error(`讀取分享失敗（HTTP ${res.status}）`)
   const data = await res.json() as { name?: unknown; rows?: unknown }
   return {
     name: typeof data.name === 'string' && data.name.trim() !== '' ? data.name.trim() : '分享的牌組',

@@ -4,17 +4,17 @@
 .today { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; padding: 18px; }
 .today-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .today-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.today-label { font-size: 13px; font-weight: 650; color: var(--text-2); letter-spacing: .02em; }
-.today-headline { font-size: 22px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.3; }
-.today-headline b { font-size: 34px; font-weight: 750; letter-spacing: -0.02em; margin-right: 2px; }
-.today-headline.done { display: inline-flex; align-items: center; gap: 8px; font-size: 20px; color: var(--success); }
-.today-sub { font-size: 14px; color: var(--text-2); }
+.today-label { font-size: var(--fs-footnote); font-weight: 600; color: var(--text-2); letter-spacing: .02em; }
+.today-headline { font-size: var(--fs-title2); font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
+.today-headline b { font-size: var(--fs-large); font-weight: 700; letter-spacing: -0.02em; margin-right: 2px; }
+.today-headline.done { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-title3); color: var(--success); }
+.today-sub { font-size: var(--fs-small); color: var(--text-2); }
 .today-cta { margin-top: 4px; }
 .streak {
   display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
   padding: 4px 10px; border-radius: 999px;
   background: color-mix(in srgb, var(--warning) 14%, transparent); color: var(--warning);
-  font-size: 13.5px; font-weight: 650; font-variant-numeric: tabular-nums;
+  font-size: var(--fs-footnote); font-weight: 600; font-variant-numeric: tabular-nums;
 }
 
 .today + .notice, .notice + .deck-section, .today + .deck-section { margin-top: 16px; }
@@ -31,22 +31,22 @@
   color: inherit; text-decoration: none;
 }
 .deck-link:active { opacity: .6; }
-.deck-name { font-size: 17px; font-weight: 600; }
+.deck-name { font-size: var(--fs-headline); font-weight: 600; }
 .deck-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
 .deck-meta .count { gap: 5px; }
 .deck-meta .dot { width: 7px; height: 7px; }
-.deck-done { color: var(--success); font-weight: 550; }
+.deck-done { color: var(--text-3); }
 .deck-words { color: var(--text-3); }
 .deck-review { min-width: 64px; gap: 6px; font-variant-numeric: tabular-nums; }
-.deck-check { display: inline-flex; align-items: center; justify-content: center; width: 64px; color: var(--success); }
+.deck-check { display: inline-flex; align-items: center; justify-content: center; width: 64px; color: var(--text-3); }
 
 /* 首次使用:歡迎卡、剛建好的金鑰 */
 .welcome {
   margin-top: 16px; padding: 24px 20px;
   display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px;
 }
-.welcome h2 { font-size: 22px; font-weight: 700; }
-.welcome p { color: var(--text-2); font-size: 15px; max-width: 26em; }
+.welcome h2 { font-size: var(--fs-title2); font-weight: 700; }
+.welcome p { color: var(--text-2); font-size: var(--fs-subhead); max-width: 26em; }
 .welcome .btn-stack { width: 100%; max-width: 340px; margin-top: 8px; }
 .welcome > .btn.lg { max-width: 340px; margin-top: 6px; }
 .welcome-icon { width: 64px; height: 64px; border-radius: 16px; }
@@ -61,6 +61,6 @@
 }
 .key-code {
   flex: 1; min-width: 0; text-align: left;
-  font-family: ui-monospace, SFMono-Regular, monospace; font-size: 15px;
+  font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--fs-subhead);
   overflow-wrap: anywhere; user-select: all;
 }

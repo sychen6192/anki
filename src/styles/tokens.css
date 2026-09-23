@@ -44,6 +44,20 @@
   --rate-good: #2f8253;
   --rate-easy: #4a6fc0;
 
+  /* 字級:只用這幾級,頁面 CSS 一律寫 var(--fs-*),不寫原始 px */
+  --fs-caption2: 11px;   /* 分頁列文字、圖表軸 */
+  --fs-caption: 12px;    /* 標籤、小計 */
+  --fs-footnote: 13px;   /* 分組標題與底下說明、提示 */
+  --fs-small: 14px;      /* 小按鈕、chip、分段控制 */
+  --fs-subhead: 15px;    /* 次要一行(副標、讀音、意思) */
+  --fs-body: 16px;       /* 內文、列標題、輸入框(小於 16px iPhone 會放大整頁) */
+  --fs-headline: 17px;   /* 強調的列標題、名稱、按鈕 */
+  --fs-title3: 20px;     /* 區塊標題 */
+  --fs-title2: 22px;     /* 卡片上的主資訊 */
+  --fs-title1: 28px;     /* 大數字、完成畫面 */
+  --fs-large: 34px;      /* 頁面大標(寬螢幕)、首頁的今日張數 */
+  --fs-display: 48px;    /* 複習卡上的單字 */
+
   --radius-sm: 8px;
   --radius: 12px;
   --radius-lg: 16px;

@@ -3,7 +3,7 @@ import { beforeEach, describe, it, expect, vi, afterEach } from 'vitest'
 import { db } from '../src/db/db'
 import { createDeck, createNote, softDeleteDeck } from '../src/db/repo'
 import { requestSync, syncNow } from '../src/lib/sync'
-import { adoptSyncSpace, countUnsynced, getSyncSpace, hasLocalData, setSyncSpace, clearLocalData } from '../src/lib/space'
+import { adoptSyncSpace, countUnsynced, getSyncSpace, hasLocalData, leaveSyncSpace, setSyncSpace, clearLocalData } from '../src/lib/space'
 import { DEFAULT_FSRS_SETTINGS, getFsrsSettings, saveFsrsSettings } from '../src/lib/fsrsSettings'
 
 type Row = Record<string, any>
@@ -415,6 +415,17 @@ describe('純本機模式(沒設金鑰)', () => {
     expect(await countUnsynced()).toBe(3) // 牌組 + 筆記 + 卡片
     await syncNow(server.fetchFn)
     expect(await countUnsynced()).toBe(0)
+  })
+
+  it('leaveSyncSpace:停止同步但保留這台的資料,之後不再連雲端', async () => {
+    const server = makeServer()
+    await createDeck('A')
+    await syncNow(server.fetchFn)
+    await leaveSyncSpace()
+    expect(await getSyncSpace()).toBe('')
+    expect(await db.decks.count()).toBe(1)
+    expect(await db.meta.get('sync_cursor')).toBeUndefined()
+    expect((await syncNow(noFetch)).reason).toBe('local-only')
   })
 
   it('hasLocalData:有牌組或複習紀錄才算', async () => {

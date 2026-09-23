@@ -39,8 +39,8 @@ function Welcome({ onKeyGenerated }: { onKeyGenerated: (key: string) => void }) 
   })
   const stayLocal = () => run(async () => {
     const ok = await confirm({
-      title: '只存在這台裝置?',
-      message: '換手機或清掉瀏覽器資料,牌組和進度就沒了。之後隨時能在設定頁補設金鑰。',
+      title: '只存在這台裝置？',
+      message: '換手機或清掉瀏覽器資料，牌組和進度就沒了。之後隨時能在設定頁補設金鑰。',
       confirmLabel: '只存這台',
     })
     if (ok) await setSyncSpace('')
@@ -50,9 +50,9 @@ function Welcome({ onKeyGenerated }: { onKeyGenerated: (key: string) => void }) 
     <section className="welcome card">
       <img className="welcome-icon" src="/icon.svg" alt="" width={64} height={64} />
       <h2>歡迎使用字卡</h2>
-      <p>要在手機、電腦之間同步進度嗎?同步用一組金鑰當你的私人空間,不用註冊帳號。</p>
+      <p>要在手機、電腦之間同步進度嗎？同步用一組金鑰當你的私人空間，不用註冊帳號。</p>
       <div className="btn-stack">
-        <button className="btn lg" disabled={busy} onClick={() => void generate()}>產生同步金鑰(推薦)</button>
+        <button className="btn lg" disabled={busy} onClick={() => void generate()}>產生同步金鑰（推薦）</button>
         <Link to="/settings" className="btn lg secondary">我已經有金鑰</Link>
         <button className="btn plain" disabled={busy} onClick={() => void stayLocal()}>先只存在這台裝置</button>
       </div>
@@ -67,7 +67,7 @@ function KeyCreated({ keyValue, onDone }: { keyValue: string; onDone: () => void
     <section className="welcome card" role="status">
       <span className="welcome-check"><CheckIcon size={30} /></span>
       <h2>同步金鑰建好了</h2>
-      <p>換手機或在電腦上用時要輸入它,先抄下來或複製存好。設定頁隨時查得到。</p>
+      <p>換手機或在電腦上用時要輸入它，先抄下來或複製存好。設定頁隨時查得到。</p>
       <div className="key-box">
         <code className="key-code">{keyValue}</code>
         <button className="btn sm tinted" onClick={() => {
@@ -97,10 +97,10 @@ function NewDeckSheet({ open, onClose }: { open: boolean; onClose: () => void })
       <form className="form" onSubmit={(e) => { e.preventDefault(); void submit() }}>
         <label className="field">
           <span className="field-label">牌組名稱</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="例如:N3 單字" autoFocus
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：N3 單字" autoFocus
             enterKeyHint="done" />
         </label>
-        <p className="hint">建好之後可以一張一張加卡片,也可以從「+」匯入 CSV 或 Anki 牌組。</p>
+        <p className="hint">建好之後可以一張一張加卡片，也可以從「+」匯入 CSV 或 Anki 牌組。</p>
       </form>
     </Sheet>
   )
@@ -192,9 +192,9 @@ export default function DeckList() {
           </div>
           {totalDue > 0 && (
             <div className="counts-inline">
-              <span className="count"><span className="dot new" />新卡 <b>{total.news}</b></span>
-              <span className="count"><span className="dot learn" />學習中 <b>{total.learn}</b></span>
-              <span className="count"><span className="dot due" />待複習 <b>{total.rev}</b></span>
+              <span className={`count${total.news === 0 ? ' zero' : ''}`}><span className="dot new" />新卡 <b>{total.news}</b></span>
+              <span className={`count${total.learn === 0 ? ' zero' : ''}`}><span className="dot learn" />學習中 <b>{total.learn}</b></span>
+              <span className={`count${total.rev === 0 ? ' zero' : ''}`}><span className="dot due" />待複習 <b>{total.rev}</b></span>
             </div>
           )}
           {todayLogs.length > 0 && <p className="today-sub">今天已複習 {todayLogs.length} 張</p>}
@@ -206,7 +206,7 @@ export default function DeckList() {
 
       {syncError !== undefined && (
         <div className="notice error" role="alert">
-          <span className="notice-text">同步失敗:{String(syncError.value)}</span>
+          <span className="notice-text">同步失敗：{String(syncError.value)}</span>
           <span className="notice-actions">
             <button className="link" disabled={retrying} onClick={() => void runRetry(async () => {
               const r = await syncNow() // 成功會清掉 sync_error meta,這條橫幅跟著消失
@@ -217,7 +217,7 @@ export default function DeckList() {
       )}
       {showKeyHint && (
         <div className="notice">
-          <span className="notice-text">資料只存在這台裝置,沒有備份。開啟同步後會上傳到你的私人空間。</span>
+          <span className="notice-text">資料只存在這台裝置，沒有備份。開啟同步後會上傳到你的私人空間。</span>
           <span className="notice-actions">
             <button className="link" disabled={enabling} onClick={() => void runEnable(async () => {
               // 純本機開始同步:本機資料整份帶過去(adoptSyncSpace 不清本機)
@@ -259,7 +259,7 @@ export default function DeckList() {
                 </Link>
                 {queue.length > 0 ? (
                   <Link to={`/review/${deck.id}`} className="btn sm tinted deck-review"
-                    aria-label={`複習「${deck.name}」,${queue.length} 張`}>
+                    aria-label={`複習「${deck.name}」，${queue.length} 張`}>
                     <PlayIcon size={10} />{queue.length}
                   </Link>
                 ) : (
@@ -273,12 +273,12 @@ export default function DeckList() {
         <div className="empty-state">
           <span className="empty-icon"><DecksIcon size={30} /></span>
           <h2>還沒有牌組</h2>
-          <p>從範本開始最快;也可以匯入自己的單字表,或建一副空白的慢慢加。</p>
+          <p>從範本開始最快；也可以匯入自己的單字表，或建一副空白的慢慢加。</p>
           <div className="btn-stack">
             <Link to="/import?mode=templates" className="btn lg">從範本開始</Link>
             <button className="btn lg secondary" onClick={() => setMenuOpen(true)}>匯入或新增…</button>
           </div>
-          <Link to="/guide" className="link">第一次用?看使用說明</Link>
+          <Link to="/guide" className="link">第一次用？看使用說明</Link>
         </div>
       )}
 
