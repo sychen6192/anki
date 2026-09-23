@@ -130,6 +130,10 @@ describe('storageSeparateFromApp', () => {
   const LINUX_FIREFOX = 'Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0'
   const WINDOWS_FIREFOX = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0'
   const ANDROID_FIREFOX = 'Mozilla/5.0 (Android 14; Mobile; rv:130.0) Gecko/130.0 Firefox/130.0'
+  // Android 版 Firefox 開「電腦版網站」(平板預設開)時送的 UA,和 Linux 桌機一模一樣
+  const ANDROID_FIREFOX_DESKTOP_SITE = LINUX_FIREFOX
+  // iPad 上 App 的內建瀏覽器常用電腦版 UA:Macintosh、沒有 Safari/
+  const IPAD_WEBVIEW = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)'
 
   it('iPhone(含 iOS 的 Chrome)、偽裝成 Mac 的 iPad、Mac Safari、App 內建瀏覽器:資料和 App 分開', () => {
     expect(storageSeparateFromApp(IOS_THREADS, 5)).toBe(true)
@@ -144,6 +148,11 @@ describe('storageSeparateFromApp', () => {
   it('Mac / Linux 的 Firefox:不能安裝網頁 App,App 一定在別的瀏覽器', () => {
     expect(storageSeparateFromApp(MAC_FIREFOX, 0)).toBe(true)
     expect(storageSeparateFromApp(LINUX_FIREFOX, 0)).toBe(true)
+    expect(storageSeparateFromApp(LINUX_FIREFOX, 10, false)).toBe(true) // 有觸控螢幕的 Linux 筆電,主要還是用滑鼠
+  })
+
+  it('Android 版 Firefox 開電腦版網站(X11 的 UA、觸控為主):共用資料,不必提醒', () => {
+    expect(storageSeparateFromApp(ANDROID_FIREFOX_DESKTOP_SITE, 5, true)).toBe(false)
   })
 
   it('Android Chrome / Firefox 與桌機的 Chrome / Edge、Windows Firefox:共用資料,不必提醒', () => {
@@ -152,6 +161,13 @@ describe('storageSeparateFromApp', () => {
     expect(storageSeparateFromApp(MAC_CHROME, 0)).toBe(false)
     expect(storageSeparateFromApp(MAC_EDGE, 0)).toBe(false)
     expect(storageSeparateFromApp(WINDOWS_FIREFOX, 0)).toBe(false)
+  })
+
+  it('isInAppBrowser:iPad 上用電腦版 UA 的內建瀏覽器靠觸控點認出來,真的 Mac 與 iPad Safari 不算', () => {
+    expect(isInAppBrowser(IPAD_WEBVIEW, 5)).toBe(true)
+    expect(isInAppBrowser(IPAD_WEBVIEW, 0)).toBe(false)
+    expect(isInAppBrowser(IPAD_DESKTOP_UA, 5)).toBe(false)
+    expect(storageSeparateFromApp(IPAD_WEBVIEW, 5)).toBe(true)
   })
 
   it('isInAppBrowser:認得各家內建瀏覽器與 Android WebView,一般瀏覽器不算', () => {

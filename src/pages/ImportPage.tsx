@@ -13,7 +13,7 @@ import { parseApkg, type ApkgParse } from '../lib/apkg'
 import { autoMapFields, mapApkgNotes, type ApkgMapping } from '../lib/apkgMap'
 import { fillMissingAccents } from '../lib/accent'
 import {
-  fetchShare, isInAppBrowser, isStandaloneApp, parseShareCode, ShareNotFoundError, storageSeparateFromApp,
+  fetchShare, isInAppBrowser, isStandaloneApp, isTouchDevice, parseShareCode, ShareNotFoundError, storageSeparateFromApp,
   type SharedDeck,
 } from '../lib/share'
 import { useBusy } from '../lib/useBusy'
@@ -118,9 +118,10 @@ function ShareCard({ shared, loadError, importError, result, busy, withReverse, 
 }
 
 /**
- * iPhone/Mac 的 Safari、LINE 之類的內建瀏覽器,資料和另外裝的字卡 App 分開存:在這裡匯入,App 裡看不到。
- * 提醒一次,並給一顆「複製連結」讓人帶去 App 的「分享連結」分頁貼上。
- * 內建瀏覽器另外說:在那裡匯入連平常用的瀏覽器都看不到,所以不建議「直接在這裡匯入」。
+ * iPhone/Mac 的 Safari、Mac/Linux 的 Firefox、LINE 之類的內建瀏覽器,資料和另外裝的字卡 App 分開存:
+ * 在這裡匯入,App 裡看不到。提醒一次,並給一顆「複製連結」讓人帶去 App 的「分享連結」分頁貼上。
+ * 內建瀏覽器另外說:在那裡匯入連平常用的瀏覽器都看不到,建議貼到平常用的地方;
+ * 但判斷可能誤認(少數 Android 瀏覽器也用 WebView),所以仍保留「這就是平常用的瀏覽器就直接匯入」。
  */
 function BrowserNotice({ inApp }: { inApp: boolean }) {
   const [copied, setCopied] = useState<'no' | 'yes' | 'failed'>('no')
@@ -233,8 +234,8 @@ export default function ImportPage() {
   }, [activeShareCode, linkMode, loadNonce])
   // 提醒只在「從瀏覽器打開連結、而且這個瀏覽器的資料和 App 分開」時出現
   const showBrowserNotice = linkMode && typeof navigator !== 'undefined'
-    && !isStandaloneApp() && storageSeparateFromApp(navigator.userAgent, navigator.maxTouchPoints ?? 0)
-  const inAppBrowser = typeof navigator !== 'undefined' && isInAppBrowser(navigator.userAgent)
+    && !isStandaloneApp() && storageSeparateFromApp(navigator.userAgent, navigator.maxTouchPoints ?? 0, isTouchDevice())
+  const inAppBrowser = typeof navigator !== 'undefined' && isInAppBrowser(navigator.userAgent, navigator.maxTouchPoints ?? 0)
 
   const loadPasted = () => {
     const code = parseShareCode(pasteText)

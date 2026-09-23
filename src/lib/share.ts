@@ -85,24 +85,28 @@ export function isStandaloneApp(): boolean {
  *   會被誤認 —— 所以提醒文字要保留「這就是你平常用的瀏覽器就直接匯入」的出路
  * - iOS:WKWebView 做的內建瀏覽器 UA 沒有 "Safari/",真的 Safari 與 iOS 版 Chrome/Firefox/Edge 都有。
  *   主畫面的 App 也沒有,但那時不會顯示提醒(isStandaloneApp)
+ * - iPad:內建瀏覽器常送電腦版 UA(Macintosh、沒有 "Safari/"),只能靠觸控點和真的 Mac 分開
  */
-export function isInAppBrowser(ua: string): boolean {
+export function isInAppBrowser(ua: string, maxTouchPoints = 0): boolean {
   return /; wv\)|\bLine\/|FBAN|FBAV|Instagram|MicroMessenger|Twitter|KAKAOTALK|\bBarcelona\b|musical_ly|Bytedance|Snapchat/i.test(ua)
     || /(iPhone|iPod|iPad)(?!.*Safari\/)/.test(ua)
+    || (/Macintosh/.test(ua) && maxTouchPoints > 1 && !/Safari\//.test(ua))
 }
 
 /**
  * 在這個瀏覽器匯入的資料,會不會和另外裝的字卡 App 分開存。
  * - iPhone/iPad:主畫面的 App 與 Safari(以及 iOS 上的 Chrome 等)各有各的儲存空間
  * - Mac 的 Safari:「加入 Dock」的網頁 App 也不和 Safari 共用資料
- * - Mac/Linux 的 Firefox:這兩個平台的 Firefox 不能安裝網頁 App,App 一定裝在別的瀏覽器
+ * - Mac/Linux 的 Firefox:這兩個平台的 Firefox 不能安裝網頁 App,App 一定裝在別的瀏覽器。
+ *   Android 版 Firefox 的「電腦版網站」也送 X11 的 UA(平板預設就開),但它和從它裝的 App 共用資料,
+ *   所以觸控為主的裝置(touchPrimary)不算
  * - App 的內建瀏覽器:自己一份
- * Android 的 Chrome、桌機的 Chrome/Edge 與從它安裝的 App 共用資料,不必提醒。
+ * Android 的 Chrome/Firefox、桌機的 Chrome/Edge 與從它安裝的 App 共用資料,不必提醒。
  */
-export function storageSeparateFromApp(ua: string, maxTouchPoints: number): boolean {
+export function storageSeparateFromApp(ua: string, maxTouchPoints: number, touchPrimary = false): boolean {
   const iOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && maxTouchPoints > 1)
   const macSafari = /Macintosh/.test(ua) && /Version\/[\d.]+ .*Safari\//.test(ua)
     && !/Chrome\/|Chromium\/|Edg\/|Firefox\/|OPR\//.test(ua)
-  const desktopFirefox = /Firefox\//.test(ua) && /Macintosh|X11/.test(ua)
-  return iOS || macSafari || desktopFirefox || isInAppBrowser(ua)
+  const desktopFirefox = /Firefox\//.test(ua) && (/Macintosh/.test(ua) || (/X11/.test(ua) && !touchPrimary))
+  return iOS || macSafari || desktopFirefox || isInAppBrowser(ua, maxTouchPoints)
 }
