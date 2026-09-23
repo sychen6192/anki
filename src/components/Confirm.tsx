@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useModalDialog } from './useModalDialog'
 
 export interface ConfirmOptions {
@@ -45,6 +46,14 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 
   // 卸載時別讓等待中的 promise 永遠懸著
   useEffect(() => () => pendingRef.current?.resolve(false), [])
+
+  // 換頁(按上一頁、手勢返回)時,確認框是替上一頁問的:當作取消收掉,不要留在新的頁面上
+  const { pathname } = useLocation()
+  useEffect(() => {
+    pendingRef.current?.resolve(false)
+    pendingRef.current = null
+    setPending(null)
+  }, [pathname])
 
   return (
     <ConfirmContext.Provider value={confirm}>

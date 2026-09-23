@@ -474,10 +474,11 @@ dialog { color: var(--text); }
 @media (min-width: 768px) { .toast { bottom: 24px; } }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
-/* 有新版可用時從底部滑出的提示 */
+/* 有新版可用時從上方滑出的提示 */
 .update-banner {
+  /* 放在畫面上方:底部是提示條(含「復原」)和拇指常按的按鈕,不能被它蓋住 */
   position: fixed; left: 50%; z-index: 50;
-  bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 12px);
+  top: calc(var(--safe-top) + 8px);
   transform: translateX(-50%);
   width: min(calc(100% - 24px), 420px);
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -485,10 +486,11 @@ dialog { color: var(--text); }
   background: var(--elevated); color: var(--text);
   border-radius: var(--radius-lg); box-shadow: var(--shadow-md);
   font-size: var(--fs-subhead); font-weight: 500;
-  animation: toast-in .3s cubic-bezier(.2, .8, .2, 1);
+  animation: banner-in .3s cubic-bezier(.2, .8, .2, 1);
 }
-.app.no-tabbar .update-banner { bottom: calc(var(--safe-bottom) + 12px); }
-@media (min-width: 768px) { .update-banner { bottom: 24px; } }
+/* 寬螢幕的分頁列在頂端:接在它下面 */
+@media (min-width: 768px) { .update-banner { top: calc(var(--safe-top) + 64px); } }
+@keyframes banner-in { from { opacity: 0; transform: translate(-50%, -12px); } to { opacity: 1; transform: translate(-50%, 0); } }
 .update-banner-actions { display: flex; align-items: center; gap: 4px; }
 .update-banner .btn { min-height: 36px; padding: 0 14px; font-size: var(--fs-subhead); }
 

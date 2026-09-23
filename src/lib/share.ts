@@ -1,4 +1,5 @@
 import type { ParsedRow } from './csv'
+import { isValidAccent, normalizeAccent } from './accent'
 
 /**
  * 分享牌組的前端邏輯:上傳、讀取、從貼上的文字找分享碼、判斷執行環境。
@@ -22,14 +23,18 @@ export function parseShareCode(input: string): string | null {
 
 export const shareUrlFor = (origin: string, code: string): string => `${origin}/import?share=${code}`
 
-/** 伺服器已驗過形狀,這裡再做一次 mapRows 等級的清理:修剪空白、丟掉缺單字或意思的列 */
+/** 伺服器已驗過形狀,這裡再做一次 mapRows 等級的清理:修剪空白、重音統一格式(不合格式就留空)、丟掉缺單字或意思的列 */
 export function normalizeSharedRows(rows: unknown): ParsedRow[] {
   if (!Array.isArray(rows)) return []
   const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  const accentOf = (v: unknown) => {
+    const a = normalizeAccent(str(v))
+    return isValidAccent(a) ? a : ''
+  }
   return rows
     .filter((r): r is Record<string, unknown> => r !== null && typeof r === 'object')
     .map((r) => ({
-      expression: str(r.expression), reading: str(r.reading), meaning: str(r.meaning), accent: str(r.accent),
+      expression: str(r.expression), reading: str(r.reading), meaning: str(r.meaning), accent: accentOf(r.accent),
     }))
     .filter((r) => r.expression !== '' && r.meaning !== '')
 }

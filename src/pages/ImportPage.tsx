@@ -211,8 +211,11 @@ export default function ImportPage() {
     const m = searchParams.get('mode')
     return isMode(m) ? m : 'templates'
   })
-  // 牌組頁「匯入 CSV」帶 ?deck=<id>:目標牌組預設就是那一副
-  const [deckId, setDeckId] = useState(() => searchParams.get('deck') ?? 'new')
+  // 牌組頁「匯入單字到這副牌組」帶 ?deck=<id>:目標牌組預設就是那一副
+  const initialDeck = useRef(searchParams.get('deck'))
+  const [deckId, setDeckId] = useState(() => initialDeck.current ?? 'new')
+  // 從檔名(或 apkg 裡的牌組名)自動填的新牌組名稱:再選別的檔案時照新檔名換掉,使用者自己打的不動
+  const autoName = useRef('')
   // 範本:目前在匯哪一份、結果屬於哪一份(結果顯示在那一份的卡片裡)
   const [importingTemplate, setImportingTemplate] = useState<string | null>(null)
   const [resultTemplate, setResultTemplate] = useState<string | null>(null)
@@ -312,8 +315,12 @@ export default function ImportPage() {
     setSummary(null)
     setErrMsg('')
     setFileName('')
+    // 目標牌組回到打開這頁時的樣子:剛匯入的範本不該變成 CSV 的目標,上一個檔案自動填的名稱也清掉
+    setDeckId(initialDeck.current ?? 'new')
+    if (newDeckName === autoName.current) setNewDeckName('')
+    autoName.current = ''
     // 寫回網址:重新整理或返回時停在同一個分頁(從牌組頁帶來的目標牌組也留著)
-    setSearchParams(deckId === 'new' ? { mode: next } : { mode: next, deck: deckId }, { replace: true })
+    setSearchParams(initialDeck.current ? { mode: next, deck: initialDeck.current } : { mode: next }, { replace: true })
   }
 
   /** CSV/apkg/範本的結果顯示在表單下方,目標牌組切到剛匯入的那副 */
@@ -358,7 +365,10 @@ export default function ImportPage() {
       if (result.notetypes.length === 0) throw new Error('這副牌組裡沒有可以匯入的單字')
       setApkg(result)
       selectNotetype(result, result.notetypes[0].id)
-      if (deckId === 'new' && newDeckName.trim() === '' && result.deckName) setNewDeckName(result.deckName)
+      if (deckId === 'new' && (newDeckName.trim() === '' || newDeckName === autoName.current) && result.deckName) {
+        setNewDeckName(result.deckName)
+        autoName.current = result.deckName
+      }
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : String(e))
     } finally {
@@ -378,28 +388,54 @@ export default function ImportPage() {
   }
 
   /** 去重 → 自動標重音(離線或失敗照常匯入) → 寫入 → 回傳摘要;CSV/apkg/範本/分享共用 */
-  const importParsed = async (targetId: string, parsedRows: ParsedRow[], otherSkipped: number): Promise<ImportResult> => {
-    const existing = await db.notes.where('deck_id').equals(targetId).filter((n) => !n.deleted).toArray()
-    const keys = new Set(existing.map((n) => noteKey(n.expression, n.reading)))
-    const { toImport, skipped } = dedupeRows(parsedRows, keys)
+  /**
+   * 匯入到一副牌組。target:已有的 id / 「以名字找到或新建」(範本、分享)/ 一定新建(CSV、Anki 選了「建立新牌組」)。
+   * 先查字典補重音(可能好幾秒),查完才碰資料庫:找/建牌組、去重、寫入全在同一個交易裡。
+   * 以前是先建好牌組再查字典 —— 那幾秒範本卡已經顯示「已經加入過了」,換頁回來再按「補上新字」,
+   * 兩次匯入都拿空的牌組去重,每個字就進來兩次。
+   */
+  const importParsed = async (
+    target: { id: string } | { name: string } | { newName: string }, parsedRows: ParsedRow[], otherSkipped: number,
+  ): Promise<ImportResult> => {
+    // 先大略去重,只查真的要新增的字
+    const knownId = 'id' in target ? target.id
+      : 'name' in target ? (await db.decks.filter((d) => !d.deleted && d.name === target.name).first())?.id
+      : undefined
+    const before = knownId === undefined ? []
+      : await db.notes.where('deck_id').equals(knownId).filter((n) => !n.deleted).toArray()
+    const candidates = dedupeRows(parsedRows, new Set(before.map((n) => noteKey(n.expression, n.reading)))).toImport
 
-    let toCreate = toImport
+    let filled = candidates
     let annotated = 0, missed = 0, annotateSkipped = false
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       annotateSkipped = true
     } else {
       try {
-        const res = await fillMissingAccents(toImport)
-        toCreate = res.rows; annotated = res.filled; missed = res.missed
+        const res = await fillMissingAccents(candidates)
+        filled = res.rows; annotated = res.filled; missed = res.missed
       } catch {
         annotateSkipped = true
       }
     }
 
-    await createNotes(targetId, toCreate.map((r) => ({ ...r, reversed: withReverse })))
+    let targetId = ''
+    let created = 0
+    let skipped: ParsedRow[] = []
+    await db.transaction('rw', [db.decks, db.notes, db.cards], async () => {
+      targetId = 'id' in target ? target.id
+        : 'name' in target
+          ? (await db.decks.filter((d) => !d.deleted && d.name === target.name).first())?.id ?? (await createDeck(target.name)).id
+          : (await createDeck(target.newName)).id
+      // 交易裡再比一次:查字典那幾秒內,別的匯入可能已經寫進同一副
+      const existing = await db.notes.where('deck_id').equals(targetId).filter((n) => !n.deleted).toArray()
+      const result = dedupeRows(filled, new Set(existing.map((n) => noteKey(n.expression, n.reading))))
+      skipped = [...dedupeRows(parsedRows, new Set(before.map((n) => noteKey(n.expression, n.reading)))).skipped, ...result.skipped]
+      await createNotes(targetId, result.toImport.map((r) => ({ ...r, reversed: withReverse })))
+      created = result.toImport.length
+    })
     requestSync() // 匯入完成就推上雲端,不用等下次複習結束
     return {
-      summary: { imported: toCreate.length, skipped, annotated, missed, annotateSkipped, otherSkipped },
+      summary: { imported: created, skipped, annotated, missed, annotateSkipped, otherSkipped },
       deckId: targetId,
     }
   }
@@ -417,18 +453,15 @@ export default function ImportPage() {
   const doImport = () => {
     if (parsed.length === 0) return
     runImport(async () => {
-      let targetId = deckId
-      if (targetId === 'new') targetId = (await createDeck(newDeckName.trim() || '新牌組')).id
-      showResult(await importParsed(targetId, parsed, mode === 'apkg' ? otherNoteCount : 0))
+      // 新牌組也等查完重音才在交易裡建:不會先冒出一副空牌組
+      const target = deckId === 'new' ? { newName: newDeckName.trim() || '新牌組' } : { id: deckId }
+      showResult(await importParsed(target, parsed, mode === 'apkg' ? otherNoteCount : 0))
     })
   }
 
   /** 匯入到「以名字找到或新建」的牌組;範本與分享共用 */
-  const importNamed = async (name: string, parsedRows: ParsedRow[]): Promise<ImportResult> => {
-    const existingDeck = await db.decks.filter((d) => !d.deleted && d.name === name).first()
-    const targetId = existingDeck?.id ?? (await createDeck(name)).id
-    return importParsed(targetId, parsedRows, 0)
-  }
+  const importNamed = (name: string, parsedRows: ParsedRow[]): Promise<ImportResult> =>
+    importParsed({ name }, parsedRows, 0)
 
   // csv 本體是動態 import 進來的,整段(含下載)都在 busy 內,免得下載期間又被按一次
   const importTemplate = (t: DeckTemplate) => runImport(async () => {
@@ -610,8 +643,9 @@ export default function ImportPage() {
                     setFileName(f.name)
                     if (mode === 'apkg') { void onApkgFile(f); return }
                     // 檔名當牌組名的預設值,免得沒填名稱默默生出一副「新牌組」
-                    if (deckId === 'new' && newDeckName.trim() === '') {
-                      setNewDeckName(f.name.replace(/\.csv$/i, ''))
+                    if (deckId === 'new' && (newDeckName.trim() === '' || newDeckName === autoName.current)) {
+                      autoName.current = f.name.replace(/\.csv$/i, '')
+                      setNewDeckName(autoName.current)
                     }
                     // Excel 存的 CSV 常是 Big5 / Shift_JIS:自動認出來,並說一聲
                     const { text: decoded, encoding } = decodeCsvBytes(await f.arrayBuffer())

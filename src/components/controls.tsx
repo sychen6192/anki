@@ -62,21 +62,39 @@ export interface ToastAction { label: string; onClick: () => void }
  * 底部浮動提示。show() 顯示幾秒後自己消失,可以帶一顆動作鈕(例如「復原」)。
  * 回傳的 node 放在頁面最後面就好。
  */
+/**
+ * 底部的短暫提示。有「復原」之類動作的留久一點(至少 8 秒),滑鼠移上去或焦點在上面時暫停倒數 ——
+ * 用鍵盤或讀螢幕的人要一點時間才走得到「復原」,4 秒就消失等於沒有。
+ */
 export function useToast(duration = 4000) {
   const [toast, setToast] = useState<{ text: string; action?: ToastAction } | null>(null)
   const timer = useRef(0)
+  const current = useRef<{ text: string; action?: ToastAction } | null>(null)
+  const held = useRef(false) // 滑鼠在上面或焦點在裡面
   useEffect(() => () => clearTimeout(timer.current), [])
-  const show = useCallback((text: string, action?: ToastAction) => {
-    setToast({ text, action })
+  const arm = useCallback(() => {
     clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => setToast(null), duration)
+    const t = current.current
+    if (t === null || held.current) return
+    timer.current = window.setTimeout(() => { current.current = null; setToast(null) }, t.action ? Math.max(duration, 8000) : duration)
   }, [duration])
+  const show = useCallback((text: string, action?: ToastAction) => {
+    current.current = { text, action }
+    held.current = false
+    setToast(current.current)
+    arm()
+  }, [arm])
   const hide = useCallback(() => {
     clearTimeout(timer.current)
+    current.current = null
+    held.current = false
     setToast(null)
   }, [])
+  const hold = () => { held.current = true; clearTimeout(timer.current) }
+  const release = () => { held.current = false; arm() }
   const node = toast === null ? null : (
-    <div className={`toast${toast.action ? '' : ' no-action'}`} role="status" aria-live="polite">
+    <div className={`toast${toast.action ? '' : ' no-action'}`} role="status" aria-live="polite"
+      onMouseEnter={hold} onMouseLeave={release} onFocus={hold} onBlur={release}>
       <span>{toast.text}</span>
       {toast.action && (
         <button type="button" className="link" onClick={() => { hide(); toast.action?.onClick() }}>
