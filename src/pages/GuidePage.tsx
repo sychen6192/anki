@@ -13,7 +13,7 @@ export default function GuidePage() {
             <Link to="/import?mode=templates" className="link">
               匯入頁
             </Link>
-            挑一份範本,或丟自己的 CSV / .apkg
+            挑一份範本、丟自己的 CSV / .apkg,或貼上朋友的分享連結
           </li>
           <li>
             回「牌組」按<b>複習</b>;好幾副牌組時按上方的<b>全部一起複習</b>

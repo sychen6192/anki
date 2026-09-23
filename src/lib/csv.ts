@@ -44,6 +44,17 @@ export function mapRows(rows: string[][], mapping: CsvMapping): ParsedRow[] {
 
 export const noteKey = (expression: string, reading: string): string => `${expression}\u0000${reading}`
 
+/**
+ * 找牌組裡「單字+讀音」相同的現有筆記(與匯入去重同一個判準,比對前先修剪空白)。
+ * excludeId:編輯時排除自己。已刪除的不算。
+ */
+export function findDuplicateNote<T extends { id: string; expression: string; reading: string; deleted: 0 | 1 }>(
+  notes: T[], expression: string, reading: string, excludeId?: string,
+): T | undefined {
+  const key = noteKey(expression.trim(), reading.trim())
+  return notes.find((n) => !n.deleted && n.id !== excludeId && noteKey(n.expression.trim(), n.reading.trim()) === key)
+}
+
 export function dedupeRows(rows: ParsedRow[], existingKeys: Set<string>): { toImport: ParsedRow[]; skipped: ParsedRow[] } {
   const seen = new Set(existingKeys)
   const toImport: ParsedRow[] = []
