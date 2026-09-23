@@ -232,7 +232,7 @@ export function FlameIcon({ size = 16 }: IconProps) {
   )
 }
 
-/** 擱置:收進盒子(不是「暫停播放」的兩條直線) */
+/** 先不學:收進盒子(不是「暫停播放」的兩條直線) */
 export function ArchiveIcon({ size = 20 }: IconProps) {
   return (
     <Svg size={size}>

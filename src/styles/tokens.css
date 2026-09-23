@@ -17,32 +17,40 @@
 
   --text: #1c1c1e;
   --text-2: #6b6b70;             /* 次要文字:白底與灰底都 4.5:1 以上 */
-  --text-3: #8e8e93;             /* 只給 placeholder、不重要的標記 */
+  --text-3: #8e8e93;             /* 只給 placeholder、箭頭、圖示(3:1);要讀的字一律用 --text-2 */
 
   --accent: #5b57d6;
   --accent-pressed: #4a46c4;
   --accent-tint: rgb(91 87 214 / 0.12);
   --accent-tint-pressed: rgb(91 87 214 / 0.2);
+  /* 淡色底(tinted 按鈕、標籤)上的字:比 --accent 深一階,疊在灰底上也有 4.5:1 */
+  --accent-text: #4f4bc9;
   --on-accent: #ffffff;
 
-  --danger: #d93b3b;
-  --danger-tint: rgb(217 59 59 / 0.1);
-  --success: #248a4f;
-  --success-tint: rgb(36 138 79 / 0.1);
+  /* 語意色都是「當字用也有 4.5:1」的深度(灰底、淡色底上都算過) */
+  --danger: #c62f2f;
+  --danger-tint: rgb(198 47 47 / 0.1);
+  --success: #1f7a45;
+  --success-tint: rgb(31 122 69 / 0.1);
   --warning: #b86e00;
+  --warning-text: #8a5300;
 
   /* 計數與圖表共用同一組語意色(Anki 的慣例:新卡藍、學習中紅、待複習綠) */
   --c-new: #2f62c8;
-  --c-learn: #cc4046;
-  --c-due-count: #2f8253;
+  --c-learn: #b3343a;
+  --c-due-count: #25703f;
   --chart-reviews: #5b57d6;
   --chart-due: #2f8253;
 
-  /* 評分鍵:白字 4.5:1 以上 —— 這是每天按最多次的按鈕 */
-  --rate-again: #cc4046;
-  --rate-hard: #a76229;
+  /* 評分鍵:最常按的「普通」是實心(白字 4.5:1 以上),其他三個是淡色塊配深色字(也 4.5:1 以上),
+     四塊一樣重的飽和色會比卡上的答案還搶眼 */
+  --rate-again-tint: #f8e6e7;
+  --rate-again-fg: #b8323a;
+  --rate-hard-tint: #f4ebe3;
+  --rate-hard-fg: #8f5019;
   --rate-good: #2f8253;
-  --rate-easy: #4a6fc0;
+  --rate-easy-tint: #e7ecf7;
+  --rate-easy-fg: #3a5cab;
 
   /* 字級:只用這幾級,頁面 CSS 一律寫 var(--fs-*),不寫原始 px */
   --fs-caption2: 11px;   /* 分頁列文字、圖表軸 */
@@ -104,6 +112,7 @@
   --accent-pressed: #9a97f4;
   --accent-tint: rgb(134 131 240 / 0.2);
   --accent-tint-pressed: rgb(134 131 240 / 0.3);
+  --accent-text: #a5a3f7;
   --on-accent: #12121a;
 
   --danger: #ff6b6b;
@@ -111,6 +120,7 @@
   --success: #4bb37c;
   --success-tint: rgb(75 179 124 / 0.15);
   --warning: #e6a23c;
+  --warning-text: #e6a23c;
 
   --c-new: #7ea6ff;
   --c-learn: #ff7a7f;
@@ -118,10 +128,13 @@
   --chart-reviews: #8683f0;
   --chart-due: #4bb37c;
 
-  --rate-again: #c2383e;
-  --rate-hard: #9c5a22;
+  --rate-again-tint: #492f31;
+  --rate-again-fg: #ff8a8f;
+  --rate-hard-tint: #43362c;
+  --rate-hard-fg: #e8ac72;
   --rate-good: #2a7a4c;
-  --rate-easy: #4566b8;
+  --rate-easy-tint: #30384b;
+  --rate-easy-fg: #8fb2ff;
 
   --shadow-sm: none;
   --shadow-md: 0 4px 16px rgb(0 0 0 / 0.5);

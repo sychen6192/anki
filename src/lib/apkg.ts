@@ -105,7 +105,7 @@ function readMainDeckName(db: Database): string {
 }
 
 function readCollection(db: Database): ApkgParse {
-  if (!tableExists(db, 'notes')) throw new Error('這個檔案裡沒有 Anki 的 notes 資料表')
+  if (!tableExists(db, 'notes')) throw new Error('這個檔案裡讀不到單字，可能不是 Anki 匯出的牌組檔。請在 Anki 用「匯出」選 .apkg 格式重新匯出一次。')
 
   const types = tableExists(db, 'notetypes') ? readNewSchemaNotetypes(db) : readLegacyNotetypes(db)
 
@@ -136,7 +136,7 @@ function extractCollectionBytes(apkg: Uint8Array): Uint8Array {
   try {
     files = unzipSync(apkg)
   } catch {
-    throw new Error('這不像是 Anki 牌組檔（.apkg）：無法解開壓縮檔')
+    throw new Error('這不像是 Anki 牌組檔（.apkg）：無法解開壓縮檔。請在 Anki 用「匯出」選 .apkg 格式重新匯出一次。')
   }
   for (const { name, zstd } of COLLECTION_FILES) {
     const raw = files[name]
@@ -145,10 +145,10 @@ function extractCollectionBytes(apkg: Uint8Array): Uint8Array {
     try {
       return zstdDecompress(raw)
     } catch {
-      throw new Error(`無法解壓縮 ${name}（zstd 解壓失敗）`)
+      throw new Error(`檔案解不開（可能下載不完整）。請在 Anki 用「匯出」選 .apkg 格式重新匯出一次。`)
     }
   }
-  throw new Error('這不像是 Anki 牌組檔（.apkg）：裡面找不到 collection 資料')
+  throw new Error('這不像是 Anki 牌組檔（.apkg）：裡面找不到 collection 資料。請在 Anki 用「匯出」選 .apkg 格式重新匯出一次。')
 }
 
 /** 解析 .apkg 位元組,取出 note 文字與欄位名稱。不含排程、媒體與 tags。 */
@@ -159,7 +159,7 @@ export async function parseApkg(apkg: Uint8Array, loadSql: SqlLoader = loadSqlIn
   try {
     db = new SQL.Database(bytes)
   } catch {
-    throw new Error('collection 檔案不是有效的 SQLite 資料庫')
+    throw new Error('這個牌組檔壞了，讀不出內容。請在 Anki 用「匯出」選 .apkg 格式重新匯出一次。')
   }
   try {
     return readCollection(db)

@@ -4,8 +4,10 @@ import {
   Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { db } from '../db/db'
+import { sortDecks } from '../lib/deckOrder'
 import { State } from '../lib/fsrs'
 import { startOfToday } from '../lib/queue'
+import { useNow } from '../lib/useNow'
 import { lastNDays, streakDays, trueRetention } from '../lib/stats'
 import { getFsrsSettings } from '../lib/fsrsSettings'
 import { Loading } from '../components/Loading'
@@ -45,9 +47,10 @@ function dayLabel(ts: number): string {
 export default function StatsPage() {
   const allLogs = useLiveQuery(() => db.review_logs.toArray(), [])
   const allCards = useLiveQuery(() => db.cards.toArray(), [])
-  const decks = useLiveQuery(() => db.decks.filter((d) => !d.deleted).toArray(), [])
+  const decks = useLiveQuery(async () => sortDecks(await db.decks.filter((d) => !d.deleted).toArray()), [])
   const fsrsSettings = useLiveQuery(() => getFsrsSettings(), [])
   const [deckFilter, setDeckFilter] = useState('all')
+  const now = useNow()
   if (!allLogs || !allCards || !decks || !fsrsSettings) return <Loading />
 
   // 篩某副牌組:卡片直接看 deck_id;複習紀錄沒有 deck_id,經 card_id 查
@@ -57,7 +60,7 @@ export default function StatsPage() {
     ? allLogs
     : allLogs.filter((l) => cardDeck.get(l.card_id) === deckFilter)
   const inDeck = allCards.filter((c) => !c.deleted && (deckFilter === 'all' || c.deck_id === deckFilter))
-  // 已會 / 擱置的卡不在排程裡:狀態分布與到期預測都不算,另外報數量
+  // 已會 / 先不學的卡不在排程裡:狀態分布與到期預測都不算,另外報數量
   const cards = inDeck.filter((c) => !c.suspended)
   const parked = { known: 0, paused: 0 }
   for (const c of inDeck) {
@@ -65,7 +68,7 @@ export default function StatsPage() {
     else if (c.suspended === 1) parked.paused += 1
   }
 
-  const today = startOfToday()
+  const today = startOfToday(now)
 
   const pastStart = today - 29 * DAY
   const pastCounts = bucketByDay(logs.map((l) => l.reviewed_at), pastStart, 30)
@@ -85,7 +88,7 @@ export default function StatsPage() {
   const dist = [
     { name: '新卡', value: news, color: DIST_COLORS[0] },
     { name: '學習中', value: learning, color: DIST_COLORS[1] },
-    { name: '複習中', value: review, color: DIST_COLORS[2] },
+    { name: '已學過', value: review, color: DIST_COLORS[2] },
   ]
 
   // 真實保持率:三個區間各算一次;篩牌組時 logs 已經是該牌組的
@@ -115,11 +118,22 @@ export default function StatsPage() {
     return first === undefined ? -1 : new Date(first.start).getMonth()
   }
 
-  const retentionTone = (r: { passed: number; total: number }) => {
+  const retentionTone = (r: { passed: number; total: number }): '' | 'low' | 'high' => {
     if (r.total === 0) return ''
     const p = (r.passed / r.total) * 100
-    return p < targetPct - 5 ? ' low' : p > targetPct + 4 ? ' high' : ''
+    return p < targetPct - 5 ? 'low' : p > targetPct + 4 ? 'high' : ''
   }
+  const overallTone = retentionTone(retentionAll)
+
+  // 圖表的文字摘要:讀螢幕拿得到數字,手機上也不必一格一格點
+  const heatTotal = heatDays.reduce((a, d) => a + d.count, 0)
+  const heatActive = heatDays.filter((d) => d.count > 0).length
+  const pastTotal = pastCounts.reduce((a, b) => a + b, 0)
+  const pastMax = Math.max(...pastCounts)
+  const pastMaxDay = past[pastCounts.indexOf(pastMax)]?.day
+  const week = forecastCounts.slice(0, 7).reduce((a, b) => a + b, 0)
+  const forecastMax = Math.max(...forecastCounts)
+  const forecastMaxDay = forecast[forecastCounts.indexOf(forecastMax)]?.day
 
   return (
     <>
@@ -145,19 +159,26 @@ export default function StatsPage() {
           <span className="stat-card-note">目標 {targetPct}%</span>
         </div>
         {retentionAll.total === 0 ? (
-          <p className="stat-empty">還沒有資料 —— 卡片畢業、再次到期複習後才開始算</p>
+          <p className="stat-empty">學過的字到期、再答一次之後才開始算</p>
         ) : (
           <>
             <div className="retention-row">
-              {retention.map(([label, r]) => (
-                <div className={`retention${retentionTone(r)}`} key={label}>
-                  <b>{pct(r)}</b><span>{label} · {r.total} 次</span>
-                </div>
-              ))}
+              {retention.map(([label, r]) => {
+                const tone = retentionTone(r)
+                return (
+                  <div className={`retention${tone ? ` ${tone}` : ''}`} key={label}>
+                    {/* 偏低/偏高不只靠顏色:數字旁邊寫出來 */}
+                    <b>{pct(r)}{tone && <small>{tone === 'low' ? '偏低' : '偏高'}</small>}</b>
+                    <span>{label} · {r.total} 次</span>
+                  </div>
+                )
+              })}
             </div>
             <p className="hint">
-              到期時答對的比例。明顯低於目標可以到<Link to="/settings" className="inline-link">設定</Link>用自己的紀錄最佳化參數；
-              明顯高於目標可以把目標調低，少複習一點。
+              到期時答對的比例，只算學過的字到期時的那一次（共 {retentionAll.total} 次）。
+              {overallTone === 'low'
+                ? <>比目標低：可以到<Link to="/settings" className="inline-link">設定</Link>用自己的紀錄最佳化排程。</>
+                : overallTone === 'high' ? '比目標高：可以把目標調低，少複習一點。' : '在目標附近，不用調整。'}
             </p>
           </>
         )}
@@ -165,7 +186,7 @@ export default function StatsPage() {
 
       <section className="stat-card card">
         <div className="stat-card-head"><h2>每天複習量</h2><span className="stat-card-note">最近 {HEAT_WEEKS} 週</span></div>
-        <div className="heatmap" role="img" aria-label={`過去 ${HEAT_WEEKS} 週每日複習量`}>
+        <div className="heatmap" role="img" aria-label={`過去 ${HEAT_WEEKS} 週有 ${heatActive} 天複習，共 ${heatTotal} 次`}>
           {weeks.map((w, i) => (
             <div className="heat-week" key={i}>
               <span className="heat-month">
@@ -176,7 +197,7 @@ export default function StatsPage() {
                 ? <span key={j} className="heat-cell pad" />
                 : (
                   <span key={j} className="heat-cell" style={{ background: heatColor(d.count) }}
-                    title={`${new Date(d.start).getMonth() + 1}/${new Date(d.start).getDate()}:${d.count} 張`} />
+                    title={`${new Date(d.start).getMonth() + 1}/${new Date(d.start).getDate()} · ${d.count} 次`} />
                 ))}
             </div>
           ))}
@@ -189,18 +210,22 @@ export default function StatsPage() {
       </section>
 
       <section className="stat-card card">
-        <div className="stat-card-head"><h2>過去 30 天</h2><span className="stat-card-note">複習張數</span></div>
+        <div className="stat-card-head"><h2>過去 30 天</h2><span className="stat-card-note">複習次數</span></div>
         {logs.length === 0 ? (
           <p className="stat-empty">還沒有複習紀錄 —— 完成第一次複習後就會出現</p>
         ) : (
+          <>
+          <p className="chart-summary">共 {pastTotal} 次，平均每天 {Math.round(pastTotal / 30)} 次
+            {pastMax > 0 && pastMaxDay !== undefined && `，最多是 ${pastMaxDay} 的 ${pastMax} 次`}</p>
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={past} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
               <XAxis dataKey="day" interval={6} tickLine={false} axisLine={false} />
               <YAxis allowDecimals={false} width={36} tickLine={false} axisLine={false} />
               <Tooltip />
-              <Bar dataKey="count" name="複習數" fill={C_REVIEWS} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="count" name="複習次數" fill={C_REVIEWS} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
+          </>
         )}
       </section>
 
@@ -209,14 +234,18 @@ export default function StatsPage() {
         {scheduled.length === 0 ? (
           <p className="stat-empty">還沒有排程的卡片 —— 新卡第一次複習後就會進入排程</p>
         ) : (
+          <>
+          <p className="chart-summary">未來 7 天有 {week} 張到期
+            {forecastMax > 0 && forecastMaxDay !== undefined && `，最多是 ${forecastMaxDay} 的 ${forecastMax} 張`}</p>
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={forecast} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
               <XAxis dataKey="day" interval={6} tickLine={false} axisLine={false} />
               <YAxis allowDecimals={false} width={36} tickLine={false} axisLine={false} />
               <Tooltip />
-              <Bar dataKey="count" name="到期數" fill={C_DUE} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="count" name="到期張數" fill={C_DUE} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
+          </>
         )}
       </section>
 
@@ -242,7 +271,7 @@ export default function StatsPage() {
           </div>
         )}
         {(parked.known > 0 || parked.paused > 0) && (
-          <p className="hint">不含已經會了 {parked.known} 張、擱置 {parked.paused} 張（牌組頁可以恢復）。</p>
+          <p className="hint">不含已經會了 {parked.known} 張、先不學 {parked.paused} 張（牌組頁可以恢復）。</p>
         )}
       </section>
     </>

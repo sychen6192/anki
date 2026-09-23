@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { PitchAccent } from '../components/PitchAccent'
-import { isSpeechSupported, speak } from '../lib/speak'
+import { isSpeechSupported, readAutoSpeak, speak, writeAutoSpeak } from '../lib/speak'
 import { SpeakerIcon } from '../components/SpeakerIcon'
 import {
   ArchiveIcon, CheckIcon, CloseIcon, MoreIcon, PencilIcon, SkipIcon, UndoIcon,
@@ -9,21 +9,22 @@ import {
 import { Loading } from '../components/Loading'
 import { ActionSheet, Sheet } from '../components/Sheet'
 import { db } from '../db/db'
+import { sortDecks } from '../lib/deckOrder'
 import {
   applyReview, restoreCardsSuspended, setNoteSuspended, undoReview, updateNote, type SuspendedSnapshot,
 } from '../db/repo'
 import { applyFsrsSettings, formatInterval, previewIntervals, rate, State, type RatingValue } from '../lib/fsrs'
 import { getFsrsSettings } from '../lib/fsrsSettings'
 import { isValidAccent, normalizeAccent } from '../lib/accent'
-import { buildMultiDeckQueue, deckQueue, startOfToday } from '../lib/queue'
-import { reviewKeyAction } from '../lib/reviewKeys'
-import { syncNow } from '../lib/sync'
+import { buildMultiDeckQueue, countKind, deckQueue, splitCounts, startOfToday, type QueueCounts } from '../lib/queue'
+import { reviewKeyAction, type KeyTarget } from '../lib/reviewKeys'
+import { requestSync, syncNow } from '../lib/sync'
 import type { CardRecord, DeckRecord, NoteRecord } from '../../shared/types'
 import './review.css'
 
 const RATING_LABELS: Record<RatingValue, string> = { 1: '重來', 2: '困難', 3: '普通', 4: '簡單' }
 
-/** 可以復原的動作:評分(刪 log、還原排程)、已經會了/擱置(把卡片狀態寫回去)、跳過(放回佇列) */
+/** 可以復原的動作:評分(刪 log、還原排程)、已經會了/先不學(把卡片狀態寫回去)、跳過(放回佇列) */
 type UndoEntry =
   | { kind: 'rate'; card: CardRecord; logId: string }
   | { kind: 'suspend'; cardId: string; prev: SuspendedSnapshot[] }
@@ -51,6 +52,26 @@ function sizeClass(text: string): string {
 
 interface EditState { noteId: string; expression: string; reading: string; meaning: string; accent: string }
 
+/** 翻面後的答案(給讀螢幕唸):正向卡是讀音與意思,反向卡是日文單字與讀音 */
+function answerText(card: CardRecord, note: NoteRecord): string {
+  const parts = card.direction === 'reverse' ? [note.expression, note.reading] : [note.reading, note.meaning]
+  return parts.filter((p) => p !== '').join('，')
+}
+
+/** 按鍵落在哪種元素上(規則見 reviewKeys.ts 的 KeyTarget) */
+function keyTarget(t: EventTarget | null): KeyTarget {
+  if (!(t instanceof HTMLElement)) return null
+  if (t.isContentEditable || t.closest('input, textarea, select') !== null) return 'text'
+  const control = t.closest('button, a[href], summary, [role="button"], [role="switch"], [role="radio"]')
+  if (control === null) return null
+  // 滑鼠點過留著的焦點不算「移到按鈕上」:點完 ↶ 再按空白鍵,應該是翻面而不是再復原一次
+  try {
+    return control.matches(':focus-visible') ? 'control' : null
+  } catch {
+    return 'control'
+  }
+}
+
 export default function Review() {
   const { deckId } = useParams()
   const navigate = useNavigate()
@@ -60,7 +81,9 @@ export default function Review() {
   const [current, setCurrent] = useState<{ card: CardRecord; note: NoteRecord; deckName: string | null } | null>(null)
   const [sessionName, setSessionName] = useState<string | null>(null)
   const [showBack, setShowBack] = useState(false)
-  const [remaining, setRemaining] = useState(0)
+  // 剩下幾張,分新卡/學習中/待複習(和首頁的三色計數同一個算法)
+  const [counts, setCounts] = useState<QueueCounts>({ news: 0, learn: 0, rev: 0 })
+  const remaining = counts.news + counts.learn + counts.rev
   const [done, setDone] = useState(false)
   const [nextDue, setNextDue] = useState<number | null>(null)
   const [missing, setMissing] = useState(false)
@@ -71,12 +94,14 @@ export default function Review() {
   const [doneStats, setDoneStats] = useState<{ count: number; correct: number } | null>(null)
   // 單副完成時,其他牌組還有幾張到期:完成畫面直接接「繼續複習其他牌組」
   const [othersDue, setOthersDue] = useState(0)
-  // 動作後短暫出現的回饋(評了什麼、多久後再見;或已標為已會/擱置),可立即復原
-  const [toast, setToast] = useState<string | null>(null)
+  // 動作後短暫出現的回饋(評了什麼、多久後再見;或已標為已會/先不學),可立即復原
+  // undoable:這則回饋對應復原堆疊最上面那一步,才顯示「復原」(切換設定之類的只是告知)
+  const [toast, setToast] = useState<{ text: string; undoable: boolean } | null>(null)
   const toastTimer = useRef(0)
   useEffect(() => () => clearTimeout(toastTimer.current), [])
-  const showToast = useCallback((text: string) => {
-    setToast(text)
+  const showToast = useCallback((text: string, undoable = true) => {
+    setToast({ text, undoable })
+    setAnnouncement(text)
     clearTimeout(toastTimer.current)
     toastTimer.current = window.setTimeout(() => setToast(null), 4500)
   }, [])
@@ -92,11 +117,23 @@ export default function Review() {
   // 「再學 N 張新卡」:今日額度用完後自願加碼。只存在記憶體,離開頁面歸零,
   // 不動牌組設定 —— 明天的額度照舊。
   const bonusNew = useRef(0)
+  // 牌組頁「今天完成 · 再學一點」帶 ?more=1:一進來就加碼一輪新卡,不必先經過完成畫面
+  const [searchParams] = useSearchParams()
+  const wantMore = useRef(searchParams.get('more') === '1')
   const [moreNew, setMoreNew] = useState(0)
   const newPerDayRef = useRef(20)
   // 防連點:上一次換卡、翻面的時間
   const shownAt = useRef(0)
   const flippedAt = useRef(0)
+  // 讀螢幕:翻面、評分的結果寫進常駐的 live region(剛插入的 role=status 在 iOS VoiceOver 常常不唸)
+  const [announcement, setAnnouncement] = useState('')
+  // 剛開始用的人(複習紀錄還很少):評分鍵上方提醒一句。「困難」其實算答對,想不起來卻按它,
+  // 那個字會隔更久才出現
+  const [newbie, setNewbie] = useState(false)
+  useEffect(() => { void db.review_logs.count().then((n) => setNewbie(n < 30)) }, [])
+  const wordRef = useRef<HTMLParagraphElement>(null)
+  const answerRef = useRef<HTMLDivElement>(null)
+  const doneRef = useRef<HTMLHeadingElement>(null)
 
   const pushUndo = useCallback((entry: UndoEntry) => {
     setUndoStack((s) => [...s.slice(-(UNDO_LIMIT - 1)), entry])
@@ -106,7 +143,8 @@ export default function Review() {
   const loadNext = useCallback(async (preferCardId?: string) => {
     let decks: DeckRecord[]
     if (allMode) {
-      decks = await db.decks.filter((d) => !d.deleted).toArray()
+      // 依名稱排:跨牌組時新卡照這個順序一副一副出,不是照隨機 id
+      decks = sortDecks(await db.decks.filter((d) => !d.deleted).toArray())
     } else {
       const deck = await db.decks.get(deckId!)
       decks = deck !== undefined && !deck.deleted ? [deck] : []
@@ -123,6 +161,10 @@ export default function Review() {
     const logs = await db.review_logs.where('reviewed_at').aboveOrEqual(startOfToday()).toArray()
     // 「再學 N 張」的單位:單副是它的每日上限;全部時取最大的那副
     newPerDayRef.current = Math.max(...decks.map((d) => d.new_per_day))
+    if (wantMore.current) {
+      wantMore.current = false
+      bonusNew.current += newPerDayRef.current > 0 ? newPerDayRef.current : 20
+    }
     // 單副:加碼直接加在額度上;全部:各牌組各自的額度,加碼另計(跨牌組共 N 張)
     const built = allMode
       ? buildMultiDeckQueue(decks, cards, logs, Date.now(), bonusNew.current)
@@ -178,8 +220,9 @@ export default function Review() {
       return
     }
     setCurrent({ card, note, deckName: allMode ? decks.find((d) => d.id === card.deck_id)?.name ?? null : null })
-    setRemaining(queue.length + (inQueue ? 0 : 1))
-    setSessionMax((m) => Math.max(m, queue.length + (inQueue ? 0 : 1)))
+    const pending = inQueue ? queue : [card, ...queue]
+    setCounts(splitCounts(pending))
+    setSessionMax((m) => Math.max(m, pending.length))
     setShowBack(false)
     setDone(false)
     setNextDue(null)
@@ -191,9 +234,24 @@ export default function Review() {
   const flip = useCallback((fromPointer = false) => {
     // 評完一張、下一張剛出現時的第二下點擊,不該直接翻開下一張
     if (fromPointer && performance.now() - shownAt.current < TAP_GUARD_MS) return
-    if (!showBack) flippedAt.current = performance.now()
+    if (!showBack) {
+      flippedAt.current = performance.now()
+      if (current !== null) setAnnouncement(answerText(current.card, current.note))
+    }
     setShowBack(true)
-  }, [showBack])
+  }, [showBack, current])
+
+  // 焦點跟著卡片走:翻面到答案、換卡到新的字、做完到完成標題。「顯示答案」換成評分鍵時
+  // 焦點才不會掉回頁首,讀螢幕也會唸出新內容。選單或編輯面板開著時不搶它們的焦點。
+  const cardId = current?.card.id
+  useEffect(() => {
+    if (menuOpen || editing !== null) return
+    if (done) { doneRef.current?.focus({ preventScroll: true }); return }
+    if (cardId === undefined) return
+    const el = showBack ? answerRef.current : wordRef.current
+    el?.focus({ preventScroll: true })
+    // 只在換卡、翻面、做完時移動(menuOpen/editing 故意不列):選單關掉時由對話框把焦點還給「⋯」
+  }, [cardId, showBack, done])
 
   const answer = useCallback(async (rating: RatingValue, fromPointer = false) => {
     if (!current || answering.current) return
@@ -208,6 +266,9 @@ export default function Review() {
       // 評分已儲存成功,先清掉舊錯誤——loadNext 若失敗是另一回事,不代表評分沒存到。
       setErrMsg(null)
       pushUndo({ kind: 'rate', card: answered, logId })
+      // 每評一張就排一次同步(幾秒內連續評分會合併成一次):中途被打斷、改到另一台接著背,
+      // 才不會又看到同一批卡,兩邊的排程也不會互相蓋掉
+      requestSync()
       // 顯示實際排進去的間隔,不是再算一次的預覽
       showToast(`「${word}」${RATING_LABELS[rating]} · ${formatInterval(fields.due - log.reviewed_at)}後`)
       try {
@@ -235,7 +296,7 @@ export default function Review() {
   }, [current, loadNext, showToast, pushUndo])
 
   /**
-   * 已經會了(2)/ 擱置(1):整個字的正反兩張卡一起退出佇列,不評分、不寫 review_log。
+   * 已經會了(2)/ 先不學(1):整個字的正反兩張卡一起退出佇列,不評分、不寫 review_log。
    * 跟「跳過」不同,這是寫進資料庫、會同步的。存下改動前的值,按「復原」能精確寫回去。
    */
   const markSuspended = useCallback(async (value: 1 | 2) => {
@@ -246,10 +307,11 @@ export default function Review() {
       const prev = await setNoteSuspended(current.note.id, value)
       setErrMsg(null)
       pushUndo({ kind: 'suspend', cardId: current.card.id, prev })
-      showToast(value === 2 ? `「${word}」已標為會了，不會再出現` : `已擱置「${word}」，牌組頁可以恢復`)
+      requestSync()
+      showToast(value === 2 ? `「${word}」已標為會了，不會再出現` : `「${word}」先不學了，牌組頁的「先不學」可以恢復`)
       await loadNext()
     } catch (e) {
-      setErrMsg(`${value === 2 ? '標記' : '擱置'}失敗：${e instanceof Error ? e.message : String(e)}`)
+      setErrMsg(`標記失敗：${e instanceof Error ? e.message : String(e)}`)
     } finally {
       answering.current = false
     }
@@ -292,6 +354,7 @@ export default function Review() {
       if (entry.kind === 'rate') await undoReview(entry.card, entry.logId)
       else if (entry.kind === 'suspend') await restoreCardsSuspended(entry.prev)
       else skipped.current.delete(entry.cardId)
+      if (entry.kind !== 'skip') requestSync()
       setUndoStack((s) => s.slice(0, -1))
       setToast(null)
       setErrMsg(null)
@@ -315,10 +378,9 @@ export default function Review() {
       // 選單開著時鍵盤交給選單(Esc 關閉由 dialog 處理),不能在背後翻面或評分
       if (menuOpen) return
       // 鍵 → 動作的對照表在 reviewKeys.ts(含「帶 Cmd/Ctrl/Alt 不接」的規則),這裡只負責執行
-      const action = reviewKeyAction(e, { editing: editing !== null, showBack })
+      const action = reviewKeyAction(e, { editing: editing !== null, showBack, done, target: keyTarget(e.target) })
       if (action === null) return
       switch (action.type) {
-        case 'cancel-edit': setEditing(null); break
         case 'exit': e.preventDefault(); exit(); break
         case 'show': e.preventDefault(); flip(); break
         case 'edit': e.preventDefault(); openEdit(); break
@@ -330,12 +392,21 @@ export default function Review() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [showBack, answer, editing, skip, undo, markSuspended, openEdit, menuOpen, exit, flip])
+  }, [showBack, answer, editing, skip, undo, markSuspended, openEdit, menuOpen, exit, flip, done])
 
-  // 翻面自動唸讀音(設定頁開關;進頁面時讀一次就好)
-  const autoSpeak = useRef(typeof localStorage !== 'undefined' && localStorage.getItem('auto-speak') === '1')
+  // 翻面自動唸讀音(和設定頁是同一個開關;複習中也能從「⋯」切換)
+  const [autoSpeak, setAutoSpeak] = useState(() => readAutoSpeak())
+  const autoSpeakRef = useRef(autoSpeak)
+  autoSpeakRef.current = autoSpeak
+  const toggleAutoSpeak = useCallback(() => {
+    const next = !autoSpeakRef.current
+    setAutoSpeak(next)
+    writeAutoSpeak(next)
+    showToast(next ? '翻面時會自動唸讀音' : '已關閉自動唸讀音', false)
+  }, [showToast])
   useEffect(() => {
-    if (showBack && current !== null && autoSpeak.current && isSpeechSupported()) {
+    // 只在翻面(或換卡)時唸;切換開關本身不觸發
+    if (showBack && current !== null && autoSpeakRef.current && isSpeechSupported()) {
       speak(current.note.reading || current.note.expression)
     }
   }, [showBack, current])
@@ -349,6 +420,14 @@ export default function Review() {
     }, 1000)
     return () => clearInterval(id)
   }, [done, nextDue])
+
+  // 完成畫面停在背景一陣子再回來:學習中的卡可能已經到期了,重新看一次佇列
+  useEffect(() => {
+    if (!done) return
+    const onVisible = () => { if (document.visibilityState === 'visible') void loadNext() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [done, loadNext])
 
   // 時間到自動接回複習。每個 nextDue 只排一次,萬一還是載不到卡也不會空轉。
   useEffect(() => {
@@ -370,18 +449,20 @@ export default function Review() {
     const moreCount = Math.min(newPerDayRef.current > 0 ? newPerDayRef.current : 20, moreNew)
     return (
       <div className="review-done">
+        <p className="visually-hidden" aria-live="polite">{announcement}</p>
         <span className="done-badge"><CheckIcon size={38} /></span>
-        <h1>{allMode || sessionName === null ? '今天完成了' : `「${sessionName}」完成了`}</h1>
+        <h1 ref={doneRef} tabIndex={-1}>{allMode || sessionName === null ? '今天完成了' : `「${sessionName}」完成了`}</h1>
         {doneStats !== null && doneStats.count > 0 && (
           <p className="done-stats">
-            今天複習 <b>{doneStats.count}</b> 次 · 一次答對 <b>{Math.round((doneStats.correct / doneStats.count) * 100)}%</b>
+            今天複習 <b>{doneStats.count}</b> 次 · 答對率 <b>{Math.round((doneStats.correct / doneStats.count) * 100)}%</b>
           </p>
         )}
         {errMsg && <p className="err" role="alert">{errMsg}</p>}
         {waitMs !== null && (waitMs > AUTO_RESUME_WINDOW ? (
           <p className="done-wait">還有學習中的卡片，約 {formatInterval(waitMs)}後到期</p>
         ) : (
-          <p className="done-wait" role="status">
+          // 每秒更新的倒數不當 live region:讀螢幕會被一直打斷
+          <p className="done-wait">
             還有學習中的卡片，{waitMs > 0 ? `${Math.ceil(waitMs / 1000)} 秒後自動繼續` : '正在繼續…'}
           </p>
         ))}
@@ -416,11 +497,13 @@ export default function Review() {
   const progress = sessionMax > 0 ? Math.round(((sessionMax - remaining) / sessionMax) * 100) : 0
 
   // 正向卡:單字從頭到尾固定在同一個位置,答案先佔好位置(看不見),翻面時只淡入答案
+  // 讀音和單字一樣(ビザ、どうぞ這類假名的字)又沒有重音可畫,就不再印一次
+  const showReading = note.reading !== '' && (note.reading !== note.expression || note.accent !== '')
   const answerBlock = (
-    <div className={`card-answer${showBack ? '' : ' concealed'}`} aria-hidden={!showBack}>
-      {(note.reading !== '' || isSpeechSupported()) && (
+    <div ref={answerRef} tabIndex={-1} aria-label="答案" className={`card-answer${showBack ? '' : ' concealed'}`} aria-hidden={!showBack}>
+      {(showReading || isSpeechSupported()) && (
         <div className="reading-row">
-          {note.reading !== '' && <PitchAccent reading={note.reading} accent={note.accent} />}
+          {showReading && <PitchAccent reading={note.reading} accent={note.accent} />}
           {isSpeechSupported() && (
             <button
               className="speak-btn"
@@ -437,14 +520,18 @@ export default function Review() {
   )
 
   return (
-    <div className="review-screen">
+    <div className={`review-screen${newbie ? ' with-hint' : ''}`}>
+      <p className="visually-hidden" aria-live="polite">{announcement}</p>
       <header className="review-bar">
         <button className="icon-btn" aria-label="結束複習" title="結束複習（Esc）" onClick={exit}><CloseIcon /></button>
         <div className="review-progress" role="progressbar" aria-label="這次的進度"
           aria-valuemin={0} aria-valuemax={sessionMax} aria-valuenow={sessionMax - remaining}>
           <span style={{ width: `${progress}%` }} />
         </div>
-        <span className="review-remaining" aria-label={`剩 ${remaining} 張`}>{remaining}</span>
+        <span className="review-remaining" role="img"
+          aria-label={`剩 ${remaining} 張：新卡 ${counts.news}、學習中 ${counts.learn}、待複習 ${counts.rev}`}>
+          剩 <b>{remaining}</b>
+        </span>
         <button className="icon-btn" aria-label="復原上一步" disabled={lastAction === null}
           onClick={() => void undo()} title="復原上一步（U）"><UndoIcon size={21} /></button>
         <button className="icon-btn" aria-label="更多動作" aria-haspopup="dialog"
@@ -455,16 +542,20 @@ export default function Review() {
 
       <div className={`flashcard${showBack ? ' flipped' : ''}`} onClick={() => flip(true)}>
         {current.deckName !== null && <span className="card-deck">{current.deckName}</span>}
+        {/* 第一次見到的字標出來:想不起來是正常的,別被嚇到 */}
+        {countKind(card) === 'news' && <span className="card-tag">新卡</span>}
         {reverse && !showBack ? (
           // 反向卡的正面是中文意思:提示要想的是日文
           <div className="card-face" key={`${card.id}-front`}>
             <span className="card-prompt">中 → 日</span>
-            <p className={`expression prompt-text${sizeClass(note.meaning)}`}>{note.meaning}</p>
+            <p ref={wordRef} tabIndex={-1} className={`expression prompt-text${sizeClass(note.meaning)}`}>{note.meaning}</p>
             <p className="card-hint">日文怎麼說？</p>
           </div>
         ) : (
           <div className="card-face" key={card.id}>
-            <p className={`expression${sizeClass(note.expression)}`} lang="ja">{note.expression}</p>
+            <p ref={showBack ? undefined : wordRef} tabIndex={-1} className={`expression${sizeClass(note.expression)}`} lang="ja">
+              {note.expression}
+            </p>
             {answerBlock}
           </div>
         )}
@@ -476,22 +567,26 @@ export default function Review() {
             顯示答案<span className="kbd-hint">空白鍵</span>
           </button>
         ) : (
+          <>
+          {newbie && <p className="rating-hint">想不起來就按「重來」；只要想起來了，都算答對</p>}
           <div className="ratings">
             {([1, 2, 3, 4] as const).map((r) => (
-              <button key={r} className={`rating rating-${r}`} onClick={() => void answer(r, true)}>
+              <button key={r} className={`rating rating-${r}`} aria-label={`${RATING_LABELS[r]}，${preview[r]}後`}
+                onClick={() => void answer(r, true)}>
                 <span className="rating-label">{RATING_LABELS[r]}</span>
                 <span className="rating-interval">{preview[r]}</span>
                 <span className="kbd-hint rating-key">{r}</span>
               </button>
             ))}
           </div>
+          </>
         )}
       </div>
 
-      {toast !== null && lastAction !== null && (
+      {toast !== null && (!toast.undoable || lastAction !== null) && (
         <div className="toast review-toast" role="status">
-          <span>{toast}</span>
-          <button className="link" onClick={() => void undo()}>復原</button>
+          <span>{toast.text}</span>
+          {toast.undoable && <button className="link" onClick={() => void undo()}>復原</button>}
         </div>
       )}
 
@@ -499,10 +594,15 @@ export default function Review() {
         { label: '編輯這張', icon: <PencilIcon size={20} />, onSelect: openEdit },
         { label: '跳過，等一下再看', icon: <SkipIcon size={20} />, onSelect: () => void skip() },
         { label: '已經會了，不用再出現', icon: <CheckIcon size={20} />, onSelect: () => void markSuspended(2) },
-        { label: '擱置這個字', icon: <ArchiveIcon size={20} />, onSelect: () => void markSuspended(1) },
+        { label: '先不學這個字', icon: <ArchiveIcon size={20} />, onSelect: () => void markSuspended(1) },
+        ...(isSpeechSupported() ? [{
+          label: autoSpeak ? '關閉自動唸讀音' : '翻面時自動唸讀音', icon: <SpeakerIcon size={20} />, onSelect: toggleAutoSpeak,
+        }] : []),
       ]} />
 
-      <Sheet open={editing !== null} onClose={() => setEditing(null)} title="編輯卡片" full
+      <Sheet open={editing !== null} onClose={() => { setEditing(null); setErrMsg(null) }} title="編輯卡片" full
+        dirty={editing !== null && (editing.expression !== note.expression || editing.reading !== note.reading
+          || editing.meaning !== note.meaning || editing.accent !== note.accent)}
         end={<button className="btn plain strong" onClick={() => void saveEdit()}>儲存</button>}>
         {editing !== null && (
           <form className="form" onSubmit={(e) => { e.preventDefault(); void saveEdit() }}>

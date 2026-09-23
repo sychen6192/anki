@@ -22,3 +22,4 @@ label.row.disabled { opacity: .4; pointer-events: none; }
   overflow-wrap: anywhere; user-select: all;
 }
 .key-msg { padding: 0 4px; }
+.key-empty { margin-bottom: 14px; }

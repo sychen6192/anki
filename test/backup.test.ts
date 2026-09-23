@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto'
 import { beforeEach, describe, it, expect } from 'vitest'
 import { db } from '../src/db/db'
 import { createDeck, createNote } from '../src/db/repo'
-import { exportBackup, importBackup } from '../src/lib/backup'
+import { describeBackup, exportBackup, importBackup } from '../src/lib/backup'
 import { syncNow } from '../src/lib/sync'
 import { setSyncSpace } from '../src/lib/space'
 import { DEFAULT_FSRS_SETTINGS, getFsrsSettings, saveFsrsSettings } from '../src/lib/fsrsSettings'
@@ -71,6 +71,20 @@ describe('backup', () => {
       .rejects.toThrow('new_per_day')
 
     expect(await survived()).toBe('原本的資料') // 全程沒有清空本機
+  })
+
+  it('describeBackup:還原前的摘要只算沒刪除的牌組與單字,壞檔丟一樣的錯', async () => {
+    const deck = await createDeck('A')
+    await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
+    const gone = await createNote(deck.id, { expression: '猫', reading: 'ねこ', meaning: '貓', reversed: false, accent: '' })
+    await db.notes.update(gone.id, { deleted: 1 })
+    const trashed = await createDeck('刪掉的')
+    await db.decks.update(trashed.id, { deleted: 1 })
+    const info = describeBackup(await exportBackup())
+    expect(info).toMatchObject({ decks: 1, words: 1, reviews: 0 })
+    expect(typeof info.exportedAt).toBe('number')
+    expect(() => describeBackup('這根本不是 json')).toThrow('不是有效的 JSON')
+    expect(describeBackup(JSON.stringify({ version: 1 })).exportedAt).toBeNull()
   })
 
   it('不支援的版本丟錯誤', async () => {

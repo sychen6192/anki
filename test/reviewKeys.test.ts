@@ -30,6 +30,22 @@ describe('reviewKeyAction', () => {
     expect(reviewKeyAction(key('Escape'), back)).toEqual({ type: 'exit' })
   })
 
+  it('用鍵盤移到按鈕上時,Enter/空白鍵交給按鈕;輸入框裡的字母不當快捷鍵', () => {
+    expect(reviewKeyAction(key('Enter'), { ...back, target: 'control' })).toBeNull()
+    expect(reviewKeyAction(key(' '), { ...front, target: 'control' })).toBeNull()
+    // 其他快捷鍵照常
+    expect(reviewKeyAction(key('3'), { ...back, target: 'control' })).toEqual({ type: 'rate', rating: 3 })
+    expect(reviewKeyAction(key('s'), { ...front, target: 'text' })).toBeNull()
+  })
+
+  it('完成畫面只認 Esc,Enter/空白鍵留給畫面上的按鈕', () => {
+    const done = { editing: false, showBack: true, done: true }
+    expect(reviewKeyAction(key('Enter'), done)).toBeNull()
+    expect(reviewKeyAction(key(' '), done)).toBeNull()
+    expect(reviewKeyAction(key('u'), done)).toBeNull()
+    expect(reviewKeyAction(key('Escape'), done)).toEqual({ type: 'exit' })
+  })
+
   it('翻面後 1~4 評分', () => {
     for (const k of ['1', '2', '3', '4'] as const) {
       expect(reviewKeyAction(key(k), back)).toEqual({ type: 'rate', rating: Number(k) })
@@ -44,9 +60,9 @@ describe('reviewKeyAction', () => {
     expect(reviewKeyAction(key(' ', { ctrlKey: true }), front)).toBeNull()
   })
 
-  it('編輯中只認 Esc,其他鍵留給輸入框', () => {
+  it('編輯中鍵盤全部留給面板(Esc 由面板處理,有改過會先問要不要捨棄)', () => {
     const editing = { editing: true, showBack: true }
-    expect(reviewKeyAction(key('Escape'), editing)).toEqual({ type: 'cancel-edit' })
+    expect(reviewKeyAction(key('Escape'), editing)).toBeNull()
     expect(reviewKeyAction(key('s'), editing)).toBeNull()
     expect(reviewKeyAction(key('3'), editing)).toBeNull()
     expect(reviewKeyAction(key(' '), editing)).toBeNull()

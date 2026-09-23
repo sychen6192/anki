@@ -22,6 +22,12 @@
   scrollbar-width: none;
 }
 .chips::-webkit-scrollbar { display: none; }
+/* 觸控時可點範圍撐到 44pt:容器上下多留 5px,chip 的 ::after 往外撐才不會被捲動容器裁掉 */
+@media (pointer: coarse) {
+  .chips { margin-top: 7px; padding: 5px 0 7px; }
+  .chip { position: relative; }
+  .chip::after { content: ''; position: absolute; inset: -5px 0; }
+}
 .chip {
   display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
   min-height: 34px; padding: 0 14px; border-radius: 999px;
@@ -48,7 +54,7 @@
 .select-mark.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .list-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; color: var(--text-2); padding: 28px 0; }
 .accent-hint { margin-top: -8px; padding: 0 2px; }
-.list-count { text-align: center; color: var(--text-3); font-size: var(--fs-footnote); margin-top: 14px; }
+.list-count { text-align: center; color: var(--text-2); font-size: var(--fs-footnote); margin-top: 14px; }
 .list-count .link { font-size: var(--fs-footnote); }
 
 /* 批次選取時,底部浮一條動作列(在分頁列上方) */
@@ -61,7 +67,7 @@
   background: var(--elevated); border-radius: var(--radius-lg); box-shadow: var(--shadow-md);
 }
 .batch-count { font-size: var(--fs-subhead); white-space: nowrap; }
-.batch-actions { display: flex; gap: 6px; margin-left: auto; }
+.batch-actions { display: flex; gap: 10px; margin-left: auto; }
 .batch-actions .btn.sm { padding: 0 12px; }
 .page:has(.batch-bar) { padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 110px); }
 @media (min-width: 768px) { .batch-bar { bottom: 20px; } }

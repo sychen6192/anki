@@ -1,11 +1,14 @@
 /* ---------- 重設與排版 ---------- */
 * { box-sizing: border-box; margin: 0; }
 
-/* 只在可點擊元件上關掉雙擊縮放(保留捲動與雙指縮放);避免對所有元素套用 touch-action */
-a, button, .btn, .row, input, select, textarea, label, summary {
+/* 只在可點擊元件上關掉雙擊縮放(保留捲動與雙指縮放);避免對所有元素套用 touch-action。
+   複習卡整張可以點(翻面),每天點最多次,也要算進來 */
+a, button, .btn, .row, input, select, textarea, label, summary, .flashcard {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
+/* 導覽用的連結長按不跳 iOS 的連結預覽,比較像 App */
+.tabbar a, a.btn, a.row, .deck-link, .nav-bar a { -webkit-touch-callout: none; }
 
 html { -webkit-text-size-adjust: 100%; }
 
@@ -102,5 +105,11 @@ b, strong { font-weight: 600; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important; scroll-behavior: auto !important;
+  }
+  /* 無限轉圈的動畫壓成 0.01ms 會變成亂閃:改成靜止的樣子 */
+  .spinner { animation: none !important; border-top-color: var(--fill); border-right-color: var(--accent); }
+  .route-progress.active::after { animation: none !important; width: 100%; opacity: .5; }
 }

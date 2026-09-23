@@ -13,6 +13,26 @@ export interface QueueResult {
  */
 export const DAY_START_HOUR = 4
 
+export interface QueueCounts { news: number; learn: number; rev: number }
+
+/** 佇列分成新卡/學習中/待複習三類(首頁與複習畫面的三色計數共用,兩邊才會對得上) */
+export function splitCounts(queue: readonly CardRecord[]): QueueCounts {
+  let news = 0
+  let learn = 0
+  for (const c of queue) {
+    if (c.state === State.New) news++
+    else if (c.state === State.Learning || c.state === State.Relearning) learn++
+  }
+  return { news, learn, rev: queue.length - news - learn }
+}
+
+/** 一張卡算在三類的哪一類 */
+export function countKind(card: CardRecord): keyof QueueCounts {
+  if (card.state === State.New) return 'news'
+  if (card.state === State.Learning || card.state === State.Relearning) return 'learn'
+  return 'rev'
+}
+
 export function startOfToday(now = Date.now()): number {
   const d = new Date(now)
   if (d.getHours() < DAY_START_HOUR) d.setDate(d.getDate() - 1)

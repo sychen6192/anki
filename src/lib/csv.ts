@@ -1,6 +1,6 @@
 import Papa from 'papaparse'
 import type { NoteRecord } from '../../shared/types'
-import { isValidAccent } from './accent'
+import { isValidAccent, normalizeAccent } from './accent'
 
 export interface CsvMapping { expression: number; reading: number | null; meaning: number; accent: number | null }
 export interface ParsedRow { expression: string; reading: string; meaning: string; accent: string }
@@ -31,12 +31,13 @@ export function autoMapHeaders(headers: string[]): CsvMapping | null {
 export function mapRows(rows: string[][], mapping: CsvMapping): ParsedRow[] {
   return rows
     .map((r) => {
-      const rawAccent = mapping.accent === null ? '' : (r[mapping.accent] ?? '').trim()
+      // 「０、２」這類手打的全形寫法先統一成「0,2」;還是不合格式的就留空,匯入時自動查字典
+      const accent = mapping.accent === null ? '' : normalizeAccent(r[mapping.accent] ?? '')
       return {
         expression: (r[mapping.expression] ?? '').trim(),
         reading: mapping.reading === null ? '' : (r[mapping.reading] ?? '').trim(),
         meaning: (r[mapping.meaning] ?? '').trim(),
-        accent: isValidAccent(rawAccent) ? rawAccent : '',
+        accent: isValidAccent(accent) ? accent : '',
       }
     })
     .filter((r) => r.expression !== '' && r.meaning !== '')
@@ -72,5 +73,23 @@ export function exportCsv(notes: NoteRecord[]): string {
     fields: ['單字', '讀音', '意思', '重音'],
     data: notes.filter((n) => !n.deleted).map((n) => [n.expression, n.reading, n.meaning, n.accent]),
   })
-  return csv.replace(/\r/g, '')
+  // 開頭的 BOM 讓 Excel 認得這是 UTF-8,不然中日文會變成亂碼(自己的匯入讀得懂,會自動略過)
+  return '\uFEFF' + csv.replace(/\r/g, '')
+}
+
+export type TextEncodingName = 'utf-8' | 'big5' | 'shift_jis'
+
+/**
+ * 讀使用者選的 CSV 檔。Excel 預設存的「CSV(逗號分隔)」不是 UTF-8:繁中 Windows 是 Big5,
+ * 日文 Windows 是 Shift_JIS。先照 UTF-8 嚴格解,解不開再依序試 Big5、Shift_JIS,並回報用了哪一種。
+ */
+export function decodeCsvBytes(bytes: ArrayBuffer | Uint8Array): { text: string; encoding: TextEncodingName } {
+  for (const encoding of ['utf-8', 'big5', 'shift_jis'] as const) {
+    try {
+      return { text: new TextDecoder(encoding, { fatal: true }).decode(bytes), encoding }
+    } catch {
+      // 這個編碼解不開,換下一個
+    }
+  }
+  return { text: new TextDecoder('utf-8').decode(bytes), encoding: 'utf-8' }
 }

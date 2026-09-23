@@ -8,12 +8,13 @@
 .today-headline { font-size: var(--fs-title2); font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
 .today-headline b { font-size: var(--fs-large); font-weight: 700; letter-spacing: -0.02em; margin-right: 2px; }
 .today-headline.done { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-title3); color: var(--success); }
+.today-headline.small { font-size: var(--fs-title3); }
 .today-sub { font-size: var(--fs-small); color: var(--text-2); }
 .today-cta { margin-top: 4px; }
 .streak {
   display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
   padding: 4px 10px; border-radius: 999px;
-  background: color-mix(in srgb, var(--warning) 14%, transparent); color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, transparent); color: var(--warning-text);
   font-size: var(--fs-footnote); font-weight: 600; font-variant-numeric: tabular-nums;
 }
 
@@ -35,8 +36,8 @@
 .deck-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
 .deck-meta .count { gap: 5px; }
 .deck-meta .dot { width: 7px; height: 7px; }
-.deck-done { color: var(--text-3); }
-.deck-words { color: var(--text-3); }
+.deck-done { color: var(--text-2); }
+.deck-words { color: var(--text-2); }
 .deck-review { min-width: 64px; gap: 6px; font-variant-numeric: tabular-nums; }
 .deck-check { display: inline-flex; align-items: center; justify-content: center; width: 64px; color: var(--text-3); }
 
@@ -50,6 +51,11 @@
 .welcome .btn-stack { width: 100%; max-width: 340px; margin-top: 8px; }
 .welcome > .btn.lg { max-width: 340px; margin-top: 6px; }
 .welcome-icon { width: 64px; height: 64px; border-radius: 16px; }
+.welcome-join { margin-top: 2px; font-size: var(--fs-subhead); }
+.welcome .welcome-install {
+  width: 100%; max-width: 340px; padding: 10px 12px; border-radius: var(--radius);
+  background: var(--fill-2); color: var(--text); text-align: left; font-size: var(--fs-small); line-height: 1.55;
+}
 .welcome-check {
   display: inline-flex; align-items: center; justify-content: center;
   width: 60px; height: 60px; border-radius: 50%;

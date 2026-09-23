@@ -27,3 +27,23 @@ export function speak(text: string): void {
   u.rate = 0.95
   synth.speak(u)
 }
+
+// 「翻面自動唸讀音」開關:設定頁與複習畫面共用。存在這台裝置(不同步),
+// 隱私模式等讀寫 localStorage 會丟錯的情況就當作關閉。
+const AUTO_SPEAK_KEY = 'auto-speak'
+
+export function readAutoSpeak(): boolean {
+  try {
+    return localStorage.getItem(AUTO_SPEAK_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function writeAutoSpeak(on: boolean): void {
+  try {
+    localStorage.setItem(AUTO_SPEAK_KEY, on ? '1' : '0')
+  } catch {
+    // 存不起來就只在這次有效
+  }
+}

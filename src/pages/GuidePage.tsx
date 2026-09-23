@@ -13,7 +13,7 @@ export default function GuidePage() {
         <h2>快速開始</h2>
         <ol className="guide-steps">
           <li>
-            在「牌組」按右上的 <span className="inline-icon"><PlusIcon size={15} /></span>,
+            在「牌組」按右上的 <span className="inline-icon"><PlusIcon size={15} /></span>，
             <Link to="/import?mode=templates" className="inline-link">挑一份範本</Link>、匯入自己的 CSV / Anki 牌組，
             或貼上朋友的分享連結
           </li>
@@ -36,13 +36,13 @@ export default function GuidePage() {
 
       <section className="guide-card card">
         <h2>不想再看到某個字</h2>
-        <p>複習時按右上的 <span className="inline-icon"><MoreIcon size={15} /></span>:</p>
+        <p>複習時按右上的 <span className="inline-icon"><MoreIcon size={15} /></span>：</p>
         <ul className="guide-list">
           <li><b>已經會了</b>：早就會的字，之後不再出現</li>
-          <li><b>擱置這個字</b>：先不學，之後想學再恢復</li>
+          <li><b>先不學這個字</b>：不會自己回來，想學時到牌組頁的「先不學」恢復</li>
           <li><b>跳過</b>：只是這次先不看，等一下還會出現</li>
         </ul>
-        <p className="hint">牌組頁的「⋯」→「選取多張」可以一次處理很多字，也能恢復。</p>
+        <p className="hint">牌組頁的「⋯」→「選取多個字」可以一次處理很多字，也能恢復。</p>
       </section>
 
       <section className="guide-card card kbd-only">

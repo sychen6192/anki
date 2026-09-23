@@ -56,6 +56,26 @@ function parseBackup(json: string): Record<string, Record<string, unknown>[]> {
   return out
 }
 
+export interface BackupSummary {
+  exportedAt: number | null
+  decks: number
+  words: number
+  reviews: number
+}
+
+/** 還原前給使用者看的內容摘要(只算沒刪除的牌組與單字);檔案不對會丟出和還原時一樣的錯誤 */
+export function describeBackup(json: string): BackupSummary {
+  const data = parseBackup(json)
+  const exportedAt = (JSON.parse(json) as { exported_at?: unknown }).exported_at
+  const live = (rows: Record<string, unknown>[]) => rows.filter((r) => !r.deleted).length
+  return {
+    exportedAt: typeof exportedAt === 'number' && Number.isFinite(exportedAt) ? exportedAt : null,
+    decks: live(data.decks),
+    words: live(data.notes),
+    reviews: data.review_logs.length,
+  }
+}
+
 export async function importBackup(json: string): Promise<void> {
   const data = parseBackup(json)
   const now = Date.now()

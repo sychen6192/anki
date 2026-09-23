@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { useModalDialog } from './Sheet'
+import { useModalDialog } from './useModalDialog'
 
 export interface ConfirmOptions {
   title: string
@@ -68,7 +68,7 @@ function ConfirmDialog({ pending, onFinish }: { pending: Pending | null; onFinis
           <div className="alert-actions">
             <button type="button" onClick={() => onFinish(false)}>{pending.cancelLabel ?? '取消'}</button>
             {/* 危險動作不給預設焦點,免得按 Enter 就刪掉 */}
-            <button type="button" autoFocus={!pending.destructive}
+            <button type="button" data-autofocus={pending.destructive ? undefined : ''}
               className={pending.destructive ? 'destructive' : 'primary'}
               onClick={() => onFinish(true)}>{pending.confirmLabel ?? '確定'}</button>
           </div>

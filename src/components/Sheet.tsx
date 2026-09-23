@@ -1,39 +1,33 @@
-import { useEffect, useRef, type MouseEvent, type ReactNode, type SyntheticEvent } from 'react'
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
+import { useConfirm } from './Confirm'
+import { useModalDialog } from './useModalDialog'
 
-/** 開著 sheet 的時候鎖住底下頁面的捲動(iPhone 上拖背景會帶著整頁跑) */
-function useScrollLock(locked: boolean) {
+/**
+ * 面板跟著「看得見的那一塊」走:iPhone 鍵盤跳出來時 100dvh 不會變,只有 visualViewport 變小 ——
+ * 不跟著縮的話,滿版表單會被整個往上推、標題列的「儲存」被推出畫面,半高的面板則被鍵盤蓋住。
+ * 高度與位置寫成 CSS 變數給 .sheet 用,焦點所在的欄位捲到看得見的地方。
+ */
+function useVisualViewport(ref: RefObject<HTMLDialogElement | null>, active: boolean) {
   useEffect(() => {
-    if (!locked) return
-    const html = document.documentElement
-    const prev = html.style.overflow
-    html.style.overflow = 'hidden'
-    return () => { html.style.overflow = prev }
-  }, [locked])
-}
-
-/** 共用:用原生 <dialog> 的 showModal(焦點鎖在裡面、Esc 關閉、背景不能點) */
-function useModalDialog(open: boolean, onClose: () => void) {
-  const ref = useRef<HTMLDialogElement>(null)
-  useEffect(() => {
+    const vv = window.visualViewport
     const d = ref.current
-    if (d === null) return
-    if (open && !d.open) {
-      // jsdom 或很舊的瀏覽器沒有 showModal:退回 open 屬性,至少看得到
-      if (typeof d.showModal === 'function') d.showModal()
-      else d.setAttribute('open', '')
-    } else if (!open && d.open) {
-      d.close()
+    if (!active || vv == null || d === null) return
+    const update = () => {
+      d.style.setProperty('--vvh', `${vv.height}px`)
+      d.style.setProperty('--vv-top', `${vv.offsetTop}px`)
+      const focused = document.activeElement
+      if (focused instanceof HTMLElement && d.contains(focused)) focused.scrollIntoView({ block: 'nearest' })
     }
-  }, [open])
-  useScrollLock(open)
-  const dialogProps = {
-    ref,
-    // Esc:交給父層決定要不要關(不讓瀏覽器自己關,狀態才不會不同步)
-    onCancel: (e: SyntheticEvent) => { e.preventDefault(); onClose() },
-    // 點到 dialog 本身(= 背景那層)就關閉;點到內容的事件 target 會是裡面的元素
-    onClick: (e: MouseEvent) => { if (e.target === e.currentTarget) onClose() },
-  }
-  return dialogProps
+    update()
+    vv.addEventListener('resize', update)
+    vv.addEventListener('scroll', update)
+    return () => {
+      vv.removeEventListener('resize', update)
+      vv.removeEventListener('scroll', update)
+      d.style.removeProperty('--vvh')
+      d.style.removeProperty('--vv-top')
+    }
+  }, [ref, active])
 }
 
 interface SheetProps {
@@ -44,22 +38,38 @@ interface SheetProps {
   full?: boolean
   /** 左上角,預設是「取消」 */
   start?: ReactNode
+  /** 預設左上角按鈕的字(例如連續新增後是「完成」) */
+  cancelLabel?: string
   /** 右上角(例如「儲存」「完成」) */
   end?: ReactNode
+  /** 有沒存的變更:點背景、Esc、「取消」都先問要不要捨棄,不會默默丟掉打到一半的東西 */
+  dirty?: boolean
   children: ReactNode
 }
 
 /** 底部面板:新增/編輯卡片、牌組設定、分享…。關起來時不渲染內容,下次打開是乾淨的狀態 */
-export function Sheet({ open, onClose, title, full, start, end, children }: SheetProps) {
-  const dialogProps = useModalDialog(open, onClose)
+export function Sheet({ open, onClose, title, full, start, cancelLabel, end, dirty, children }: SheetProps) {
+  const confirm = useConfirm()
+  const asking = useRef(false)
+  const requestClose = async () => {
+    if (!dirty) { onClose(); return }
+    if (asking.current) return
+    asking.current = true
+    try {
+      if (await confirm({ title: '捨棄沒存的變更？', confirmLabel: '捨棄', cancelLabel: '繼續編輯', destructive: true })) onClose()
+    } finally {
+      asking.current = false
+    }
+  }
+  const dialogProps = useModalDialog(open, () => void requestClose())
+  useVisualViewport(dialogProps.ref, open)
   return (
     <dialog {...dialogProps} className={`sheet${full ? ' full' : ''}`} aria-label={title}>
       {open && (
         <>
-          <div className="sheet-grabber" aria-hidden="true" />
           <div className="sheet-header">
             <div className="start">
-              {start ?? <button type="button" className="btn plain" onClick={onClose}>取消</button>}
+              {start ?? <button type="button" className="btn plain" onClick={() => void requestClose()}>{cancelLabel ?? '取消'}</button>}
             </div>
             <div className="sheet-title">{title}</div>
             <div className="end">{end}</div>
@@ -119,4 +129,3 @@ export function ActionSheet({ open, onClose, title, message, actions }: ActionSh
   )
 }
 
-export { useModalDialog }

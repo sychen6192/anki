@@ -13,6 +13,12 @@ const files = [
 
 const CJK = '\\u3400-\\u9fff\\u3040-\\u30ff'
 const BAD = new RegExp(`[${CJK}][,;:?!(]|[,;?!)][${CJK}]|\\([${CJK}]`)
+// JSX 文字裡,標籤後面緊接半形標點(例如「按右上的 <span>…</span>,」):結束標籤後面是行尾、下一個標籤
+// 或中文才算;自閉合標籤只算後面緊接標籤或中文的 —— 程式碼裡 `icon: <Icon />,` 那種逗號不算。同一行也要有中文
+const BAD_AFTER_TAG = new RegExp(`</\\w+>[,;:?!](?=\\s*$|<|[${CJK}])|/>[,;:?!](?=<|[${CJK}])`)
+const HAS_CJK = new RegExp(`[${CJK}]`)
+// 數量單位只用「字/張/次」:「3 筆」「{n} 筆」是資料庫用語,介面上不用
+const BAD_UNIT = /(\d|\})\s*筆/
 
 function stripComments(src: string): string {
   return src
@@ -25,7 +31,19 @@ describe('介面文字的標點', () => {
     const offenders: string[] = []
     for (const f of files) {
       stripComments(readFileSync(f, 'utf8')).split('\n').forEach((line, i) => {
-        if (BAD.test(line)) offenders.push(`${f}:${i + 1}  ${line.trim().slice(0, 100)}`)
+        if (BAD.test(line) || (HAS_CJK.test(line) && BAD_AFTER_TAG.test(line))) {
+          offenders.push(`${f}:${i + 1}  ${line.trim().slice(0, 100)}`)
+        }
+      })
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('數量單位用「個字/張/次」,不用「筆」', () => {
+    const offenders: string[] = []
+    for (const f of files) {
+      stripComments(readFileSync(f, 'utf8')).split('\n').forEach((line, i) => {
+        if (BAD_UNIT.test(line)) offenders.push(`${f}:${i + 1}  ${line.trim().slice(0, 100)}`)
       })
     }
     expect(offenders).toEqual([])

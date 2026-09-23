@@ -96,3 +96,23 @@ export async function leaveSyncSpace(): Promise<void> {
     await db.meta.put({ key: 'sync_space', value: '' })
   })
 }
+
+/**
+ * 手打或貼上的金鑰先正規化:全形轉半形、去掉空白、轉小寫;去掉分隔符號後剛好是
+ * 12 個產生器會用的字元,就補回「xxxx-xxxx-xxxx」。抄成「BVJ6 AM4P AD9Q」也連得上同一個空間。
+ * 不像產生出來的(舊版可以自訂任意字串,大小寫有差)就原樣接受,由畫面提醒「確定沒打錯？」。
+ */
+export function normalizeSyncKey(input: string): { key: string; standard: boolean } {
+  const bare = input.normalize('NFKC').replace(/[\s\-‐‑–—ー_]+/g, '').toLowerCase()
+  if (/^[abcdefghjkmnpqrstuvwxyz23456789]{12}$/.test(bare)) {
+    return { key: `${bare.slice(0, 4)}-${bare.slice(4, 8)}-${bare.slice(8)}`, standard: true }
+  }
+  return { key: input.trim(), standard: false }
+}
+
+/** 這台有幾副牌組、幾個字(不含已刪除的):連上一個空間後回報「下載了什麼」用 */
+export async function countLocalContents(): Promise<{ decks: number; words: number }> {
+  const decks = await db.decks.filter((d) => !d.deleted).count()
+  const words = await db.notes.filter((n) => !n.deleted).count()
+  return { decks, words }
+}

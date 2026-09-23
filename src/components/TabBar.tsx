@@ -2,6 +2,7 @@ import { useTransition, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
+import { scrollBehavior } from '../lib/motion'
 
 export interface Tab {
   to: string
@@ -44,7 +45,7 @@ export function TabBar({ tabs }: { tabs: Tab[] }) {
             onClick={(e) => {
               if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
               e.preventDefault()
-              if (atRoot) { window.scrollTo({ top: 0, behavior: 'smooth' }); return }
+              if (atRoot) { window.scrollTo({ top: 0, behavior: scrollBehavior() }); return }
               startTransition(() => navigate(to))
             }}
           >

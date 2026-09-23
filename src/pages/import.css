@@ -20,7 +20,8 @@
 .template-name { font-size: var(--fs-headline); font-weight: 600; }
 .template-count { color: var(--text-2); font-size: var(--fs-small); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .template-desc { color: var(--text-2); font-size: var(--fs-subhead); line-height: 1.55; }
-.template-preview { color: var(--text-3); font-size: var(--fs-small); margin-bottom: 6px; }
+.template-preview { color: var(--text-2); font-size: var(--fs-small); }
+.template-pace { color: var(--text-2); font-size: var(--fs-footnote); margin-bottom: 6px; }
 .template-added { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: var(--fs-small); }
 .import-need-name { padding: 0 4px; }
 
@@ -63,3 +64,4 @@
 .browser-notice .share-link-input {
   font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--fs-small); color: var(--text-2); background: var(--surface);
 }
+.share-merge { margin: 0; }

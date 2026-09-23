@@ -20,10 +20,12 @@
   transition: background-color .15s ease, opacity .15s ease, transform .08s ease;
 }
 .btn:active { transform: scale(0.98); }
+/* 大按鈕的字可能很長(裡面有使用者取的牌組名):放不下就換行,不要溢出按鈕 */
+.btn.lg { white-space: normal; text-wrap: balance; }
 @media (hover: hover) { .btn:hover { background: var(--accent-pressed); } }
 .btn.secondary { background: var(--fill); color: var(--text); }
 @media (hover: hover) { .btn.secondary:hover { background: color-mix(in srgb, var(--fill) 100%, var(--text) 6%); } }
-.btn.tinted { background: var(--accent-tint); color: var(--accent); }
+.btn.tinted { background: var(--accent-tint); color: var(--accent-text); }
 @media (hover: hover) { .btn.tinted:hover { background: var(--accent-tint-pressed); } }
 .btn.plain, .link {
   background: none; color: var(--accent); padding: 0 8px; font-weight: 500;
@@ -104,12 +106,14 @@ button.row:disabled { opacity: .4; cursor: default; background: none; }
 .row.destructive { color: var(--danger); }
 .row.center { justify-content: center; text-align: center; }
 .row .row-main.center { align-items: center; }
-/* 列裡的輸入框:透明底、跟列的文字對齊 */
+/* 列裡的輸入框:透明底、跟列的文字對齊(下拉選單只清底色,箭頭留著才看得出能點) */
 .row input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 .row select {
-  background: none; border-radius: 0; padding: 0; min-height: 26px;
+  background-color: transparent; border-radius: 0; padding: 0; min-height: 26px;
 }
 .row input:focus, .row select:focus { box-shadow: none; outline: none; }
+/* 欄位本身透明,焦點框改畫在整列上(用 Tab 移過來時看得到在哪) */
+.row:has(input:focus-visible, select:focus-visible) { box-shadow: inset 0 0 0 2px var(--accent); }
 
 /* ---------- 表單 ---------- */
 input, select, textarea {
@@ -225,7 +229,7 @@ input.switch:disabled { opacity: .4; cursor: default; }
 .badge.new { background: color-mix(in srgb, var(--c-new) 14%, transparent); color: var(--c-new); }
 .badge.learn { background: color-mix(in srgb, var(--c-learn) 14%, transparent); color: var(--c-learn); }
 .badge.due { background: color-mix(in srgb, var(--c-due-count) 14%, transparent); color: var(--c-due-count); }
-/* 已會、擱置是「退出複習」的狀態:中性灰,不跟待複習的綠色搶 */
+/* 已會、先不學是「退出複習」的狀態:中性灰,不跟待複習的綠色搶 */
 .badge.known { background: var(--fill); color: var(--text-2); }
 .badge.paused { background: var(--fill); color: var(--text-2); }
 
@@ -233,7 +237,7 @@ input.switch:disabled { opacity: .4; cursor: default; }
 .counts-inline { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--fs-small); color: var(--text-2); }
 .count { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .count b { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
-.count.zero, .count.zero b { color: var(--text-3); }
+.count.zero, .count.zero b { color: var(--text-2); font-weight: 400; }
 .count.zero .dot { opacity: .35; }
 .count .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .dot.new { background: var(--c-new); }
@@ -300,7 +304,7 @@ input.switch:disabled { opacity: .4; cursor: default; }
   flex: 1; max-width: 160px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
   height: var(--tabbar-h);
-  color: var(--text-3); text-decoration: none;
+  color: var(--text-2); text-decoration: none;
   font-size: var(--fs-caption2); font-weight: 600; letter-spacing: .02em;
 }
 .tabbar a.active { color: var(--accent); }
@@ -331,7 +335,7 @@ input.switch:disabled { opacity: .4; cursor: default; }
     border-radius: 10px; font-size: var(--fs-subhead); letter-spacing: 0; color: var(--text-2);
   }
   .tabbar a svg { width: 18px; height: 18px; }
-  .tabbar a.active { background: var(--accent-tint); color: var(--accent); }
+  .tabbar a.active { background: var(--accent-tint); color: var(--accent-text); }
   @media (hover: hover) { .tabbar a:hover:not(.active) { background: var(--fill-2); color: var(--text); } }
   .tabbar .tab-dot { top: 8px; left: auto; right: 6px; }
   .route-progress { top: auto; bottom: 0; }
@@ -342,10 +346,12 @@ input.switch:disabled { opacity: .4; cursor: default; }
    .sheet.full   幾乎滿版、貼齊上方(表單:鍵盤跳出時欄位不會被擋)
    寬螢幕一律置中 */
 dialog { color: var(--text); }
+/* --vv-top / --vvh:Sheet 依 visualViewport 寫入(iPhone 鍵盤跳出時看得見的那一塊),
+   面板底邊貼著鍵盤上緣;沒有這兩個變數時就是整個畫面 */
 .sheet {
-  position: fixed; inset: auto 0 0 0;
+  position: fixed; inset: auto 0 calc(100% - var(--vv-top, 0px) - var(--vvh, 100%)) 0;
   width: 100%; max-width: 560px; height: auto;
-  max-height: calc(100dvh - var(--safe-top) - 12px);
+  max-height: calc(var(--vvh, 100dvh) - var(--safe-top) - 12px);
   margin: 0 auto; padding: 0; border: none;
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   background: var(--bg);
@@ -354,7 +360,10 @@ dialog { color: var(--text); }
   display: flex; flex-direction: column;
 }
 .sheet:not([open]) { display: none; }
-.sheet.full { inset: calc(var(--safe-top) + 10px) 0 0 0; height: calc(100dvh - var(--safe-top) - 10px); max-height: none; }
+.sheet.full {
+  inset: calc(var(--vv-top, 0px) + var(--safe-top) + 10px) 0 auto 0;
+  height: calc(var(--vvh, 100dvh) - var(--safe-top) - 10px); max-height: none;
+}
 .sheet::backdrop { background: rgb(0 0 0 / 0.38); }
 .sheet[open] { animation: sheet-up .3s cubic-bezier(.2, .8, .2, 1); }
 .sheet[open]::backdrop { animation: fade-in .25s ease; }
@@ -370,8 +379,6 @@ dialog { color: var(--text); }
 .sheet-header .end { justify-self: end; }
 .sheet-header .btn.plain { font-size: var(--fs-body); }
 .sheet-header .btn.plain.strong { font-weight: 600; }
-/* 抓手:提示可以往下拉掉(只是視覺,點背景或「取消」關閉) */
-.sheet-grabber { width: 36px; height: 5px; border-radius: 3px; background: var(--text-3); opacity: .4; margin: 6px auto 0; flex-shrink: 0; }
 .sheet-body {
   flex: 1; overflow-y: auto; overscroll-behavior: contain;
   padding: 16px 16px calc(24px + var(--safe-bottom));
@@ -382,7 +389,6 @@ dialog { color: var(--text); }
     border-radius: var(--radius-xl);
   }
   .sheet[open] { animation: pop-in .22s cubic-bezier(.2, .8, .2, 1); }
-  .sheet-grabber { display: none; }
 }
 @keyframes pop-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
 
@@ -436,7 +442,7 @@ dialog { color: var(--text); }
 .alert[open] { animation: pop-in .2s cubic-bezier(.2, .8, .2, 1); }
 .alert-body { padding: 20px 18px 18px; display: flex; flex-direction: column; gap: 6px; }
 .alert-title { font-size: var(--fs-headline); font-weight: 600; line-height: 1.35; }
-.alert-message { font-size: var(--fs-small); color: var(--text-2); line-height: 1.5; }
+.alert-message { font-size: var(--fs-small); color: var(--text-2); line-height: 1.5; white-space: pre-line; }
 .alert-actions { display: flex; border-top: 0.5px solid var(--separator); }
 .alert-actions button {
   flex: 1; min-height: 48px; border: none; background: none;
@@ -493,6 +499,16 @@ dialog { color: var(--text); }
   padding: 12px; font-size: var(--fs-footnote); color: var(--text-2); overflow-x: auto; white-space: pre-wrap;
 }
 
+/* 觸控目標至少 44pt:小膠囊、文字鈕、chip、分段控制、步進器外觀不變,
+   用看不見的 ::after 把可點範圍往上下撐開(左右不撐,免得蓋到隔壁那顆) */
+@media (pointer: coarse) {
+  .btn.sm, .link, .segmented button, .stepper button { position: relative; }
+  .btn.sm::after, .link::after, .segmented button::after, .stepper button::after {
+    content: ''; position: absolute; inset: -6px 0;
+  }
+  .stepper button { width: 44px; }
+}
+
 /* 鍵盤提示只在有實體鍵盤(hover 裝置)顯示,手機上是雜訊 */
 .kbd-hint { opacity: .6; font-weight: 400; font-size: .9em; }
 @media (hover: none) { .kbd-hint, .kbd-only { display: none !important; } }
@@ -528,8 +544,8 @@ kbd {
 .speak-btn:active { transform: scale(0.94); background: var(--accent-tint-pressed); }
 @media (hover: hover) { .speak-btn:hover { background: var(--accent-tint-pressed); } }
 
-/* 評分顏色(複習鍵與說明頁的小標共用) */
-.rating-1 { background: var(--rate-again); }
-.rating-2 { background: var(--rate-hard); }
-.rating-3 { background: var(--rate-good); }
-.rating-4 { background: var(--rate-easy); }
+/* 評分顏色(複習鍵與說明頁的小標共用):「普通」實心,其他淡色塊 */
+.rating-1 { background: var(--rate-again-tint); color: var(--rate-again-fg); }
+.rating-2 { background: var(--rate-hard-tint); color: var(--rate-hard-fg); }
+.rating-3 { background: var(--rate-good); color: #fff; }
+.rating-4 { background: var(--rate-easy-tint); color: var(--rate-easy-fg); }

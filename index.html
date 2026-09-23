@@ -5,8 +5,16 @@
     <!-- viewport-fit=cover:沒有它,iOS 上所有 env(safe-area-inset-*) 都是 0 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>字卡</title>
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f5f6" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f1013" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f2f2f7" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#000000" />
+    <script>
+      // 在 bundle 載入前就套好深淺色(規則同 src/lib/theme.ts):深色模式冷啟動不會先閃一下淺色
+      try {
+        var pref = localStorage.getItem('theme')
+        var dark = pref === 'dark' || (pref !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+      } catch (e) {}
+    </script>
     <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />

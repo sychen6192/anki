@@ -227,6 +227,14 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
   }
 }
 
+/** 有沒有還沒推上雲端的列(切到背景時才決定要不要推) */
+async function hasUnsynced(): Promise<boolean> {
+  for (const t of [db.decks, db.notes, db.cards, db.review_logs, db.settings] as Table<{ dirty: 0 | 1 }, string>[]) {
+    if (await t.where('dirty').equals(1).count() > 0) return true
+  }
+  return false
+}
+
 let pendingSync: ReturnType<typeof setTimeout> | undefined
 
 /**
@@ -238,9 +246,23 @@ export function requestSync(delayMs = 3000, fetchFn: typeof fetch = fetch): void
   pendingSync = setTimeout(() => { void syncNow(fetchFn) }, delayMs)
 }
 
+/** 頁面要被收到背景時用:keepalive 讓請求在頁面凍結、關閉後還能送完(一次最多 64KB,超過就留到下次) */
+const keepaliveFetch: typeof fetch = (input, init) => fetch(input, { ...init, keepalive: true })
+
 export function setupAutoSync(): void {
   const run = () => { void syncNow() }
   window.addEventListener('online', run)
+  // 切走(鎖螢幕、換 App、關分頁)時把還沒上傳的推上去:手機上背到一半被打斷,
+  // 晚上在電腦打開才不會拿到舊狀態、同一批卡再背一次
+  const pushBeforeHidden = () => {
+    void (async () => {
+      if (await hasUnsynced()) await syncNow(keepaliveFetch)
+    })()
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') pushBeforeHidden()
+  })
+  window.addEventListener('pagehide', pushBeforeHidden)
   // 手機上的 PWA 常駐背景、很少冷啟動 —— 回到前景也要同步,
   // 但切分頁會讓 visibilitychange 連發,60 秒內只跑一次
   let lastRun = 0

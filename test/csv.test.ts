@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseCsv, autoMapHeaders, mapRows, noteKey, dedupeRows, exportCsv, findDuplicateNote } from '../src/lib/csv'
+import { parseCsv, autoMapHeaders, mapRows, noteKey, dedupeRows, exportCsv, findDuplicateNote, decodeCsvBytes } from '../src/lib/csv'
 import type { NoteRecord } from '../shared/types'
 
 const VOCAB_SAMPLE = `id,漢字,拼音,中文翻譯
@@ -54,6 +54,10 @@ describe('mapRows', () => {
       { expression: 'a', reading: '', meaning: 'b', accent: '' },
     ])
   })
+  it('重音欄的全形數字與頓號先統一成 0,2', () => {
+    expect(mapRows([['犬', 'いぬ', '狗', '０、２']], { expression: 0, reading: 1, meaning: 2, accent: 3 }))
+      .toEqual([{ expression: '犬', reading: 'いぬ', meaning: '狗', accent: '0,2' }])
+  })
   it('讀取重音欄;不合法值清成空字串', () => {
     const rows = [['犬', 'いぬ', '狗', '1'], ['猫', 'ねこ', '貓', 'bad']]
     expect(mapRows(rows, { expression: 0, reading: 1, meaning: 2, accent: 3 })).toEqual([
@@ -93,9 +97,22 @@ describe('exportCsv', () => {
       { id: '2', deck_id: 'd', expression: '猫', reading: 'ねこ', meaning: '貓', accent: '', reversed: 0, updated_at: 0, deleted: 1 },
     ] satisfies NoteRecord[]
     const csv = exportCsv(notes)
-    expect(csv.split('\n')[0]).toBe('單字,讀音,意思,重音')
+    // 開頭有 BOM(給 Excel 認 UTF-8),自己的匯入照樣讀得懂
+    expect(csv.startsWith('\uFEFF')).toBe(true)
+    expect(csv.split('\n')[0]).toBe('\uFEFF單字,讀音,意思,重音')
+    expect(parseCsv(csv)[0]).toEqual(['單字', '讀音', '意思', '重音'])
     expect(csv).toContain('犬,いぬ,狗,2')
     expect(csv).not.toContain('猫')
+  })
+})
+
+describe('decodeCsvBytes', () => {
+  it('UTF-8 照讀;Excel 存的 Big5 自動認出來', () => {
+    const utf8 = new TextEncoder().encode('單字,意思\n犬,狗\n')
+    expect(decodeCsvBytes(utf8)).toEqual({ text: '單字,意思\n犬,狗\n', encoding: 'utf-8' })
+    // 「單字,意思」的 Big5:B3E6 A672 2C B74E AB E4
+    const big5 = new Uint8Array([0xb3, 0xe6, 0xa6, 0x72, 0x2c, 0xb7, 0x4e, 0xab, 0xe4])
+    expect(decodeCsvBytes(big5)).toEqual({ text: '單字,意思', encoding: 'big5' })
   })
 })
 

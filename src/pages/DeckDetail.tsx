@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
+import { sortDecks } from '../lib/deckOrder'
 import {
   createNote, enableReverseCards, moveNote, restoreCardsSuspended, restoreNote, setNotesSuspendedUndoable,
   softDeleteDeck, softDeleteNote, updateDeck, updateNote, type NoteInput,
@@ -15,6 +16,7 @@ import { requestSync } from '../lib/sync'
 import { createShare, isTouchDevice, shareUrlFor } from '../lib/share'
 import { State } from '../lib/fsrs'
 import { deckQueue, startOfToday } from '../lib/queue'
+import { nextLearningDue, useNow } from '../lib/useNow'
 import { useBusy } from '../lib/useBusy'
 import { Loading } from '../components/Loading'
 import { SpeakerIcon } from '../components/SpeakerIcon'
@@ -47,22 +49,22 @@ const BATCH_CONFIRM_AT = 50
 type NoteStatus = 'active' | 'paused' | 'known'
 type CardLite = { state: number; due: number; suspended?: number }
 
-/** 一筆 note 的狀態(彙總它的卡片):任一張已會 → 已會;任一張擱置 → 擱置;否則學習中 */
+/** 一筆 note 的狀態(彙總它的卡片):任一張已會 → 已會;任一張先不學 → 先不學;否則學習中 */
 function noteStatus(cards: CardLite[] | undefined): NoteStatus {
   const s = Math.max(0, ...(cards ?? []).map((c) => c.suspended ?? 0))
   return s === 2 ? 'known' : s === 1 ? 'paused' : 'active'
 }
 
 /**
- * 一筆 note 的狀態小標(彙總它的正/反向卡):已會/擱置 > 到期 > 學習中。
+ * 一筆 note 的狀態小標(彙總它的正/反向卡):已會/先不學 > 待複習 > 學習中。
  * 新卡與排程中的不標 —— 範本牌組裡上千筆都是新卡,每列都掛一個「新」只是雜訊。
  */
 function noteStateBadge(cards: CardLite[] | undefined, now: number) {
   if (!cards || cards.length === 0) return null
   const status = noteStatus(cards)
   if (status === 'known') return { label: '已會', cls: 'known' }
-  if (status === 'paused') return { label: '擱置', cls: 'paused' }
-  if (cards.some((c) => c.state !== State.New && c.due <= now)) return { label: '到期', cls: 'due' }
+  if (status === 'paused') return { label: '先不學', cls: 'paused' }
+  if (cards.some((c) => c.state !== State.New && c.due <= now)) return { label: '待複習', cls: 'due' }
   if (cards.some((c) => c.state === State.Learning || c.state === State.Relearning)) {
     return { label: '學習中', cls: 'learn' }
   }
@@ -84,14 +86,18 @@ export default function DeckDetail() {
   const deckCards = useLiveQuery(
     () => db.cards.where('deck_id').equals(deckId!).filter((c) => !c.deleted).toArray(), [deckId],
   )
+  const [wakeAt, setWakeAt] = useState<number | null>(null)
+  const now = useNow(wakeAt)
+  const dayStart = startOfToday(now)
+  useEffect(() => { setWakeAt(nextLearningDue(deckCards, now)) }, [deckCards, now])
   const todayLogs = useLiveQuery(
-    () => db.review_logs.where('reviewed_at').aboveOrEqual(startOfToday()).toArray(), [],
+    () => db.review_logs.where('reviewed_at').aboveOrEqual(dayStart).toArray(), [dayStart],
   )
-  const allDecks = useLiveQuery(() => db.decks.filter((d) => !d.deleted).toArray(), [])
+  const allDecks = useLiveQuery(async () => sortDecks(await db.decks.filter((d) => !d.deleted).toArray()), [])
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<SortKey>('added-desc')
   const [status, setStatus] = useState<'all' | NoteStatus>('all')
-  // 批次選取:勾多筆一起標成 已經會了 / 擱置 / 恢復學習(範本牌組裡早就會的字,一次清掉)
+  // 批次選取:勾多筆一起標成 已經會了 / 先不學 / 恢復學習(範本牌組裡早就會的字,一次清掉)
   const [selecting, setSelecting] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [editingId, setEditingId] = useState<string | null>(null) // 'new' = 新增模式
@@ -104,6 +110,8 @@ export default function DeckDetail() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const sentinel = useRef<HTMLDivElement | null>(null)
   const firstField = useRef<HTMLInputElement | null>(null)
+  const readingField = useRef<HTMLInputElement | null>(null)
+  const meaningField = useRef<HTMLInputElement | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [sortOpen, setSortOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -170,14 +178,15 @@ export default function DeckDetail() {
     (search === '' || [n.expression, n.reading, n.meaning].some((s) => s.includes(search)))
     && (status === 'all' || noteStatus(cardsByNote.get(n.id)) === status))
   const shown = filtered.slice(0, visibleCount)
-  const listNow = Date.now()
+  const listNow = now
   const statusCounts = { known: 0, paused: 0 }
   for (const n of notes) {
     const st = noteStatus(cardsByNote.get(n.id))
     if (st !== 'active') statusCounts[st] += 1
   }
   const hasParked = statusCounts.known + statusCounts.paused > 0
-  const queueCount = deckQueue(deck.id, deck.new_per_day, deckCards ?? [], todayLogs).queue.length
+  const queueCount = deckQueue(deck.id, deck.new_per_day, deckCards ?? [], todayLogs, now).queue.length
+  const hasNewLeft = (deckCards ?? []).some((c) => !c.deleted && !c.suspended && c.state === State.New)
 
   const toggleSelected = (id: string) => setSelected((prev) => {
     const next = new Set(prev)
@@ -190,15 +199,15 @@ export default function DeckDetail() {
   const applyStatus = (value: CardSuspended) => run(async () => {
     const ids = [...selected].filter((id) => notes.some((n) => n.id === id))
     if (ids.length === 0) return
-    const label = value === 2 ? '已經會了' : value === 1 ? '擱置' : '恢復學習'
+    const label = value === 2 ? '已經會了' : value === 1 ? '先不學' : '恢復學習'
     if (ids.length > BATCH_CONFIRM_AT && !await confirm({
-      title: `把 ${ids.length} 筆標為「${label}」？`,
+      title: `把 ${ids.length} 個字標為「${label}」？`,
       message: value === 0 ? '這些字會回到複習裡。' : '這些字之後不會出現在複習裡，隨時可以在這裡恢復。',
       confirmLabel: label,
     })) return
     try {
       const prev = await setNotesSuspendedUndoable(ids, value)
-      toast.show(`已把 ${ids.length} 筆標為「${label}」`, {
+      toast.show(`已把 ${ids.length} 個字標為「${label}」`, {
         label: '復原',
         onClick: () => void restoreCardsSuspended(prev).then(() => requestSync()),
       })
@@ -234,7 +243,7 @@ export default function DeckDetail() {
   const annotateDeck = () => run(async () => {
     const blanks = notes.filter((n) => !n.accent)
     if (blanks.length === 0) { toast.show('這副牌組沒有待標註的卡片'); return }
-    setProgressMsg(`標註重音中…（${blanks.length} 筆）`)
+    setProgressMsg(`標註重音中…（${blanks.length} 個字）`)
     try {
       const { rows, filled, missed } = await fillMissingAccents(
         blanks.map((n) => ({ id: n.id, expression: n.expression, reading: n.reading, accent: n.accent ?? '' })),
@@ -245,7 +254,7 @@ export default function DeckDetail() {
           if (r.accent !== '') await updateNote(r.id, { accent: r.accent })
         }
       })
-      toast.show(`標註完成：${filled} 筆，查無 ${missed} 筆`)
+      toast.show(`補上 ${filled} 個字的重音${missed > 0 ? `（${missed} 個查不到）` : ''}`)
       setErrMsg(null)
       requestSync()
     } catch (e) {
@@ -259,7 +268,7 @@ export default function DeckDetail() {
     const missing = notes.filter((n) => n.reversed === 0).length
     if (missing === 0) { toast.show('所有卡片都已開啟反向卡'); return }
     const ok = await confirm({
-      title: `為 ${missing} 筆開啟反向卡？`,
+      title: `為 ${missing} 個字開啟反向卡？`,
       message: '反向卡是看意思想單字。新的反向卡從新卡開始排程。',
       confirmLabel: '開啟',
     })
@@ -267,7 +276,7 @@ export default function DeckDetail() {
     try {
       const changed = await enableReverseCards(deck.id)
       setSettingsOpen(false)
-      toast.show(`已為 ${changed} 筆開啟反向卡`)
+      toast.show(`已為 ${changed} 個字開啟反向卡`)
       setErrMsg(null)
       requestSync()
     } catch (e) {
@@ -284,13 +293,23 @@ export default function DeckDetail() {
     setAccentHint('')
     setForm({ expression: n.expression, reading: n.reading, meaning: n.meaning, reversed: n.reversed === 1, accent: n.accent ?? '' })
   }
+  /** 單字、讀音欄按 return 跳到下一欄,不是送出;日文輸入法選字時的 Enter 不算 */
+  const nextOnEnter = (next: RefObject<HTMLInputElement | null>) => (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.keyCode === 229) return
+    e.preventDefault()
+    next.current?.focus()
+  }
   const closeNote = () => { setEditingId(null); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setErrMsg(null) }
 
   const saveNote = () => run(async () => {
     if (!form.expression.trim() || !form.meaning.trim()) {
       setErrMsg('單字與意思為必填')
+      ;(form.expression.trim() ? meaningField : firstField).current?.focus()
       return
     }
+    // 連續新增:在點下去的當下就把焦點放回「單字」欄。iOS 只有在使用者手勢裡 focus 才會留住鍵盤,
+    // 等存完(await 之後)才 focus,每新增一張鍵盤就收起來一次
+    if (editingId === 'new') firstField.current?.focus()
     // 「０、３」「0，3」這類手機上打出來的寫法先統一成「0,3」
     const accent = normalizeAccent(form.accent)
     if (accent !== form.accent) setForm((f) => ({ ...f, accent }))
@@ -383,7 +402,7 @@ export default function DeckDetail() {
     setShareLink(null)
     setShareOpen(true)
     try {
-      setShareMsg(`上傳 ${notes.length} 筆…`)
+      setShareMsg(`上傳 ${notes.length} 個字…`)
       const code = await createShare(deck.name, notes.map((n) => ({
         expression: n.expression, reading: n.reading, meaning: n.meaning, accent: n.accent ?? '',
       })))
@@ -428,7 +447,7 @@ export default function DeckDetail() {
   const removeDeck = () => run(async () => {
     const ok = await confirm({
       title: `刪除「${deck.name}」？`,
-      message: `牌組裡的 ${notes.length} 筆卡片和複習進度會一起刪除。`,
+      message: `牌組裡的 ${notes.length} 個字和複習進度會一起刪除。`,
       confirmLabel: '刪除',
       destructive: true,
     })
@@ -447,7 +466,7 @@ export default function DeckDetail() {
     const id = editingId
     if (id === null || id === 'new') return
     const label = notes.find((n) => n.id === id)?.expression ?? form.expression
-    const ok = await confirm({ title: `刪除「${label}」？`, message: '這筆卡片和它的複習進度會一起刪除。', confirmLabel: '刪除', destructive: true })
+    const ok = await confirm({ title: `刪除「${label}」？`, message: '這個字和它的複習進度會一起刪除。', confirmLabel: '刪除', destructive: true })
     if (!ok) return
     try {
       await softDeleteNote(id)
@@ -464,11 +483,19 @@ export default function DeckDetail() {
 
   const noteSheetOpen = editingId !== null
   const isNew = editingId === 'new'
+  // 面板裡有沒存的東西:新增時任一欄有字;編輯時跟原本那筆不一樣(或選了要搬去別副)
+  const editingNote = !isNew && editingId !== null ? notes.find((n) => n.id === editingId) : undefined
+  const noteDirty = isNew
+    ? [form.expression, form.reading, form.meaning, form.accent].some((v) => v.trim() !== '')
+    : editingNote !== undefined && (
+      form.expression !== editingNote.expression || form.reading !== editingNote.reading
+      || form.meaning !== editingNote.meaning || form.accent !== (editingNote.accent ?? '')
+      || form.reversed !== (editingNote.reversed === 1) || (moveTo !== null && moveTo !== deck.id))
   const statusChips: readonly (readonly ['all' | NoteStatus, string, number])[] = [
     ['all', '全部', notes.length],
     ['active', '進行中', notes.length - statusCounts.known - statusCounts.paused],
     ['known', '已會', statusCounts.known],
-    ['paused', '擱置', statusCounts.paused],
+    ['paused', '先不學', statusCounts.paused],
   ]
 
   return (
@@ -486,17 +513,23 @@ export default function DeckDetail() {
         )}
         subtitle={
           <span className="deck-summary">
-            {notes.length} 字
+            {notes.length} 個字
             {statusCounts.known > 0 && <> · 已會 {statusCounts.known}</>}
-            {statusCounts.paused > 0 && <> · 擱置 {statusCounts.paused}</>}
+            {statusCounts.paused > 0 && <> · 先不學 {statusCounts.paused}</>}
           </span>
         }
       />
 
-      {!selecting && (
+      {/* 空牌組只留下面的空狀態:不要一邊說「今天完成了」、一邊有兩組「新增」 */}
+      {!selecting && notes.length > 0 && (
         <div className="deck-actions">
           {queueCount > 0 ? (
             <Link to={`/review/${deck.id}`} className="btn lg deck-review-btn"><PlayIcon size={13} />開始複習 · {queueCount}</Link>
+          ) : hasNewLeft ? (
+            // 今天的份做完、牌組裡還有沒學過的字:直接加碼一輪新卡
+            <Link to={`/review/${deck.id}?more=1`} className="btn lg secondary deck-review-btn">
+              <CheckIcon size={18} />今天完成 · 再學一點
+            </Link>
           ) : (
             <span className="btn lg secondary deck-review-btn" aria-disabled="true"><CheckIcon size={18} />今天完成了</span>
           )}
@@ -529,8 +562,10 @@ export default function DeckDetail() {
           <div className="list-tools">
             <div className="search-field">
               <SearchIcon />
-              <input type="search" placeholder="搜尋單字、讀音或意思" value={search} aria-label="搜尋卡片"
-                onChange={(e) => setSearch(e.target.value)} />
+              {/* 按鍵盤的「搜尋」就收起鍵盤,結果才不會被擋住一半 */}
+              <input type="search" placeholder="搜尋單字、讀音或意思" value={search} aria-label="搜尋卡片" enterKeyHint="search"
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) e.currentTarget.blur() }} />
               {search !== '' && (
                 <button className="search-clear" aria-label="清除搜尋" onClick={() => setSearch('')}><CloseIcon size={16} /></button>
               )}
@@ -565,7 +600,7 @@ export default function DeckDetail() {
                         {badge !== null && <span className={`badge ${badge.cls}`}>{badge.label}</span>}
                       </span>
                       <span className="row-subtitle note-line2">
-                        {n.reading && <span className="note-reading" lang="ja">{n.reading}</span>}
+                        {n.reading && n.reading !== n.expression && <span className="note-reading" lang="ja">{n.reading}</span>}
                         <span className="note-meaning">{n.meaning}</span>
                       </span>
                     </span>
@@ -585,7 +620,7 @@ export default function DeckDetail() {
           )}
           <div ref={sentinel} />
           <p className="list-count">
-            顯示 {shown.length} / {filtered.length} 筆
+            顯示 {shown.length} / {filtered.length} 個字
             {shown.length < filtered.length && (
               <> · <button className="link" onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}>顯示更多</button></>
             )}
@@ -595,17 +630,18 @@ export default function DeckDetail() {
 
       {selecting && (
         <div className="batch-bar" role="region" aria-label="批次操作">
-          <span className="batch-count">已選 <b>{selected.size}</b> 筆</span>
+          <span className="batch-count">已選 <b>{selected.size}</b> 個字</span>
           <div className="batch-actions">
             <button className="btn sm" disabled={busy || selected.size === 0} onClick={() => void applyStatus(2)}>已經會了</button>
-            <button className="btn sm secondary" disabled={busy || selected.size === 0} onClick={() => void applyStatus(1)}>擱置</button>
+            <button className="btn sm secondary" disabled={busy || selected.size === 0} onClick={() => void applyStatus(1)}>先不學</button>
             <button className="btn sm secondary" disabled={busy || selected.size === 0} onClick={() => void applyStatus(0)}>恢復</button>
           </div>
         </div>
       )}
 
       <ActionSheet open={menuOpen} onClose={() => setMenuOpen(false)} actions={[
-        { label: '選取多張', icon: <SelectIcon />, onSelect: () => setSelecting(true), disabled: notes.length === 0 },
+        { label: '選取多個字', icon: <SelectIcon />, onSelect: () => setSelecting(true), disabled: notes.length === 0 },
+        { label: '匯入單字到這副牌組', icon: <FileIcon />, onSelect: () => navigate(`/import?mode=csv&deck=${deck.id}`) },
         { label: '分享牌組', icon: <ShareIcon />, onSelect: () => void shareDeck(), disabled: notes.length === 0 || busy },
         { label: '自動標註重音', icon: <SparklesIcon />, onSelect: () => void annotateDeck(), disabled: busy },
         { label: '匯出 CSV', icon: <DownloadIcon />, onSelect: () => download(`${deck.name}.csv`, exportCsv(notes)) },
@@ -617,20 +653,22 @@ export default function DeckDetail() {
         label: sort === key ? `✓ ${label}` : label, onSelect: () => setSort(key),
       }))} />
 
-      <Sheet open={noteSheetOpen} onClose={closeNote} full title={isNew ? '新增卡片' : '編輯卡片'}
-        start={<button type="button" className="btn plain" onClick={closeNote}>{isNew && addedLabel !== null ? '完成' : '取消'}</button>}
+      <Sheet open={noteSheetOpen} onClose={closeNote} full title={isNew ? '新增卡片' : '編輯卡片'} dirty={noteDirty}
+        cancelLabel={isNew && addedLabel !== null ? '完成' : '取消'}
         end={<button type="button" className="btn plain strong" disabled={busy} onClick={() => void saveNote()}>{isNew ? '新增' : '儲存'}</button>}>
         <form className="form note-form" onSubmit={(e) => { e.preventDefault(); void saveNote() }}>
           {isNew && addedLabel !== null && (
             <p className="added-line" role="status"><CheckIcon size={16} />已新增「{addedLabel}」，可以繼續輸入下一個</p>
           )}
           <label className="field"><span className="field-label">單字</span>
-            <input ref={firstField} lang="ja" placeholder="例如 勉強" value={form.expression} autoFocus={isNew}
+            <input ref={firstField} lang="ja" placeholder="例如 勉強" value={form.expression} data-autofocus={isNew ? '' : undefined}
+              enterKeyHint="next" onKeyDown={nextOnEnter(readingField)}
               onChange={(e) => setForm({ ...form, expression: e.target.value })} />
           </label>
           <div className="field-row">
             <label className="field"><span className="field-label">讀音（可空）</span>
-              <input lang="ja" placeholder="例如 べんきょう" value={form.reading}
+              <input ref={readingField} lang="ja" placeholder="例如 べんきょう" value={form.reading}
+                enterKeyHint="next" onKeyDown={nextOnEnter(meaningField)}
                 onChange={(e) => setForm({ ...form, reading: e.target.value })} onBlur={autoLookup} />
             </label>
             {isSpeechSupported() && (
@@ -639,7 +677,7 @@ export default function DeckDetail() {
             )}
           </div>
           <label className="field"><span className="field-label">意思</span>
-            <input placeholder="例如 讀書、用功" value={form.meaning}
+            <input ref={meaningField} placeholder="例如 讀書、用功" value={form.meaning} enterKeyHint="done"
               onChange={(e) => setForm({ ...form, meaning: e.target.value })} />
           </label>
           <div className="field-row">
@@ -672,7 +710,7 @@ export default function DeckDetail() {
           {errMsg && <p className="err" role="alert">{errMsg}</p>}
           {!isNew && (
             <button type="button" className="btn danger lg" disabled={busy} onClick={() => void removeNote()}>
-              <TrashIcon size={18} />刪除這筆卡片
+              <TrashIcon size={18} />刪除這個字
             </button>
           )}
           <button type="submit" hidden />
@@ -680,7 +718,7 @@ export default function DeckDetail() {
       </Sheet>
 
       <Sheet open={settingsOpen} onClose={() => { setDeckName(null); setNewPerDay(null); setErrMsg(null); setSettingsOpen(false) }}
-        title="牌組設定"
+        title="牌組設定" dirty={(deckName !== null && deckName.trim() !== deck.name) || (newPerDay !== null && newPerDay !== deck.new_per_day)}
         end={<button type="button" className="btn plain strong" disabled={busy} onClick={() => void saveDeck()}>儲存</button>}>
         <form className="form" onSubmit={(e) => { e.preventDefault(); void saveDeck() }}>
           <label className="field"><span className="field-label">名稱</span>

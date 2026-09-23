@@ -2,12 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
+import { sortDecks } from '../lib/deckOrder'
 import { createDeck, createNotes } from '../db/repo'
 import { requestSync } from '../lib/sync'
-import {
-  autoMapHeaders, dedupeRows, mapRows, noteKey, parseCsv,
-  type CsvMapping, type ParsedRow,
-} from '../lib/csv'
+import { autoMapHeaders, decodeCsvBytes, dedupeRows, mapRows, noteKey, parseCsv, type CsvMapping, type ParsedRow } from '../lib/csv'
 import { DECK_TEMPLATES, type DeckTemplate } from '../data/templates'
 import { parseApkg, type ApkgParse } from '../lib/apkg'
 import { autoMapFields, mapApkgNotes, type ApkgMapping } from '../lib/apkgMap'
@@ -21,6 +19,7 @@ import { Loading } from '../components/Loading'
 import { PageHeader } from '../components/PageHeader'
 import { ListSection, Segmented, Switch } from '../components/controls'
 import { CheckIcon, FileIcon, LinkIcon, UploadIcon } from '../components/icons'
+import { scrollBehavior } from '../lib/motion'
 import './import.css'
 
 type MappingField = keyof ApkgMapping
@@ -58,22 +57,24 @@ function SummaryView({ result }: { result: ImportResult }) {
   const { summary, deckId } = result
   return (
     <div className="summary" role="status" aria-live="polite">
-      <p className="summary-title"><CheckIcon size={18} />匯入 {summary.imported} 筆
-        {summary.skipped.length > 0 && <span className="summary-sub">，跳過重複 {summary.skipped.length} 筆</span>}
-        {summary.otherSkipped > 0 && <span className="summary-sub">，略過其他樣板 {summary.otherSkipped} 筆</span>}
+      <p className="summary-title"><CheckIcon size={18} />匯入 {summary.imported} 個字
+        {summary.skipped.length > 0 && <span className="summary-sub">，{summary.skipped.length} 個已經有了，跳過</span>}
+        {summary.otherSkipped > 0 && <span className="summary-sub">，略過其他筆記類型的 {summary.otherSkipped} 個</span>}
       </p>
       {summary.annotateSkipped
         ? <p className="hint">沒連上字典，重音先空著；之後在牌組頁的「⋯」→「自動標註重音」補。</p>
-        : <p className="hint">自動標註重音 {summary.annotated} 筆，查無 {summary.missed} 筆</p>}
+        : summary.annotated + summary.missed > 0 && (
+          <p className="hint">自動補上 {summary.annotated} 個字的重音{summary.missed > 0 && `（${summary.missed} 個查不到）`}</p>
+        )}
       {summary.skipped.length > 0 && (
         <details className="summary-skipped">
           <summary>看跳過了哪些</summary>
           {/* 只列前 10 筆:整副重匯時全列出來會生出上千個節點 */}
           <ul>{summary.skipped.slice(0, 10).map((r, i) => (
-            <li key={i}><span lang="ja">{r.expression}{r.reading && `(${r.reading})`}</span> — {r.meaning}</li>
+            <li key={i}><span lang="ja">{r.expression}{r.reading && `（${r.reading}）`}</span> — {r.meaning}</li>
           ))}</ul>
           {summary.skipped.length > 10 && (
-            <p className="hint">…還有 {summary.skipped.length - 10} 筆重複未列出</p>
+            <p className="hint">…還有 {summary.skipped.length - 10} 個沒列出</p>
           )}
         </details>
       )}
@@ -91,13 +92,17 @@ interface ShareCardProps {
   withReverse: boolean; onWithReverse: (v: boolean) => void; onImport: () => void
   /** 只有重試可能有用時才給(離線、伺服器一時出錯);連結壞掉或分享過期就不給 */
   onRetry?: () => void
+  /** 這個瀏覽器的資料和字卡 App 分開存:在這裡匯入降成次要按鈕,並寫明只會存在這裡 */
+  browserOnly?: boolean
+  /** 已經有同名的牌組(匯入會加進那一副):先講清楚,免得朋友的字默默混進自己的牌組 */
+  mergeInto?: { name: string; words: number }
 }
 
 /** 朋友分享的牌組:讀取中 → 內容與匯入鈕 → 匯入後在卡片裡直接顯示結果(按鈕收掉,不會重複匯入) */
-function ShareCard({ shared, loadError, importError, result, busy, withReverse, onWithReverse, onImport, onRetry }: ShareCardProps) {
+function ShareCard({ shared, loadError, importError, result, busy, withReverse, onWithReverse, onImport, onRetry, browserOnly, mergeInto }: ShareCardProps) {
   const resultRef = useRef<HTMLDivElement | null>(null)
   // 手機螢幕短,結果出現時捲進畫面
-  useEffect(() => { if (result !== null) resultRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [result])
+  useEffect(() => { if (result !== null) resultRef.current?.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() }) }, [result])
 
   if (loadError !== '') {
     return (
@@ -117,7 +122,7 @@ function ShareCard({ shared, loadError, importError, result, busy, withReverse, 
         <span className="share-icon"><LinkIcon size={20} /></span>
         <div className="share-info">
           <b className="share-name">{shared.name}</b>
-          <span className="hint">朋友分享的牌組 · {shared.rows.length} 筆</span>
+          <span className="hint">朋友分享的牌組 · {shared.rows.length} 個字</span>
         </div>
       </div>
       {shared.rows.length > 0 && (
@@ -127,12 +132,17 @@ function ShareCard({ shared, loadError, importError, result, busy, withReverse, 
       )}
       {result === null && (
         <>
+          {mergeInto !== undefined && (
+            <p className="hint share-merge">
+              你已經有「{mergeInto.name}」（{mergeInto.words} 個字）：新的字會加進那一副，已經有的跳過。
+            </p>
+          )}
           <label className="switch-row">
             <span>同時建立反向卡</span>
             <Switch label="同時建立反向卡" checked={withReverse} onChange={onWithReverse} />
           </label>
-          <button className="btn lg" disabled={busy || shared.rows.length === 0} onClick={onImport}>
-            {busy ? '匯入中…' : `匯入 ${shared.rows.length} 筆`}
+          <button className={browserOnly ? 'btn lg secondary' : 'btn lg'} disabled={busy || shared.rows.length === 0} onClick={onImport}>
+            {busy ? '匯入中…' : browserOnly ? `只在這個瀏覽器匯入 ${shared.rows.length} 個字` : `匯入 ${shared.rows.length} 個字`}
           </button>
         </>
       )}
@@ -144,9 +154,9 @@ function ShareCard({ shared, loadError, importError, result, busy, withReverse, 
 
 /**
  * iPhone/Mac 的 Safari、Mac/Linux 的 Firefox、LINE 之類的內建瀏覽器,資料和另外裝的字卡 App 分開存:
- * 在這裡匯入,App 裡看不到。提醒一次,並給一顆「複製連結」讓人帶去 App 的「分享連結」分頁貼上。
- * 內建瀏覽器另外說:在那裡匯入連平常用的瀏覽器都看不到,建議貼到平常用的地方;
- * 但判斷可能誤認(少數 Android 瀏覽器也用 WebView),所以仍保留「這就是平常用的瀏覽器就直接匯入」。
+ * 在這裡匯入,App 裡看不到。收到連結的朋友多半還沒裝 App,所以按處境分開講,每種兩行以內;
+ * 主要按鈕是「複製連結」,在這個瀏覽器匯入降成下面的次要按鈕
+ * (判斷可能誤認,少數 Android 瀏覽器也用 WebView,所以不拿掉)。
  */
 function BrowserNotice({ inApp }: { inApp: boolean }) {
   const [copied, setCopied] = useState<'no' | 'yes' | 'failed'>('no')
@@ -166,19 +176,19 @@ function BrowserNotice({ inApp }: { inApp: boolean }) {
     <div className="card browser-notice" role="note">
       {inApp ? (
         <>
-          <p><b>看起來你是在 LINE 之類 App 的內建瀏覽器裡打開這個連結的。</b>在這裡匯入的牌組只會存在這個內建瀏覽器，平常用的字卡裡看不到。</p>
-          <p className="hint">請複製連結：用主畫面上的字卡 App 的話，到「牌組」右上的「+」→「貼上分享連結」；平常在別的瀏覽器用字卡的話，把連結貼到那個瀏覽器的網址列。App 裡找不到這個選項，先按 App 下方的「更新」，或把 App 完全關掉再打開。如果這就是你平常用字卡的瀏覽器，直接在下面匯入就好。</p>
+          <p><b>請先用 Safari 或 Chrome 打開這個連結。</b>在 LINE 這類 App 裡匯入，牌組只會存在這裡，之後找不到。</p>
+          <p className="hint">按「複製連結」，貼到瀏覽器的網址列。已經有字卡 App 的話：打開 App →「牌組」右上的「＋」→「貼上分享連結」。</p>
         </>
       ) : (
         <>
-          <p><b>你是在瀏覽器裡打開這個連結的。</b>加到主畫面（或 Mac 的 Dock）的字卡 App 和瀏覽器的資料是分開的，在這裡匯入的牌組不會出現在 App 裡。</p>
-          <p className="hint">要匯入到 App：複製連結，打開字卡 App，到「牌組」右上的「+」→「貼上分享連結」；找不到這個選項的話，先按 App 下方的「更新」，或把 App 完全關掉再打開。平常就在這個瀏覽器用字卡的話，直接在下面匯入就好。</p>
+          <p><b>第一次用字卡？</b>先按下面的「複製連結」，把這頁加到主畫面（Mac 是加入 Dock），從主畫面打開後按「牌組」右上的「＋」→「貼上分享連結」。</p>
+          <p><b>已經有字卡 App？</b>打開 App →「＋」→「貼上分享連結」。</p>
         </>
       )}
       <input ref={input} className="share-link-input" readOnly value={href} aria-label="分享連結"
         onFocus={(e) => e.currentTarget.select()} />
       <div className="btn-row">
-        <button className="btn tinted" onClick={() => void copy()}>{copied === 'yes' ? '已複製 ✓' : '複製連結'}</button>
+        <button className="btn" onClick={() => void copy()}>{copied === 'yes' ? '已複製 ✓' : '複製連結'}</button>
       </div>
       {copied === 'failed' && <p className="hint">沒辦法自動複製，連結已選取，請手動拷貝</p>}
     </div>
@@ -186,7 +196,7 @@ function BrowserNotice({ inApp }: { inApp: boolean }) {
 }
 
 export default function ImportPage() {
-  const decks = useLiveQuery(() => db.decks.filter((d) => !d.deleted).toArray(), [])
+  const decks = useLiveQuery(async () => sortDecks(await db.decks.filter((d) => !d.deleted).toArray()), [])
   // 同名牌組在下拉選單裡分不出誰是誰,附上筆數當線索
   const noteCounts = useLiveQuery(async () => {
     const counts = new Map<string, number>()
@@ -216,6 +226,8 @@ export default function ImportPage() {
   const [errMsg, setErrMsg] = useState('')
 
   const [text, setText] = useState('')
+  // 選的檔案不是 UTF-8(Excel 的 Big5 / Shift_JIS)時的說明
+  const [encodingNote, setEncodingNote] = useState('')
   // 上一次自動對應時的第一列:之後只是改內容、第一列沒變,就保留使用者手動調過的對應
   const firstRowKey = useRef('')
   const [mapping, setMapping] = useState<CsvMapping | null>(null)
@@ -287,6 +299,8 @@ export default function ImportPage() {
     [apkg, notetypeId, apkgMapping],
   )
   const otherNoteCount = apkg ? apkg.notes.length - (notetype?.noteCount ?? 0) : 0
+  // 缺單字或意思的列不會匯入:預覽下方明講幾列,不要默默少掉
+  const sourceCount = mode === 'csv' ? dataRows.length : (notetype?.noteCount ?? 0)
 
   const parsed = mode === 'csv' ? csvParsed : apkgParsed
   const activeMapping: CsvMapping | ApkgMapping | null = mode === 'csv' ? mapping : apkgMapping
@@ -298,8 +312,8 @@ export default function ImportPage() {
     setSummary(null)
     setErrMsg('')
     setFileName('')
-    // 寫回網址:重新整理或返回時停在同一個分頁
-    setSearchParams({ mode: next }, { replace: true })
+    // 寫回網址:重新整理或返回時停在同一個分頁(從牌組頁帶來的目標牌組也留著)
+    setSearchParams(deckId === 'new' ? { mode: next } : { mode: next, deck: deckId }, { replace: true })
   }
 
   /** CSV/apkg/範本的結果顯示在表單下方,目標牌組切到剛匯入的那副 */
@@ -341,7 +355,7 @@ export default function ImportPage() {
     setParsing(true)
     try {
       const result = await parseApkg(new Uint8Array(await file.arrayBuffer()))
-      if (result.notetypes.length === 0) throw new Error('這個牌組裡沒有可匯入的 note')
+      if (result.notetypes.length === 0) throw new Error('這副牌組裡沒有可以匯入的單字')
       setApkg(result)
       selectNotetype(result, result.notetypes[0].id)
       if (deckId === 'new' && newDeckName.trim() === '' && result.deckName) setNewDeckName(result.deckName)
@@ -460,10 +474,12 @@ export default function ImportPage() {
 
   if (!decks) return <Loading />
 
+  const sameNameDeck = shared === null ? undefined : decks.find((d) => d.name === shared.name)
   const shareCard = (
     <ShareCard shared={shared} loadError={shareLoadErr} importError={shareImportErr} result={shareResult}
       busy={busy} withReverse={withReverse} onWithReverse={setWithReverse} onImport={importShared}
-      onRetry={shareLoadRetryable ? () => setLoadNonce((n) => n + 1) : undefined} />
+      onRetry={shareLoadRetryable ? () => setLoadNonce((n) => n + 1) : undefined} browserOnly={showBrowserNotice}
+      mergeInto={sameNameDeck === undefined ? undefined : { name: sameNameDeck.name, words: noteCounts?.get(sameNameDeck.id) ?? 0 }} />
   )
 
   // 從分享連結打開:只放分享卡片,不混進 CSV 表單;要用別的方式匯入再點下面的連結
@@ -491,7 +507,7 @@ export default function ImportPage() {
         <select className="row-select" value={deckId} onChange={(e) => setDeckId(e.target.value)} aria-label="目標牌組">
           <option value="new">＋ 建立新牌組</option>
           {decks.map((d) => (
-            <option key={d.id} value={d.id}>{d.name}（{noteCounts?.get(d.id) ?? 0} 筆）</option>
+            <option key={d.id} value={d.id}>{d.name}（{noteCounts?.get(d.id) ?? 0} 個字）</option>
           ))}
         </select>
       </label>
@@ -523,7 +539,7 @@ export default function ImportPage() {
       <div className="import-body">
         {mode === 'templates' && (
           <>
-            <p className="import-intro">選一份直接開始。重音會自動標好；同一份重複匯入只會補上新字。</p>
+            <p className="import-intro">挑一副開始。每天只會出 20 個新字，其他照複習排程出現；重音會自動標好。</p>
             {reverseToggle}
             <div className="template-list">
               {DECK_TEMPLATES.map((t) => {
@@ -532,10 +548,14 @@ export default function ImportPage() {
                   <div className="card template-card" key={t.id}>
                     <div className="template-head">
                       <b className="template-name">{t.name}</b>
-                      <span className="template-count">{t.count} 字</span>
+                      <span className="template-count">{t.count.toLocaleString()} 個字</span>
                     </div>
                     <p className="template-desc">{t.description}</p>
                     <p className="template-preview" lang="ja">{t.preview}</p>
+                    {/* 一口氣看到上千個字會以為要全部背完:講清楚每天的量與大概多久 */}
+                    <p className="template-pace">
+                      {withReverse ? '每天 20 張新卡（正、反向各算一張）' : '每天 20 個新字'}，約 {Math.ceil((t.count * (withReverse ? 2 : 1)) / 20)} 天學完新字
+                    </p>
                     {resultTemplate === t.id && summary && lastDeckId !== null ? (
                       <SummaryView result={{ summary, deckId: lastDeckId }} />
                     ) : added !== undefined ? (
@@ -550,7 +570,7 @@ export default function ImportPage() {
                       </>
                     ) : (
                       <button className="btn lg" disabled={busy} onClick={() => importTemplate(t)}>
-                        {importingTemplate === t.id ? '匯入中…（要查重音，稍等一下）' : `加入這 ${t.count} 字`}
+                        {importingTemplate === t.id ? '匯入中…（要查重音，稍等一下）' : '加入這副牌組'}
                       </button>
                     )}
                   </div>
@@ -566,7 +586,7 @@ export default function ImportPage() {
             <form className="paste-share" onSubmit={(e) => { e.preventDefault(); loadPasted() }}>
               <input value={pasteText} onChange={(e) => setPasteText(e.target.value)}
                 placeholder="貼上分享連結" aria-label="分享連結" inputMode="url" autoCapitalize="off" autoCorrect="off" />
-              <button className="btn" type="submit" disabled={busy || pasteText.trim() === ''}>讀取</button>
+              <button className="btn" type="submit" disabled={busy || pasteText.trim() === ''}>下一步</button>
             </form>
             {pasteErr !== '' && <p className="err" role="alert">{pasteErr}</p>}
             {pastedCode !== null && shareCard}
@@ -593,25 +613,30 @@ export default function ImportPage() {
                     if (deckId === 'new' && newDeckName.trim() === '') {
                       setNewDeckName(f.name.replace(/\.csv$/i, ''))
                     }
-                    onTextLoaded(await f.text())
+                    // Excel 存的 CSV 常是 Big5 / Shift_JIS:自動認出來,並說一聲
+                    const { text: decoded, encoding } = decodeCsvBytes(await f.arrayBuffer())
+                    setEncodingNote(encoding === 'utf-8' ? ''
+                      : `這個檔案是 ${encoding === 'big5' ? 'Big5' : 'Shift_JIS'} 編碼，已自動轉換。字看起來不對的話，在 Excel 用「另存新檔」選「CSV UTF-8」再匯入。`)
+                    onTextLoaded(decoded)
                   }} />
                 <span className="btn tinted">{mode === 'csv' ? <FileIcon size={18} /> : <UploadIcon size={18} />}
                   選擇{mode === 'csv' ? ' CSV ' : ' .apkg '}檔</span>
               </label>
               {fileName !== '' && <span className="file-name">{fileName}</span>}
             </div>
+            {mode === 'csv' && encodingNote !== '' && fileName !== '' && <p className="hint">{encodingNote}</p>}
             {mode === 'csv' && (
               <textarea rows={5} placeholder={`或直接貼上 CSV 內容，例如：\n${CSV_EXAMPLE}`} value={text}
                 aria-label="CSV 內容" onChange={(e) => { setFileName(''); onTextLoaded(e.target.value) }} />
             )}
             {mode === 'apkg' && parsing && <p className="hint import-status" role="status"><span className="spinner" aria-hidden="true" />解析中…</p>}
             {mode === 'apkg' && apkg && apkg.notetypes.length > 1 && (
-              <ListSection header="樣板">
+              <ListSection header="筆記類型" footer="Anki 牌組裡有好幾種筆記類型，一次匯入一種。">
                 <label className="row">
-                  <span className="row-main"><span className="row-title">使用的樣板</span></span>
+                  <span className="row-main"><span className="row-title">要匯入的類型</span></span>
                   <select className="row-select" value={notetypeId} onChange={(e) => selectNotetype(apkg, e.target.value)}>
                     {apkg.notetypes.map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}（{t.noteCount} 筆）</option>
+                      <option key={t.id} value={t.id}>{t.name}（{t.noteCount} 個）</option>
                     ))}
                   </select>
                 </label>
@@ -644,7 +669,9 @@ export default function ImportPage() {
                   ))}
                 </ListSection>
 
-                <ListSection header={`預覽（共 ${parsed.length} 筆${mode === 'apkg' && otherNoteCount > 0 ? `，另有 ${otherNoteCount} 筆屬於其他樣板不會匯入` : ''}）`}>
+                <ListSection header={`預覽（共 ${parsed.length} 個字${mode === 'apkg' && otherNoteCount > 0 ? `，另有 ${otherNoteCount} 個屬於其他筆記類型，不會匯入` : ''}）`}
+                  footer={sourceCount > parsed.length
+                    ? `有 ${sourceCount - parsed.length} ${mode === 'csv' ? '列' : '個'}缺少單字或意思，不會匯入。` : undefined}>
                   <div className="preview-scroll">
                     <table className="preview">
                       <thead><tr><th>單字</th><th>讀音</th><th>意思</th><th>重音</th></tr></thead>
@@ -661,7 +688,7 @@ export default function ImportPage() {
                 {reverseToggle}
                 {needsName && <p className="hint import-need-name">先幫新牌組取個名字，再匯入。</p>}
                 <button className="btn lg import-go" disabled={busy || parsed.length === 0 || needsName} onClick={doImport}>
-                  {busy ? '匯入中…' : `匯入 ${parsed.length} 筆到「${targetName || '新牌組'}」`}
+                  {busy ? '匯入中…' : `匯入 ${parsed.length} 個字到「${targetName || '新牌組'}」`}
                 </button>
               </>
             )}

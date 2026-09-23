@@ -25,7 +25,8 @@
 .retention.low b { color: var(--danger); }
 .retention.high b { color: var(--success); }
 
-.heatmap { display: flex; gap: 3px; justify-content: center; padding: 2px 0; overflow-x: auto; }
+/* safe center:放不下時從左邊開始排,最舊那幾週才捲得到,不會被裁掉 */
+.heatmap { display: flex; gap: 3px; justify-content: safe center; padding: 2px 0; overflow-x: auto; }
 .heat-week { display: flex; flex-direction: column; gap: 3px; }
 .heat-month { height: 13px; width: 13px; font-size: var(--fs-caption2); line-height: 1.2; color: var(--text-2); white-space: nowrap; overflow: visible; }
 .heat-cell { width: 13px; height: 13px; border-radius: 3.5px; background: var(--fill); }
@@ -50,3 +51,5 @@
 /* hover 時蓋在長條上的游標矩形,預設 #ccc 在深色下是一塊亮斑 */
 .recharts-tooltip-cursor { fill: color-mix(in srgb, var(--text) 8%, transparent); }
 .recharts-cartesian-axis-tick text { fill: var(--text-2); font-size: var(--fs-caption2); }
+.retention b small { margin-left: 4px; font-size: var(--fs-caption); font-weight: 600; }
+.chart-summary { font-size: var(--fs-footnote); color: var(--text-2); margin-bottom: 6px; }

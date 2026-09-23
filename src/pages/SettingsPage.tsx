@@ -2,14 +2,17 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
-import { exportBackup, importBackup } from '../lib/backup'
+import { describeBackup, exportBackup, importBackup, type BackupSummary } from '../lib/backup'
 import { download } from '../lib/download'
 import { requestSync, syncNow } from '../lib/sync'
 import {
-  adoptSyncSpace, clearLocalData, countUnsynced, generateSyncKey, getSyncSpace, hasLocalData, leaveSyncSpace, setSyncSpace,
+  adoptSyncSpace, clearLocalData, countLocalContents, countUnsynced, generateSyncKey, getSyncSpace, hasLocalData,
+  leaveSyncSpace, normalizeSyncKey, setSyncSpace,
 } from '../lib/space'
+import { humanizeSyncError, syncMessage } from '../lib/syncText'
 import { getThemePref, setThemePref, type ThemePref } from '../lib/theme'
 import { applyFsrsSettings } from '../lib/fsrs'
+import { readAutoSpeak, writeAutoSpeak } from '../lib/speak'
 import { clampRetention, getFsrsSettings, saveFsrsSettings, MAX_RETENTION_PCT, MIN_RETENTION_PCT } from '../lib/fsrsSettings'
 import { buildTrainingSet, optimizeParameters, MIN_REVIEWS_TO_OPTIMIZE, RECOMMENDED_REVIEWS } from '../lib/fsrsOptimizer'
 import { useBusy } from '../lib/useBusy'
@@ -21,14 +24,6 @@ import { BookIcon, ChevronRightIcon, DownloadIcon, SyncIcon, UploadIcon } from '
 import './settings.css'
 
 const THEME_OPTIONS = [['system', '跟隨系統'], ['light', '淺色'], ['dark', '深色']] as const
-
-/** SyncResult 轉人話;skipped 的各種原因分開講 */
-function syncMessage(r: { ok: boolean; reason?: string; error?: string }, okText: string): string {
-  if (r.ok) return okText
-  if (r.reason === 'local-only') return '還沒設同步金鑰，資料只存在這台裝置'
-  if (r.reason === 'offline') return '目前離線，等連上網路再同步'
-  return `同步失敗：${r.error}`
-}
 
 function formatWhen(ts: number): string {
   const d = new Date(ts)
@@ -51,7 +46,9 @@ export default function SettingsPage() {
   const [keyCopied, setKeyCopied] = useState(false)
   // 純本機的人輸入別台的金鑰:本機又有資料時,要問「帶過去」還是「捨棄」
   const [adoptChoice, setAdoptChoice] = useState<string | null>(null)
-  const [autoSpeak, setAutoSpeak] = useState(() => localStorage.getItem('auto-speak') === '1')
+  // 連上的空間是空的(多半是金鑰打錯):previous 是連之前的金鑰,'' = 原本只存這台
+  const [emptySpace, setEmptySpace] = useState<{ previous: string } | null>(null)
+  const [autoSpeak, setAutoSpeak] = useState(readAutoSpeak)
   const [theme, setTheme] = useState<ThemePref>(() => getThemePref())
   const fsrs = useLiveQuery(() => getFsrsSettings(), [])
   const logCount = useLiveQuery(() => db.review_logs.count(), [])
@@ -61,6 +58,9 @@ export default function SettingsPage() {
   const confirm = useConfirm()
 
   const localOnly = currentSpace === ''
+  // 手打的金鑰不像產生器的格式(可能打錯,也可能是舊版自訂的):提醒但不擋
+  const keyLooksOff = keyInput.trim() !== '' && !normalizeSyncKey(keyInput).standard
+  const closeKeySheet = () => { setKeyOpen(false); setEmptySpace(null) }
   const retentionPct = fsrs === undefined ? null : Math.round(fsrs.desired_retention * 100)
 
   const saveRetention = (pct: number) => run(async () => {
@@ -85,7 +85,7 @@ export default function SettingsPage() {
       const next = { ...fsrs, w, optimized_at: Date.now(), optimized_reviews: set.reviews }
       await saveFsrsSettings(next)
       applyFsrsSettings(next)
-      setFsrsMsg(`✓ 完成：用了 ${set.reviews} 筆紀錄、${set.items} 個樣本，新參數已存檔並同步`)
+      setFsrsMsg(`✓ 完成：用了 ${set.reviews} 次複習紀錄，新參數已存檔並同步`)
       requestSync()
     } catch (e) {
       setFsrsMsg(`最佳化失敗：${e instanceof Error ? e.message : String(e)}`)
@@ -114,7 +114,7 @@ export default function SettingsPage() {
     const left = await countUnsynced()
     if (left === 0) return true
     return confirm({
-      title: `還有 ${left} 筆沒同步上去`,
+      title: `還有 ${left} 項變更沒同步上去`,
       message: `目前連不上雲端。現在${action}，這些還沒上傳的變更（例如剛複習的紀錄）會遺失。`,
       confirmLabel: `仍要${action}`,
       destructive: true,
@@ -131,16 +131,43 @@ export default function SettingsPage() {
     setMsg(syncMessage(r, '✓ 已開始同步。先把上面的金鑰抄下來，換裝置時要用'))
   })
 
+  /**
+   * 換到別的空間、下載完之後回報拿到什麼。那個空間是空的就不打勾,
+   * 改問是不是打錯了 —— 打錯一碼會連進全新的空間,看起來像資料全不見。
+   */
+  const reportJoined = async (previous: string) => {
+    const r = await syncNow()
+    if (!r.ok) { setMsg(syncMessage(r, '')); return }
+    const c = await countLocalContents()
+    if (c.decks === 0) { setMsg(''); setEmptySpace({ previous }); return }
+    setMsg(`✓ 已連上，下載了 ${c.decks} 副牌組、${c.words} 個字`)
+  }
+
   /** 純本機 → 輸入別台的金鑰。本機有資料就先問要帶過去還是捨棄 */
   const useExistingKey = () => run(async () => {
-    const key = keyInput.trim()
+    const { key } = normalizeSyncKey(keyInput)
     if (key === '') return
+    setEmptySpace(null)
     if (await hasLocalData()) { setAdoptChoice(key); return }
     await setSyncSpace(key)
     setKeyInput('')
     setMsg('同步中…')
+    await reportJoined('')
+  })
+
+  /** 空的空間 →「重新輸入」:回到連之前的樣子(只存這台,或原本那組金鑰) */
+  const undoEmptyJoin = () => run(async () => {
+    const previous = emptySpace?.previous ?? ''
+    setEmptySpace(null)
+    if (previous === '') {
+      await leaveSyncSpace()
+      setMsg('')
+      return
+    }
+    await setSyncSpace(previous)
+    setMsg('換回原本的金鑰，同步中…')
     const r = await syncNow()
-    setMsg(syncMessage(r, '✓ 已連上這個空間並同步完成'))
+    setMsg(syncMessage(r, '✓ 已換回原本的金鑰'))
   })
 
   const finishAdopt = (key: string, keepLocal: boolean) => run(async () => {
@@ -150,31 +177,37 @@ export default function SettingsPage() {
       confirmLabel: '捨棄並改用雲端',
       destructive: true,
     })) return
-    if (keepLocal) await adoptSyncSpace(key)
-    else await setSyncSpace(key)
     setKeyInput('')
     setMsg('同步中…')
-    const r = await syncNow()
-    setMsg(syncMessage(r, keepLocal ? '✓ 已把這台的資料合併進這個空間' : '✓ 已改用這個空間的資料'))
+    if (keepLocal) {
+      await adoptSyncSpace(key)
+      const r = await syncNow()
+      setMsg(syncMessage(r, '✓ 已把這台的資料合併進這個空間'))
+    } else {
+      await setSyncSpace(key)
+      await reportJoined('')
+    }
   })
 
   /** 已經在同步 → 換到另一個空間:這台清空,再下載新空間(舊空間的資料留在雲端) */
   const switchKey = () => run(async () => {
-    const key = keyInput.trim()
-    if (key === '' || key === currentSpace) return
+    const { key } = normalizeSyncKey(keyInput)
+    const previous = currentSpace ?? ''
+    if (key === '' || key === previous) return
     if (!await safeToLeaveSpace('換金鑰')) return
+    // 換完這台只剩新金鑰:確認框先把目前這組秀出來,沒抄過的人才回得去
     if (!await confirm({
       title: '換成另一組金鑰？',
-      message: '這台會先清空，再下載新空間的資料。目前空間的資料還在雲端，之後輸入原本的金鑰就能取回。',
+      message: `換之前先記下目前的金鑰：\n${previous}\n\n這台會先清空，再下載新空間的資料；目前空間的資料留在雲端，之後輸入這組就能取回。`,
       confirmLabel: '換金鑰',
+      destructive: true,
     })) return
+    setEmptySpace(null)
     await setSyncSpace(key)
     setKeyInput('')
     setShowKey(false)
     setMsg('金鑰已更新，同步中…')
-    const r = await syncNow()
-    setMsg(r.ok ? '✓ 已切換空間並同步完成'
-      : r.reason === 'offline' ? '金鑰已更新（目前離線）' : syncMessage(r, ''))
+    await reportJoined(previous)
   })
 
   /** 停止同步:這台的資料留著(之後再開同步會一起帶上去),雲端那份也還在 */
@@ -205,14 +238,27 @@ export default function SettingsPage() {
   })
 
   const restoreBackup = (file: File) => run(async () => {
+    // 先讀檔、看內容對不對,再問要不要還原:選錯檔案不必走到確認那一步,
+    // 確認框也能寫出這份備份是哪一天、有多少東西,免得拿舊備份蓋掉新資料
+    let json: string
+    let info: BackupSummary
+    try {
+      json = await file.text()
+      info = describeBackup(json)
+    } catch (err) {
+      setMsg(`無法還原：${err instanceof Error ? err.message : String(err)}`)
+      return
+    }
+    const when = info.exportedAt === null ? '' : `備份時間：${new Date(info.exportedAt).toLocaleString('zh-TW', { dateStyle: 'medium', timeStyle: 'short' })}\n`
     if (!await confirm({
       title: '還原這份備份？',
-      message: '這台的資料會被備份內容取代，下次同步時也會覆蓋雲端與其他裝置。',
+      message: `${when}內容：${info.decks} 副牌組、${info.words} 個單字、${info.reviews} 次複習紀錄\n\n`
+        + `這台的資料會被備份內容取代${localOnly ? '。' : '，下次同步時也會覆蓋雲端與其他裝置。'}`,
       confirmLabel: '還原',
       destructive: true,
     })) return
     try {
-      await importBackup(await file.text())
+      await importBackup(json)
       setMsg(localOnly ? '✓ 還原完成' : '✓ 還原完成，同步中…')
       if (!localOnly) {
         const r = await syncNow()
@@ -255,14 +301,14 @@ export default function SettingsPage() {
           <span className="row-main"><span className="row-title">翻面自動唸讀音</span></span>
           <Switch label="翻面自動唸讀音" checked={autoSpeak} onChange={(v) => {
             setAutoSpeak(v)
-            localStorage.setItem('auto-speak', v ? '1' : '0')
+            writeAutoSpeak(v)
           }} />
         </label>
       </ListSection>
 
       <ListSection header="排程參數" footer={
         <>
-          用自己的複習紀錄調整排程，{RECOMMENDED_REVIEWS} 筆以上比較準；之後每累積一陣子再跑一次。跑的時候會佔滿 CPU 幾秒到一分鐘。
+          用自己的複習紀錄調整排程，複習 {RECOMMENDED_REVIEWS} 次以上比較準；之後每累積一陣子再跑一次。跑的時候會佔滿 CPU 幾秒到一分鐘。
           {fsrsMsg && <span className="footer-status" role="status" aria-live="polite">{fsrsMsg}</span>}
         </>
       }>
@@ -281,7 +327,7 @@ export default function SettingsPage() {
             <span className="row-subtitle">
               {(logCount ?? 0) < MIN_REVIEWS_TO_OPTIMIZE
                 ? `再複習 ${MIN_REVIEWS_TO_OPTIMIZE - (logCount ?? 0)} 次後可以用`
-                : `目前 ${logCount} 筆紀錄`}
+                : `目前複習過 ${logCount} 次`}
             </span>
           </span>
         </button>
@@ -301,7 +347,7 @@ export default function SettingsPage() {
         <div className="row">
           <span className="row-icon"><SyncIcon size={17} /></span>
           <span className="row-main">
-            <span className="row-title">{localOnly ? '只存在這台裝置' : '同步中'}</span>
+            <span className="row-title">{localOnly ? '只存在這台裝置' : '同步已開啟'}</span>
             <span className="row-subtitle">
               {localOnly ? '換手機或清掉瀏覽器資料就沒了'
                 : lastSync ? `上次同步：${formatWhen(Number(lastSync.value))}` : '還沒同步過'}
@@ -313,7 +359,7 @@ export default function SettingsPage() {
         </div>
         {syncError !== undefined && (
           <div className="row"><span className="row-icon danger" aria-hidden="true">!</span>
-            <span className="row-main"><span className="row-subtitle err">上次同步失敗：{String(syncError.value)}</span></span>
+            <span className="row-main"><span className="row-subtitle err">上次同步沒成功：{humanizeSyncError(String(syncError.value))}</span></span>
           </div>
         )}
         <button type="button" className="row" onClick={() => { setKeyInput(''); setAdoptChoice(null); setKeyOpen(true) }}>
@@ -356,9 +402,20 @@ export default function SettingsPage() {
         </ListSection>
       )}
 
-      <Sheet open={keyOpen} onClose={() => setKeyOpen(false)} title="同步金鑰" full
+      <Sheet open={keyOpen} onClose={closeKeySheet} title="同步金鑰" full
         start={<span />}
-        end={<button type="button" className="btn plain strong" onClick={() => setKeyOpen(false)}>完成</button>}>
+        end={<button type="button" className="btn plain strong" onClick={closeKeySheet}>完成</button>}>
+        {emptySpace !== null && (
+          <div className="notice key-empty" role="alert">
+            <span className="notice-text">這組金鑰的空間是空的，確定沒打錯嗎？</span>
+            <span className="notice-actions">
+              <button type="button" className="link" disabled={busy} onClick={() => void undoEmptyJoin()}>
+                {emptySpace.previous === '' ? '重新輸入' : '換回原本的金鑰'}
+              </button>
+              <button type="button" className="link" disabled={busy} onClick={() => setEmptySpace(null)}>就用這組</button>
+            </span>
+          </div>
+        )}
         {localOnly ? (
           <div className="key-sheet">
             <p className="key-intro">
@@ -372,6 +429,7 @@ export default function SettingsPage() {
             <form className="form" onSubmit={(e) => { e.preventDefault(); void useExistingKey() }}>
               <input value={keyInput} onChange={(e) => setKeyInput(e.target.value)} placeholder="例如 abcd-efgh-jkmn"
                 autoCapitalize="off" autoCorrect="off" spellCheck={false} aria-label="已有的同步金鑰" />
+              {keyLooksOff && <p className="field-hint">這不像字卡產生的金鑰，確定沒打錯？</p>}
               <button type="submit" className="btn lg tinted" disabled={busy || keyInput.trim() === ''}>使用這組金鑰</button>
             </form>
             {msg && <p className="hint" role="status">{msg}</p>}
@@ -391,7 +449,9 @@ export default function SettingsPage() {
                 <input value={keyInput} onChange={(e) => setKeyInput(e.target.value)} placeholder="輸入另一組金鑰"
                   autoCapitalize="off" autoCorrect="off" spellCheck={false} aria-label="另一組同步金鑰" />
               </div>
-              <button type="button" className="row accent" disabled={busy || keyInput.trim() === '' || keyInput.trim() === currentSpace}
+              {keyLooksOff && <div className="row"><span className="row-subtitle">這不像字卡產生的金鑰，確定沒打錯？</span></div>}
+              <button type="button" className="row accent"
+                disabled={busy || keyInput.trim() === '' || normalizeSyncKey(keyInput).key === currentSpace}
                 onClick={() => void switchKey()}>換成這組</button>
             </ListSection>
             <ListSection footer="停止後這台的資料留著，只是不再同步；雲端那份也還在。">
