@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
 import { describeBackup, exportBackup, importBackup, pruneToBackup, type BackupSummary } from '../lib/backup'
 import { download } from '../lib/download'
-import { requestSync, syncNow } from '../lib/sync'
+import { countSpaceDecks, requestSync, syncNow } from '../lib/sync'
 import {
   adoptSyncSpace, clearLocalData, countLocalContents, countUnsynced, generateSyncKey, getSyncSpace, hasLocalData,
   leaveSyncSpace, normalizeSyncKey, setSyncSpace,
@@ -46,8 +46,6 @@ export default function SettingsPage() {
   const [keyCopied, setKeyCopied] = useState(false)
   // 純本機的人輸入別台的金鑰:本機又有資料時,要問「帶過去」還是「捨棄」
   const [adoptChoice, setAdoptChoice] = useState<string | null>(null)
-  // 連上的空間是空的(多半是金鑰打錯):previous 是連之前的金鑰,'' = 原本只存這台
-  const [emptySpace, setEmptySpace] = useState<{ previous: string } | null>(null)
   const [autoSpeak, setAutoSpeak] = useState(readAutoSpeak)
   const [theme, setTheme] = useState<ThemePref>(() => getThemePref())
   const fsrs = useLiveQuery(() => getFsrsSettings(), [])
@@ -63,7 +61,7 @@ export default function SettingsPage() {
   const localOnly = currentSpace === ''
   // 手打的金鑰不像產生器的格式(可能打錯,也可能是舊版自訂的):提醒但不擋
   const keyLooksOff = keyInput.trim() !== '' && !normalizeSyncKey(keyInput).standard
-  const closeKeySheet = () => { setKeyOpen(false); setEmptySpace(null) }
+  const closeKeySheet = () => setKeyOpen(false)
   const retentionPct = fsrs === undefined ? null : Math.round(fsrs.desired_retention * 100)
 
   const saveRetention = (pct: number) => run(async () => {
@@ -135,46 +133,65 @@ export default function SettingsPage() {
   })
 
   /**
-   * 換到別的空間、下載完之後回報拿到什麼。那個空間是空的就不打勾,
-   * 改問是不是打錯了 —— 打錯一碼會連進全新的空間,看起來像資料全不見。
+   * 連上一組金鑰之前先看那個空間:連不上就什麼都不改(不會清掉這台、也不會留下一組沒確認過的金鑰);
+   * 是空的多半是打錯一碼(會連進一個全新的空間,看起來像資料全不見),先問。
+   * 回傳那個空間的牌組數;null = 不要繼續。
    */
-  const reportJoined = async (previous: string) => {
+  const checkSpace = async (key: string): Promise<number | null> => {
+    setMsg('確認金鑰…')
+    const decks = await countSpaceDecks(key)
+    if (decks === null) {
+      setMsg('連不上伺服器，這台什麼都沒改；連上網路後再試一次')
+      return null
+    }
+    setMsg('')
+    if (decks > 0) return decks
+    const ok = await confirm({
+      title: '這組金鑰的空間是空的',
+      message: `確定沒打錯嗎？打錯一碼會連到一個全新的空間。\n${key}`,
+      confirmLabel: '就用這組',
+      cancelLabel: '重新輸入',
+    })
+    return ok ? 0 : null
+  }
+
+  /** 換到別的空間之後下載,回報拿到什麼 */
+  const reportJoined = async () => {
     const r = await syncNow()
     if (!r.ok) { setMsg(syncMessage(r, '')); return }
     const c = await countLocalContents()
-    if (c.decks === 0) { setMsg(''); setEmptySpace({ previous }); return }
-    setMsg(`✓ 已連上，下載了 ${c.decks} 副牌組、${c.words} 個字`)
+    setMsg(c.decks > 0 ? `✓ 已連上，下載了 ${c.decks} 副牌組、${c.words} 個字` : '✓ 已連上，之後的牌組會同步到這組金鑰')
   }
 
-  /** 純本機 → 輸入別台的金鑰。本機有資料就先問要帶過去還是捨棄 */
+  /** 這台的資料帶進那個空間(空間裡原本有的照 updated_at 合併) */
+  const mergeInto = async (key: string) => {
+    setKeyInput('')
+    setMsg('同步中…')
+    await adoptSyncSpace(key)
+    const r = await syncNow()
+    setMsg(syncMessage(r, '✓ 已把這台的資料合併進這個空間'))
+  }
+
+  /** 純本機 → 輸入別台的金鑰。本機有資料就先問要帶過去還是捨棄(空的空間就直接帶過去,沒有東西可以改用) */
   const useExistingKey = () => run(async () => {
     const { key } = normalizeSyncKey(keyInput)
     if (key === '') return
-    setEmptySpace(null)
-    if (await hasLocalData()) { setAdoptChoice(key); return }
+    const decks = await checkSpace(key)
+    if (decks === null) return
+    if (await hasLocalData()) {
+      if (decks === 0) await mergeInto(key)
+      else setAdoptChoice(key)
+      return
+    }
     await setSyncSpace(key)
     setKeyInput('')
     setMsg('同步中…')
-    await reportJoined('')
-  })
-
-  /** 空的空間 →「重新輸入」:回到連之前的樣子(只存這台,或原本那組金鑰) */
-  const undoEmptyJoin = () => run(async () => {
-    const previous = emptySpace?.previous ?? ''
-    setEmptySpace(null)
-    if (previous === '') {
-      await leaveSyncSpace()
-      setMsg('')
-      return
-    }
-    await setSyncSpace(previous)
-    setMsg('換回原本的金鑰，同步中…')
-    const r = await syncNow()
-    setMsg(syncMessage(r, '✓ 已換回原本的金鑰'))
+    await reportJoined()
   })
 
   const finishAdopt = (key: string, keepLocal: boolean) => run(async () => {
-    if (!keepLocal && !await confirm({
+    if (keepLocal) { await mergeInto(key); return }
+    if (!await confirm({
       title: '捨棄這台的資料？',
       message: '這台的牌組與複習紀錄會清掉，改用那個空間裡的資料。沒同步過的東西救不回來。',
       confirmLabel: '捨棄並改用雲端',
@@ -182,14 +199,8 @@ export default function SettingsPage() {
     })) return
     setKeyInput('')
     setMsg('同步中…')
-    if (keepLocal) {
-      await adoptSyncSpace(key)
-      const r = await syncNow()
-      setMsg(syncMessage(r, '✓ 已把這台的資料合併進這個空間'))
-    } else {
-      await setSyncSpace(key)
-      await reportJoined('')
-    }
+    await setSyncSpace(key)
+    await reportJoined()
   })
 
   /** 已經在同步 → 換到另一個空間:這台清空,再下載新空間(舊空間的資料留在雲端) */
@@ -197,6 +208,7 @@ export default function SettingsPage() {
     const { key } = normalizeSyncKey(keyInput)
     const previous = currentSpace ?? ''
     if (key === '' || key === previous) return
+    if (await checkSpace(key) === null) return
     if (!await safeToLeaveSpace('換金鑰')) return
     // 換完這台只剩新金鑰:確認框先把目前這組秀出來,沒抄過的人才回得去
     if (!await confirm({
@@ -205,12 +217,11 @@ export default function SettingsPage() {
       confirmLabel: '換金鑰',
       destructive: true,
     })) return
-    setEmptySpace(null)
     await setSyncSpace(key)
     setKeyInput('')
     setShowKey(false)
     setMsg('金鑰已更新，同步中…')
-    await reportJoined(previous)
+    await reportJoined()
   })
 
   /** 停止同步:這台的資料留著(之後再開同步會一起帶上去),雲端那份也還在 */
@@ -427,17 +438,6 @@ export default function SettingsPage() {
       <Sheet open={keyOpen} onClose={closeKeySheet} title="同步金鑰" full
         start={<span />}
         end={<button type="button" className="btn plain strong" onClick={closeKeySheet}>完成</button>}>
-        {emptySpace !== null && (
-          <div className="notice key-empty" role="alert">
-            <span className="notice-text">這組金鑰的空間是空的，確定沒打錯嗎？</span>
-            <span className="notice-actions">
-              <button type="button" className="link" disabled={busy} onClick={() => void undoEmptyJoin()}>
-                {emptySpace.previous === '' ? '重新輸入' : '換回原本的金鑰'}
-              </button>
-              <button type="button" className="link" disabled={busy} onClick={() => setEmptySpace(null)}>就用這組</button>
-            </span>
-          </div>
-        )}
         {localOnly ? (
           <div className="key-sheet">
             <p className="key-intro">

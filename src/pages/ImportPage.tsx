@@ -216,6 +216,8 @@ export default function ImportPage() {
   const [deckId, setDeckId] = useState(() => initialDeck.current ?? 'new')
   // 從檔名(或 apkg 裡的牌組名)自動填的新牌組名稱:再選別的檔案時照新檔名換掉,使用者自己打的不動
   const autoName = useRef('')
+  // 每切一次分頁加一:匯入(查字典可能好幾秒)跑完時分頁已經換了,結果就不掛到新分頁的表單上
+  const modeGen = useRef(0)
   // 範本:目前在匯哪一份、結果屬於哪一份(結果顯示在那一份的卡片裡)
   const [importingTemplate, setImportingTemplate] = useState<string | null>(null)
   const [resultTemplate, setResultTemplate] = useState<string | null>(null)
@@ -311,6 +313,7 @@ export default function ImportPage() {
   const labels = FIELD_LABELS
 
   const switchMode = (next: Mode) => {
+    modeGen.current++
     setMode(next)
     setSummary(null)
     setErrMsg('')
@@ -452,10 +455,12 @@ export default function ImportPage() {
 
   const doImport = () => {
     if (parsed.length === 0) return
+    const gen = modeGen.current
     runImport(async () => {
       // 新牌組也等查完重音才在交易裡建:不會先冒出一副空牌組
       const target = deckId === 'new' ? { newName: newDeckName.trim() || '新牌組' } : { id: deckId }
-      showResult(await importParsed(target, parsed, mode === 'apkg' ? otherNoteCount : 0))
+      const r = await importParsed(target, parsed, mode === 'apkg' ? otherNoteCount : 0)
+      if (gen === modeGen.current) showResult(r)
     })
   }
 
@@ -465,6 +470,7 @@ export default function ImportPage() {
 
   // csv 本體是動態 import 進來的,整段(含下載)都在 busy 內,免得下載期間又被按一次
   const importTemplate = (t: DeckTemplate) => runImport(async () => {
+    const gen = modeGen.current
     setImportingTemplate(t.id)
     setResultTemplate(null)
     try {
@@ -477,7 +483,9 @@ export default function ImportPage() {
       const tRows = parseCsv(csv)
       const tMapping = autoMapHeaders(tRows[0])
       if (!tMapping) throw new Error('範本表頭無法解析')
-      showResult(await importNamed(t.name, mapRows(tRows.slice(1), tMapping)))
+      const r = await importNamed(t.name, mapRows(tRows.slice(1), tMapping))
+      if (gen !== modeGen.current) return
+      showResult(r)
       setResultTemplate(t.id)
     } finally {
       setImportingTemplate(null)
@@ -500,9 +508,11 @@ export default function ImportPage() {
     })
   }
 
-  // ?deck= 指到不存在的牌組(被刪了、打錯)就退回「建立新牌組」
+  // ?deck= 指到不存在的牌組(被刪了、打錯)就退回「建立新牌組」。只看網址帶來的那一個:
+  // 剛匯入的新牌組在同一個交易裡建好,牌組清單要晚一點才列得到它,不能在那之前被退回「建立新牌組」
+  // (退回的話再匯一次會建出第二副同名牌組,每個字都兩份)
   useEffect(() => {
-    if (decks !== undefined && deckId !== 'new' && !decks.some((d) => d.id === deckId)) setDeckId('new')
+    if (decks !== undefined && deckId === initialDeck.current && !decks.some((d) => d.id === deckId)) setDeckId('new')
   }, [decks, deckId])
 
   if (!decks) return <Loading />

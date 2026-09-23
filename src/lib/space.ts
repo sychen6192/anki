@@ -1,4 +1,6 @@
-import { db } from '../db/db'
+import type { Table } from 'dexie'
+import type { ConflictTable } from '../../shared/types'
+import { db, type Local } from '../db/db'
 
 /**
  * 產生一組好唸好抄的隨機金鑰(xxxx-xxxx-xxxx)。
@@ -28,6 +30,7 @@ export async function clearLocalData(): Promise<void> {
     await db.review_logs.clear()
     await db.settings.clear()
     await db.meta.delete('sync_cursor')
+    await db.meta.delete(REKEYED)
   })
 }
 
@@ -52,7 +55,9 @@ export async function setSyncSpace(key: string): Promise<void> {
     await db.settings.clear()
     await db.meta.delete('sync_cursor')
     await db.meta.delete(LAST_SPACE) // 本機清空了,沒有哪一列還屬於之前的空間
+    await db.meta.delete(REKEYED)
     await db.meta.put({ key: 'sync_space', value: next })
+    await db.meta.put({ key: SYNC_SINCE, value: Date.now() })
   })
 }
 
@@ -60,9 +65,77 @@ export async function setSyncSpace(key: string): Promise<void> {
 const LAST_SPACE = 'last_sync_space'
 
 /**
+ * 這台開始同步目前這組金鑰的時間。首頁「超過一天沒同步成功」從上次成功或這個時間算起 ——
+ * 剛開啟同步、第一次就失敗(還沒有上次成功的時間)不算超過一天。
+ */
+export const SYNC_SINCE = 'sync_since'
+
+/** 因為撞到別的空間而換過 id 的列:舊 id → 新 id(JSON)。還原備份後的整理要用,見 backup.ts pruneToBackup */
+export const REKEYED = 'rekeyed_ids'
+
+export async function readRekeyed(): Promise<Record<string, string>> {
+  const row = await db.meta.get(REKEYED)
+  if (typeof row?.value !== 'string') return {}
+  try {
+    const parsed: unknown = JSON.parse(row.value)
+    return parsed !== null && typeof parsed === 'object' ? parsed as Record<string, string> : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * 伺服器回報「這些 id 已經是別的空間的」:換一組新 id,參照它們的列跟著改,全部標成待上傳。
+ * 這台的資料來自別的空間時會發生 —— 還原了另一個空間的備份、在沒同步的裝置還原備份後用新金鑰開始同步,
+ * 或以前停止同步(那時還沒有 LAST_SPACE 紀錄)再改用別組金鑰。伺服器不會把別的空間的列搬過來,
+ * 不換 id 的話這些列永遠進不了這個空間;換了 id 就是兩份互不相干的資料,原本的空間原封不動。
+ * 刪除過的列也照換(保留刪除狀態),參照才會一致。回傳換過 id 的列數。
+ */
+export async function rekeyConflicts(conflicts: Partial<Record<ConflictTable, string[]>>): Promise<number> {
+  let count = 0
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.meta], async () => {
+    const moved: Record<string, string> = {}
+    const renew = async <T extends { id: string }>(
+      table: Table<Local<T>, string>, ids: string[] | undefined,
+    ): Promise<Map<string, string>> => {
+      const out = new Map<string, string>()
+      for (const id of new Set(ids ?? [])) {
+        const row = await table.get(id)
+        if (!row) continue
+        const next = crypto.randomUUID()
+        await table.delete(id)
+        await table.add({ ...row, id: next, dirty: 1 })
+        out.set(id, next)
+        moved[id] = next
+      }
+      count += out.size
+      return out
+    }
+    // 父表先換:子列的外鍵先改好,輪到子列自己換 id 時讀到的就是新的外鍵
+    const decks = await renew(db.decks, conflicts.decks)
+    if (decks.size > 0) {
+      const old = [...decks.keys()]
+      await db.notes.where('deck_id').anyOf(old).modify((n) => { n.deck_id = decks.get(n.deck_id)!; n.dirty = 1 })
+      await db.cards.where('deck_id').anyOf(old).modify((c) => { c.deck_id = decks.get(c.deck_id)!; c.dirty = 1 })
+    }
+    const notes = await renew(db.notes, conflicts.notes)
+    if (notes.size > 0) {
+      await db.cards.where('note_id').anyOf([...notes.keys()]).modify((c) => { c.note_id = notes.get(c.note_id)!; c.dirty = 1 })
+    }
+    const cards = await renew(db.cards, conflicts.cards)
+    if (cards.size > 0) {
+      await db.review_logs.where('card_id').anyOf([...cards.keys()]).modify((l) => { l.card_id = cards.get(l.card_id)!; l.dirty = 1 })
+    }
+    await renew(db.review_logs, conflicts.review_logs)
+    if (count > 0) await db.meta.put({ key: REKEYED, value: JSON.stringify({ ...await readRekeyed(), ...moved }) })
+  })
+  return count
+}
+
+/**
  * 換一組新的 id(外鍵一起換),刪掉的列不帶。
- * 伺服器以 id 當全部空間共用的主鍵:同一個 id 推進另一個空間,會把那一列從原本的空間「搬走」,
- * 而且只有比較新的列會被搬 —— 新空間只拿到一部分、舊空間少了幾列。換了 id 就是兩份互不相干的資料。
+ * 伺服器以 id 當全部空間共用的主鍵:這台的列在伺服器上屬於原本的空間,原 id 推進新空間會撞到
+ * (伺服器不寫、回報衝突,見 rekeyConflicts)。先整份換好 id,就是兩份互不相干的資料,不必等伺服器逐筆退回。
  */
 async function rekeyLocalRows(): Promise<void> {
   const deckIds = new Map<string, string>()
@@ -113,6 +186,7 @@ export async function adoptSyncSpace(key: string): Promise<void> {
     await db.meta.delete('sync_cursor')
     await db.meta.delete(LAST_SPACE)
     await db.meta.put({ key: 'sync_space', value: next })
+    await db.meta.put({ key: SYNC_SINCE, value: Date.now() })
   })
 }
 

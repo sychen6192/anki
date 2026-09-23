@@ -1,4 +1,5 @@
 import { db, type Local } from '../db/db'
+import { readRekeyed, REKEYED } from './space'
 import type { CardRecord, DeckRecord, NoteRecord, ReviewLogRecord, SettingRecord } from '../../shared/types'
 
 function stripDirty<T extends { dirty: 0 | 1 }>(rows: T[]): Omit<T, 'dirty'>[] {
@@ -100,6 +101,7 @@ export async function importBackup(json: string): Promise<void> {
     await db.review_logs.clear(); await db.review_logs.bulkAdd(as<Local<ReviewLogRecord>>(data.review_logs.map(withDirtyOnly)))
     await db.settings.clear(); await db.settings.bulkAdd(as<Local<SettingRecord>>(data.settings.map(withDirty)))
     await db.meta.delete('sync_cursor') // 下次同步全量重拉,restore-wins 讓還原內容覆蓋雲端與其他裝置
+    await db.meta.delete(REKEYED) // 之前換過的 id 跟這份備份無關;還原後的同步撞到別的空間會重新記
   })
 }
 
@@ -107,10 +109,15 @@ export async function importBackup(json: string): Promise<void> {
  * 同步中還原備份的第二步:還原後同步一次(備份推上去,雲端有、備份沒有的也會被拉回來),
  * 再把「備份裡沒有的」牌組、字、卡片標成刪除,下一次同步推上去 ——
  * 還原完的樣子才會跟備份一樣,而不是「備份 + 之後新增的東西」。回傳標成刪除的列數。
+ * 備份來自別的空間時,同步會把它的列換成新 id(見 space.ts rekeyConflicts),換過的也算備份裡的。
  */
 export async function pruneToBackup(json: string): Promise<number> {
   const data = parseBackup(json)
-  const idsOf = (rows: Record<string, unknown>[]) => new Set(rows.map((r) => r.id as string))
+  const rekeyed = await readRekeyed()
+  const idsOf = (rows: Record<string, unknown>[]) => new Set(rows.flatMap((r) => {
+    const id = r.id as string
+    return rekeyed[id] === undefined ? [id] : [id, rekeyed[id]]
+  }))
   const keep = { decks: idsOf(data.decks), notes: idsOf(data.notes), cards: idsOf(data.cards) }
   const now = Date.now()
   let pruned = 0

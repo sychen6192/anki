@@ -24,5 +24,6 @@ export function syncMessage(r: SyncResult, okText: string): string {
   if (r.reason === 'local-only') return '還沒開啟同步，資料只存在這台裝置'
   if (r.reason === 'offline') return '目前離線，連上網路後會自動同步'
   if (r.reason === 'switched') return '同步途中換了金鑰，這次先停下來'
+  if (r.reason === 'busy') return '另一個同步正在進行，稍後會自動再同步'
   return humanizeSyncError(r.error ?? '')
 }

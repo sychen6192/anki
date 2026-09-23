@@ -7,7 +7,7 @@ import { createDeck } from '../db/repo'
 import { deckQueue, splitCounts, startOfToday } from '../lib/queue'
 import { nextLearningDue, useNow } from '../lib/useNow'
 import { streakDays } from '../lib/stats'
-import { adoptSyncSpace, generateSyncKey, getSyncSpace } from '../lib/space'
+import { adoptSyncSpace, generateSyncKey, getSyncSpace, SYNC_SINCE } from '../lib/space'
 import { humanizeSyncError, syncMessage } from '../lib/syncText'
 import { isStandaloneApp, isTouchDevice, storageSeparateFromApp } from '../lib/share'
 import { syncNow } from '../lib/sync'
@@ -119,6 +119,7 @@ export default function DeckList() {
   const space = useLiveQuery(() => getSyncSpace(), [])
   const syncError = useLiveQuery(() => db.meta.get('sync_error'), [])
   const lastSyncAt = useLiveQuery(() => db.meta.get('last_sync_at'), [])
+  const syncSince = useLiveQuery(() => db.meta.get(SYNC_SINCE), [])
   const [keyHintDismissed, setKeyHintDismissed] = useState(
     () => localStorage.getItem(KEY_HINT_DISMISSED) === '1',
   )
@@ -155,7 +156,9 @@ export default function DeckList() {
   const showKeyHint = newKey === null && space === '' && !keyHintDismissed && decks.length > 0
     && (stamps.length > 0 || inBrowser)
   // 偶爾一次同步失敗(捷運、電梯)不必嚇人:導覽列的小紅點就夠。超過一天沒同步成功才在首頁提醒
-  const lastOk = typeof lastSyncAt?.value === 'number' ? lastSyncAt.value : 0
+  // 從上次成功、或開始同步這組金鑰的時候算起(剛開啟同步第一次就失敗,不是「超過一天」)
+  const stamp = (row: { value: number | string } | undefined) => (typeof row?.value === 'number' ? row.value : 0)
+  const lastOk = Math.max(stamp(lastSyncAt), stamp(syncSince))
   const showSyncProblem = syncError !== undefined && space !== '' && now - lastOk > 24 * 3600_000
 
   const addActions = [

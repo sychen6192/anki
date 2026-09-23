@@ -49,5 +49,16 @@ export interface SyncPush {
 
 export type SyncPullResponse = SyncPush & { settings: SettingRecord[]; seq: number }
 
-/** skipped:伺服器無法存下的列 id(欄位型別不合法),客戶端據此保留 dirty */
-export interface SyncPushResponse { ok: true; skipped: string[] }
+/** 會撞到別的空間的資料表(設定表的 id 在伺服器上帶空間前綴,不會撞) */
+export type ConflictTable = 'decks' | 'notes' | 'cards' | 'review_logs'
+
+/**
+ * skipped:伺服器沒存下的列 id(欄位型別不合法、id 已經是別的空間的、或參照了別的空間的列),客戶端據此保留 dirty。
+ * conflicts:id 已經屬於別的空間的列。伺服器不會把它們搬過來,客戶端換一組新 id 再推(見 space.ts rekeyConflicts)。
+ * 舊版 worker 不回 conflicts。
+ */
+export interface SyncPushResponse {
+  ok: true
+  skipped: string[]
+  conflicts?: Partial<Record<ConflictTable, string[]>>
+}

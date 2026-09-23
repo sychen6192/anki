@@ -145,12 +145,13 @@ describe('/api/sync', () => {
   })
 
   // 帶 x-sync-space header 的 push/pull
-  async function pushNs(space: string, body: unknown) {
+  async function pushNs(space: string, body: unknown): Promise<any> {
     const res = await app.request('/api/sync', {
       method: 'POST', body: JSON.stringify(body),
       headers: { 'content-type': 'application/json', 'x-sync-space': space },
     }, env)
     expect(res.status).toBe(200)
+    return res.json()
   }
   async function pullNs(space: string, since = 0): Promise<any> {
     const res = await app.request(`/api/sync?since=${since}`, { headers: { 'x-sync-space': space } }, env)
@@ -230,14 +231,72 @@ describe('/api/sync', () => {
     expect((await pullNs('spoofed')).decks).toHaveLength(0)
   })
 
-  // 已知限制(可接受):namespace 不在 upsert 的 conflict target(id 為全表唯一 PK)。
-  // 同一 id 跨 namespace 以較新時間戳推送會「搬移」該列,而非各自獨立。實務上不會發生:
-  // 客戶端 id 為全域唯一 UUID,且「換金鑰」會強制清空本機(見 Task 2/3 的 space.ts)。
-  // 此測試釘住並記錄此行為,使限制可見。
-  it('已知限制:同 id 跨 namespace 以較新時間戳推送會搬移該列', async () => {
-    await pushNs('A', { ...empty, decks: [deck({ id: 'shared', updated_at: 1000 })] })
-    await pushNs('B', { ...empty, decks: [deck({ id: 'shared', updated_at: 2000 })] })
-    expect((await pullNs('A')).decks).toHaveLength(0)
-    expect((await pullNs('B')).decks.map((d: { id: string }) => d.id)).toEqual(['shared'])
+  // id 是全表共用的主鍵。以前同一個 id 以較新時間戳推進另一個空間,會把那一列從原本的空間搬走
+  // (例如在另一台還原了這個空間的備份,再用新的金鑰開始同步)。現在不搬、回報給客戶端換新 id。
+  it('id 已經是別的空間的:不搬走,回報 conflicts,原本的空間原封不動', async () => {
+    await pushNs('A', { ...empty, decks: [deck({ id: 'shared', updated_at: 1000, name: 'A 的' })] })
+    const res = await pushNs('B', { ...empty, decks: [deck({ id: 'shared', updated_at: 2000, name: 'B 的' })] })
+    expect(res).toEqual({ ok: true, skipped: ['shared'], conflicts: { decks: ['shared'] } })
+    const a = (await pullNs('A')).decks
+    expect(a).toHaveLength(1)
+    expect(a[0]).toMatchObject({ id: 'shared', name: 'A 的', updated_at: 1000 })
+    expect((await pullNs('B')).decks).toHaveLength(0)
+  })
+
+  it('參照了別的空間的列(牌組/字/卡片)也不存,同一次推送的其他列照常寫入', async () => {
+    const note = (over: Record<string, unknown>) => ({
+      id: 'n', deck_id: 'd', expression: '犬', reading: 'いぬ', meaning: '狗', accent: '', reversed: 0,
+      updated_at: 1000, deleted: 0, ...over,
+    })
+    const card = (over: Record<string, unknown>) => ({
+      id: 'c', note_id: 'n', deck_id: 'd', direction: 'forward', due: 1, stability: 1, difficulty: 5,
+      elapsed_days: 0, scheduled_days: 0, learning_steps: 0, reps: 0, lapses: 0, state: 0, last_review: null,
+      suspended: 0, updated_at: 1000, deleted: 0, ...over,
+    })
+    const log = (over: Record<string, unknown>) => ({
+      id: 'l', card_id: 'c', rating: 3, state: 0, due: 1, stability: 1, difficulty: 5,
+      elapsed_days: 0, last_elapsed_days: 0, scheduled_days: 1, reviewed_at: 999, ...over,
+    })
+    await pushNs('A', {
+      decks: [deck({ id: 'dA' })], notes: [note({ id: 'nA', deck_id: 'dA' })],
+      cards: [card({ id: 'cA', note_id: 'nA', deck_id: 'dA' })], review_logs: [log({ id: 'lA', card_id: 'cA' })],
+    })
+    const res = await pushNs('B', {
+      decks: [deck({ id: 'dA', updated_at: 5000 }), deck({ id: 'dB' })],
+      notes: [note({ id: 'nNew', deck_id: 'dA' }), note({ id: 'nB', deck_id: 'dB' })],
+      cards: [card({ id: 'cNew', note_id: 'nA', deck_id: 'dB' }), card({ id: 'cB', note_id: 'nB', deck_id: 'dB' })],
+      review_logs: [log({ id: 'lNew', card_id: 'cA' }), log({ id: 'lA', card_id: 'cB' })],
+    })
+    expect(res.conflicts).toEqual({ decks: ['dA'], review_logs: ['lA'] })
+    expect([...res.skipped].sort()).toEqual(['cNew', 'dA', 'lA', 'lNew', 'nNew'])
+    const ids = (rows: { id: string }[]) => rows.map((r) => r.id).sort()
+    const b = await pullNs('B')
+    expect(ids(b.decks)).toEqual(['dB'])
+    expect(ids(b.notes)).toEqual(['nB'])
+    expect(ids(b.cards)).toEqual(['cB'])
+    expect(b.review_logs).toHaveLength(0)
+    const a = await pullNs('A')
+    expect(a.decks[0]).toMatchObject({ id: 'dA', updated_at: 1000 })
+    expect(ids(a.notes)).toEqual(['nA'])
+    expect(ids(a.cards)).toEqual(['cA'])
+    expect(a.review_logs.map((l: { id: string; card_id: string }) => [l.id, l.card_id])).toEqual([['lA', 'cA']])
+  })
+
+  it('summary:空間裡沒刪除的牌組數,別的空間與刪除的不算', async () => {
+    const summary = async (space: string) =>
+      (await app.request('/api/sync/summary', { headers: { 'x-sync-space': space } }, env)).json()
+    expect(await summary('A')).toEqual({ decks: 0 })
+    await pushNs('A', { ...empty, decks: [deck({ id: 'a1' }), deck({ id: 'a2' }), deck({ id: 'a3', deleted: 1 })] })
+    await pushNs('B', { ...empty, decks: [deck({ id: 'b1' })] })
+    expect(await summary('A')).toEqual({ decks: 2 })
+    expect(await summary('B')).toEqual({ decks: 1 })
+    expect(await summary('C')).toEqual({ decks: 0 })
+  })
+
+  it('同一個空間裡重推自己的列不算衝突', async () => {
+    await pushNs('A', { ...empty, decks: [deck({ id: 'mine', updated_at: 1000 })] })
+    const res = await pushNs('A', { ...empty, decks: [deck({ id: 'mine', updated_at: 2000, name: '改過' })] })
+    expect(res).toEqual({ ok: true, skipped: [] })
+    expect((await pullNs('A')).decks[0].name).toBe('改過')
   })
 })

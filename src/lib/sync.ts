@@ -4,13 +4,13 @@ import type {
   CardRecord, DeckRecord, NoteRecord, ReviewLogRecord, SettingRecord,
   SyncPush, SyncPullResponse, SyncPushResponse,
 } from '../../shared/types'
-import { getSyncSpace } from './space'
+import { getSyncSpace, rekeyConflicts } from './space'
 
 export interface SyncResult {
   ok: boolean
   skipped?: boolean
-  /** skipped 的原因:沒設金鑰(純本機)/ 離線 / 同步中被換了空間 */
-  reason?: 'local-only' | 'offline' | 'switched'
+  /** skipped 的原因:沒設金鑰(純本機)/ 離線 / 同步中被換了空間 / 一直被別的同步搶先(下次再拉) */
+  reason?: 'local-only' | 'offline' | 'switched' | 'busy'
   error?: string
 }
 
@@ -36,32 +36,39 @@ function emptyChunk(): PushChunk {
   return { decks: [], notes: [], cards: [], review_logs: [], settings: [] }
 }
 
-// Fills chunks in order decks -> notes -> cards -> review_logs -> settings (a chunk may span
-// tables); each chunk keeps the original Local<T> rows around (not just the
-// stripped-of-dirty wire shape) so the caller can clear dirty flags per-chunk
-// after a successful POST.
-function buildPushChunks(
-  dirtyDecks: Local<DeckRecord>[], dirtyNotes: Local<NoteRecord>[],
-  dirtyCards: Local<CardRecord>[], dirtyLogs: Local<ReviewLogRecord>[],
-  dirtySettings: Local<SettingRecord>[] = [],
-): PushChunk[] {
-  const tagged: TaggedRow[] = [
-    ...dirtyDecks.map((row) => ({ table: 'decks' as const, row })),
-    ...dirtyNotes.map((row) => ({ table: 'notes' as const, row })),
-    ...dirtyCards.map((row) => ({ table: 'cards' as const, row })),
-    ...dirtyLogs.map((row) => ({ table: 'review_logs' as const, row })),
-    ...dirtySettings.map((row) => ({ table: 'settings' as const, row })),
+type DirtyRows = {
+  decks: Local<DeckRecord>[]; notes: Local<NoteRecord>[]; cards: Local<CardRecord>[]
+  review_logs: Local<ReviewLogRecord>[]; settings: Local<SettingRecord>[]
+}
+
+// 父表在前(decks -> notes -> cards -> review_logs -> settings):伺服器收到子列時父列多半已經在了
+function tagRows(d: DirtyRows): TaggedRow[] {
+  return [
+    ...d.decks.map((row) => ({ table: 'decks' as const, row })),
+    ...d.notes.map((row) => ({ table: 'notes' as const, row })),
+    ...d.cards.map((row) => ({ table: 'cards' as const, row })),
+    ...d.review_logs.map((row) => ({ table: 'review_logs' as const, row })),
+    ...d.settings.map((row) => ({ table: 'settings' as const, row })),
   ]
+}
+
+function addToChunk(chunk: PushChunk, item: TaggedRow): void {
+  if (item.table === 'decks') chunk.decks.push(item.row)
+  else if (item.table === 'notes') chunk.notes.push(item.row)
+  else if (item.table === 'cards') chunk.cards.push(item.row)
+  else if (item.table === 'review_logs') chunk.review_logs.push(item.row)
+  else chunk.settings.push(item.row)
+}
+
+// Fills chunks in tagRows order (a chunk may span tables); each chunk keeps the
+// original Local<T> rows around (not just the stripped-of-dirty wire shape) so the
+// caller can clear dirty flags per-chunk after a successful POST.
+function buildPushChunks(d: DirtyRows): PushChunk[] {
+  const tagged = tagRows(d)
   const chunks: PushChunk[] = []
   for (let i = 0; i < tagged.length; i += PUSH_CHUNK_SIZE) {
     const chunk = emptyChunk()
-    for (const item of tagged.slice(i, i + PUSH_CHUNK_SIZE)) {
-      if (item.table === 'decks') chunk.decks.push(item.row)
-      else if (item.table === 'notes') chunk.notes.push(item.row)
-      else if (item.table === 'cards') chunk.cards.push(item.row)
-      else if (item.table === 'review_logs') chunk.review_logs.push(item.row)
-      else chunk.settings.push(item.row)
-    }
+    for (const item of tagged.slice(i, i + PUSH_CHUNK_SIZE)) addToChunk(chunk, item)
     chunks.push(chunk)
   }
   return chunks
@@ -89,7 +96,11 @@ async function mergeTable<T extends { id: string; updated_at: number }>(
 ): Promise<void> {
   for (const row of incoming) {
     const existing = await table.get(row.id)
-    if (!existing || row.updated_at > existing.updated_at) {
+    // 兩邊都是 0 只會是設定列:帶著本機資料加入空間時,這台的設定時間戳歸零(見 adoptSyncSpace),
+    // 意思是「空間裡已經有的優先」。伺服器那邊同樣不接受 0 蓋 0,所以這裡要讓空間的那份進來,
+    // 不然兩台各自帶著 0 加入,就會一直各用各的設定
+    const tie0 = existing !== undefined && existing.updated_at === 0 && row.updated_at === 0
+    if (!existing || row.updated_at > existing.updated_at || tie0) {
       await table.put({ ...row, dirty: 0 } as Local<T>)
     }
   }
@@ -141,6 +152,108 @@ async function reconcile(): Promise<number> {
   return fixed
 }
 
+async function readDirty(): Promise<DirtyRows> {
+  return {
+    decks: await db.decks.where('dirty').equals(1).toArray(),
+    notes: await db.notes.where('dirty').equals(1).toArray(),
+    cards: await db.cards.where('dirty').equals(1).toArray(),
+    review_logs: await db.review_logs.where('dirty').equals(1).toArray(),
+    settings: await db.settings.where('dirty').equals(1).toArray(),
+  }
+}
+
+function chunkBody(chunk: PushChunk): SyncPush {
+  return {
+    decks: stripDirty(chunk.decks), notes: stripDirty(chunk.notes),
+    cards: stripDirty(chunk.cards), review_logs: stripDirty(chunk.review_logs),
+    settings: stripDirty(chunk.settings),
+  }
+}
+
+/**
+ * 伺服器收下一批之後:清掉存進去的列的 dirty,撞到別的空間的列換 id(換過的列會再推一次)。
+ * 回傳有沒有換過 id。先清 dirty 再換 id:換 id 時改到外鍵的列會重新標成 dirty,不能被這裡清掉。
+ */
+async function applyPushResponse(chunk: PushChunk, pushRes: SyncPushResponse | null): Promise<boolean> {
+  const skipped = new Set(pushRes?.skipped ?? [])
+  const conflicts = pushRes?.conflicts
+  const conflictCount = conflicts ? Object.values(conflicts).reduce((n, ids) => n + (ids?.length ?? 0), 0) : 0
+  if (skipped.size > conflictCount) console.warn('伺服器跳過了無法存下的資料列', [...skipped])
+  await clearPushedDirty(db.decks, chunk.decks, skipped)
+  await clearPushedDirty(db.notes, chunk.notes, skipped)
+  await clearPushedDirty(db.cards, chunk.cards, skipped)
+  await clearPushedDirty(db.settings, chunk.settings, skipped)
+  for (const log of chunk.review_logs) {
+    if (!skipped.has(log.id)) await db.review_logs.update(log.id, { dirty: 0 })
+  }
+  return conflictCount > 0 && await rekeyConflicts(conflicts!) > 0
+}
+
+/**
+ * 撞到別的空間的列換過 id 之後要再推一輪。一輪就把整批要換的 id 換完(伺服器連子列參照的父列都會檢查),
+ * 第二輪推換過 id 的列;第三輪只是保險。
+ */
+const MAX_PUSH_PASSES = 3
+
+async function pushDirty(space: string, fetchFn: typeof fetch): Promise<void> {
+  for (let pass = 0; pass < MAX_PUSH_PASSES; pass++) {
+    const dirty = await readDirty()
+    if (Object.values(dirty).every((rows) => rows.length === 0)) return
+    const chunks = buildPushChunks(dirty)
+    let rekeyed = false
+    // Push chunk-by-chunk; clear each chunk's dirty flags only after its own POST
+    // succeeds. If a later chunk's POST fails we stop (throw) — chunks already
+    // cleared stay cleared, so the next syncNow resumes with just the remaining
+    // dirty rows instead of resending everything from scratch.
+    for (const chunk of chunks) {
+      const res = await fetchFn('/api/sync', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-sync-space': space },
+        body: JSON.stringify(chunkBody(chunk)),
+      })
+      if (!res.ok) throw new Error(`push failed: ${res.status}`)
+      const pushRes = await res.json().catch(() => null) as SyncPushResponse | null
+      if (await applyPushResponse(chunk, pushRes)) rekeyed = true
+    }
+    if (!rekeyed) return
+  }
+}
+
+type PullOutcome = 'merged' | 'switched' | 'moved'
+
+/**
+ * 拉下 since 之後的變更併進本機。游標在拉的期間變了就不併、不寫游標(回 'moved'):
+ * 被重設(還原備份、清空這台重新下載)時,這份資料只有舊游標之後的變更,併進來再把游標往前推,
+ * 之前的東西就再也拉不到了;被別的同步往前推時,那一次已經併過。
+ */
+async function pullOnce(space: string, fetchFn: typeof fetch): Promise<PullOutcome> {
+  const since = (await db.meta.get('sync_cursor'))?.value ?? 0
+  const res = await fetchFn(`/api/sync?since=${since}`, { headers: { 'x-sync-space': space } })
+  if (!res.ok) throw new Error(`pull failed: ${res.status}`)
+  const data: SyncPullResponse = await res.json()
+  let outcome: PullOutcome = 'merged'
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
+    // 同步進行中若金鑰被切換(換空間會清空本機),放棄把舊空間的 pull 併入新空間。
+    // 在交易內讀 sync_space 與游標,與 setSyncSpace、還原備份、清空本機的交易互斥,杜絕競態。
+    const cur = await db.meta.get('sync_space')
+    if ((typeof cur?.value === 'string' ? cur.value : '') !== space) { outcome = 'switched'; return }
+    if (((await db.meta.get('sync_cursor'))?.value ?? 0) !== since) { outcome = 'moved'; return }
+    await mergeTable(db.decks, data.decks)
+    await mergeTable(db.notes, data.notes)
+    // 還沒套 0006 migration 的舊伺服器不回 suspended,補 0 讓本機的列形狀完整
+    await mergeTable(db.cards, data.cards.map((c) => ({ ...c, suspended: c.suspended ?? 0 })))
+    await mergeTable(db.settings, data.settings ?? []) // 還沒套 0005 migration 的舊伺服器不回這張表
+    for (const log of data.review_logs) {
+      if (!(await db.review_logs.get(log.id))) await db.review_logs.put({ ...log, dirty: 0 })
+    }
+    // 只有真的合併到東西才需要收斂,空的 pull 不必掃全表
+    if (data.decks.length + data.notes.length + data.cards.length > 0) await reconcile()
+    await db.meta.put({ key: 'sync_cursor', value: data.seq })
+    await db.meta.put({ key: 'last_sync_at', value: Date.now() })
+  })
+  return outcome
+}
+
 export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult> {
   // 沒設金鑰 = 純本機模式,一個 request 都不發。空金鑰以前會落在公用的預設空間,
   // 等於每個沒設金鑰的人共寫同一份資料;現在改成資料就留在這台裝置,
@@ -156,67 +269,12 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
     return { ok: false, skipped: true, reason: 'offline' }
   }
   try {
-    // --- push ---
-    const dirtyDecks = await db.decks.where('dirty').equals(1).toArray()
-    const dirtyNotes = await db.notes.where('dirty').equals(1).toArray()
-    const dirtyCards = await db.cards.where('dirty').equals(1).toArray()
-    const dirtyLogs = await db.review_logs.where('dirty').equals(1).toArray()
-    const dirtySettings = await db.settings.where('dirty').equals(1).toArray()
-    if (dirtyDecks.length + dirtyNotes.length + dirtyCards.length + dirtyLogs.length + dirtySettings.length > 0) {
-      const chunks = buildPushChunks(dirtyDecks, dirtyNotes, dirtyCards, dirtyLogs, dirtySettings)
-      // Push chunk-by-chunk; clear each chunk's dirty flags only after its own POST
-      // succeeds. If a later chunk's POST fails we stop (throw) — chunks already
-      // cleared stay cleared, so the next syncNow resumes with just the remaining
-      // dirty rows instead of resending everything from scratch.
-      for (const chunk of chunks) {
-        const body: SyncPush = {
-          decks: stripDirty(chunk.decks), notes: stripDirty(chunk.notes),
-          cards: stripDirty(chunk.cards), review_logs: stripDirty(chunk.review_logs),
-          settings: stripDirty(chunk.settings),
-        }
-        const res = await fetchFn('/api/sync', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-sync-space': space },
-          body: JSON.stringify(body),
-        })
-        if (!res.ok) throw new Error(`push failed: ${res.status}`)
-        const pushRes = await res.json().catch(() => null) as SyncPushResponse | null
-        const skipped = new Set(pushRes?.skipped ?? [])
-        if (skipped.size > 0) console.warn('伺服器跳過了無法存下的資料列', [...skipped])
-        await clearPushedDirty(db.decks, chunk.decks, skipped)
-        await clearPushedDirty(db.notes, chunk.notes, skipped)
-        await clearPushedDirty(db.cards, chunk.cards, skipped)
-        await clearPushedDirty(db.settings, chunk.settings, skipped)
-        for (const log of chunk.review_logs) {
-          if (!skipped.has(log.id)) await db.review_logs.update(log.id, { dirty: 0 })
-        }
-      }
-    }
-    // --- pull ---
-    const since = (await db.meta.get('sync_cursor'))?.value ?? 0
-    const res = await fetchFn(`/api/sync?since=${since}`, { headers: { 'x-sync-space': space } })
-    if (!res.ok) throw new Error(`pull failed: ${res.status}`)
-    const data: SyncPullResponse = await res.json()
-    let switched = false
-    await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
-      // 同步進行中若金鑰被切換(換空間會清空本機),放棄把舊空間的 pull 併入新空間。
-      // 在交易內讀 sync_space,與 setSyncSpace 的清空/換鑰交易互斥,杜絕競態。
-      const cur = await db.meta.get('sync_space')
-      if ((typeof cur?.value === 'string' ? cur.value : '') !== space) { switched = true; return }
-      await mergeTable(db.decks, data.decks)
-      await mergeTable(db.notes, data.notes)
-      // 還沒套 0006 migration 的舊伺服器不回 suspended,補 0 讓本機的列形狀完整
-      await mergeTable(db.cards, data.cards.map((c) => ({ ...c, suspended: c.suspended ?? 0 })))
-      await mergeTable(db.settings, data.settings ?? []) // 還沒套 0005 migration 的舊伺服器不回這張表
-      for (const log of data.review_logs) {
-        if (!(await db.review_logs.get(log.id))) await db.review_logs.put({ ...log, dirty: 0 })
-      }
-      // 只有真的合併到東西才需要收斂,空的 pull 不必掃全表
-      if (data.decks.length + data.notes.length + data.cards.length > 0) await reconcile()
-      await db.meta.put({ key: 'sync_cursor', value: data.seq })
-      await db.meta.put({ key: 'last_sync_at', value: Date.now() })
-    })
-    if (switched) return { ok: false, skipped: true, reason: 'switched' }
+    await pushDirty(space, fetchFn)
+    // 游標被動過就用新的游標再拉一次(還原備份後的整理靠這次拉到的資料,不能少)
+    let outcome: PullOutcome = 'moved'
+    for (let attempt = 0; attempt < 3 && outcome === 'moved'; attempt++) outcome = await pullOnce(space, fetchFn)
+    if (outcome === 'switched') return { ok: false, skipped: true, reason: 'switched' }
+    if (outcome === 'moved') return { ok: false, skipped: true, reason: 'busy' }
     await db.meta.delete('sync_error')
     return { ok: true }
   } catch (e) {
@@ -227,42 +285,97 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
   }
 }
 
-/** 有沒有還沒推上雲端的列(切到背景時才決定要不要推) */
-async function hasUnsynced(): Promise<boolean> {
-  for (const t of [db.decks, db.notes, db.cards, db.review_logs, db.settings] as Table<{ dirty: 0 | 1 }, string>[]) {
-    if (await t.where('dirty').equals(1).count() > 0) return true
+/**
+ * 連上一組金鑰之前先看那個空間有幾副牌組(不含已刪除的)。連不上、或伺服器還是舊版沒有這個端點,回 null ——
+ * 呼叫端就什麼都不改,等連上網路再試。
+ */
+export async function countSpaceDecks(space: string, fetchFn: typeof fetch = fetch): Promise<number | null> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return null
+  try {
+    const res = await fetchFn('/api/sync/summary', { headers: { 'x-sync-space': space } })
+    if (!res.ok) return null
+    const data = await res.json() as { decks?: unknown }
+    return typeof data.decks === 'number' ? data.decks : null
+  } catch {
+    return null
   }
-  return false
 }
 
 let pendingSync: ReturnType<typeof setTimeout> | undefined
+let pendingSince = 0
+
+/**
+ * 連續操作一直把同步往後延的時候,從第一次要求起最多等這麼久就先同步一次。
+ * 複習時每評一張就延一次:一張接一張背,整段都不會上傳,別台看到的是舊狀態,背景補推也會超過上限。
+ */
+export const MAX_SYNC_WAIT_MS = 60_000
 
 /**
  * 資料異動後的延遲同步:匯入、編輯、改設定之後呼叫。
- * debounce 幾秒讓連續操作(逐張編輯、連按開關)合併成一次請求。
+ * debounce 幾秒讓連續操作(逐張編輯、連按開關)合併成一次請求,但最多等 MAX_SYNC_WAIT_MS。
  */
 export function requestSync(delayMs = 3000, fetchFn: typeof fetch = fetch): void {
+  const now = Date.now()
+  if (pendingSync === undefined) pendingSince = now
   clearTimeout(pendingSync)
-  pendingSync = setTimeout(() => { void syncNow(fetchFn) }, delayMs)
+  const wait = Math.max(0, Math.min(delayMs, pendingSince + MAX_SYNC_WAIT_MS - now))
+  pendingSync = setTimeout(() => {
+    pendingSync = undefined
+    void syncNow(fetchFn)
+  }, wait)
 }
 
-/** 頁面要被收到背景時用:keepalive 讓請求在頁面凍結、關閉後還能送完(一次最多 64KB,超過就留到下次) */
-const keepaliveFetch: typeof fetch = (input, init) => fetch(input, { ...init, keepalive: true })
+/** keepalive 請求的內容上限:瀏覽器對「還在路上的 keepalive 請求」總共只給 64KB,超過直接失敗 */
+export const KEEPALIVE_BUDGET = 60_000
+let keepaliveInFlight = false
+
+/**
+ * 頁面要被收到背景時補推一次(鎖螢幕、換 App、關分頁):手機上背到一半被打斷,晚上在電腦打開才不會
+ * 拿到舊狀態、同一批卡再背一次。keepalive 讓請求在頁面凍結、關閉後還能送完,但總量只有 64KB ——
+ * 只挑放得下的列推一次(跟一般同步同樣父表在前),其餘留給回到前景後的同步。
+ * visibilitychange 與 pagehide 常常連發,同時只送一個;推不上去也不記成同步失敗,這只是順手補推。
+ */
+export async function pushBeforeHidden(fetchFn: typeof fetch = fetch): Promise<void> {
+  if (keepaliveInFlight) return
+  keepaliveInFlight = true
+  try {
+    const space = await getSyncSpace()
+    if (space === '' || (typeof navigator !== 'undefined' && navigator.onLine === false)) return
+    const chunk = emptyChunk()
+    const enc = new TextEncoder()
+    let bytes = 128 // {"decks":[],"notes":[],...} 的外框
+    let rows = 0
+    for (const item of tagRows(await readDirty())) {
+      const { dirty: _d, ...wire } = item.row
+      const size = enc.encode(JSON.stringify(wire)).length + 1
+      if (bytes + size > KEEPALIVE_BUDGET) break
+      addToChunk(chunk, item)
+      bytes += size
+      rows++
+    }
+    if (rows === 0) return
+    const res = await fetchFn('/api/sync', {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'content-type': 'application/json', 'x-sync-space': space },
+      body: JSON.stringify(chunkBody(chunk)),
+    })
+    // 回應可能永遠等不到(頁面已凍結);等得到就照一般同步清掉 dirty
+    if (res.ok) await applyPushResponse(chunk, await res.json().catch(() => null) as SyncPushResponse | null)
+  } catch {
+    // 下次同步會補
+  } finally {
+    keepaliveInFlight = false
+  }
+}
 
 export function setupAutoSync(): void {
   const run = () => { void syncNow() }
   window.addEventListener('online', run)
-  // 切走(鎖螢幕、換 App、關分頁)時把還沒上傳的推上去:手機上背到一半被打斷,
-  // 晚上在電腦打開才不會拿到舊狀態、同一批卡再背一次
-  const pushBeforeHidden = () => {
-    void (async () => {
-      if (await hasUnsynced()) await syncNow(keepaliveFetch)
-    })()
-  }
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') pushBeforeHidden()
+    if (document.visibilityState === 'hidden') void pushBeforeHidden()
   })
-  window.addEventListener('pagehide', pushBeforeHidden)
+  window.addEventListener('pagehide', () => { void pushBeforeHidden() })
   // 手機上的 PWA 常駐背景、很少冷啟動 —— 回到前景也要同步,
   // 但切分頁會讓 visibilitychange 連發,60 秒內只跑一次
   let lastRun = 0
