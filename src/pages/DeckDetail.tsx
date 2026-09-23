@@ -6,12 +6,13 @@ import {
   createNote, enableReverseCards, moveNote, setNotesSuspended, softDeleteDeck, softDeleteNote,
   updateDeck, updateNote, type NoteInput,
 } from '../db/repo'
-import { exportCsv } from '../lib/csv'
+import { exportCsv, findDuplicateNote } from '../lib/csv'
 import { download } from '../lib/download'
 import { fillMissingAccents, isValidAccent, lookupAccents } from '../lib/accent'
 import { PitchAccent } from '../components/PitchAccent'
 import { isSpeechSupported, speak } from '../lib/speak'
 import { requestSync } from '../lib/sync'
+import { createShare, isTouchDevice, shareUrlFor } from '../lib/share'
 import { State } from '../lib/fsrs'
 import { useBusy } from '../lib/useBusy'
 import { Loading } from '../components/Loading'
@@ -80,6 +81,10 @@ export default function DeckDetail() {
   const [busy, run] = useBusy()
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const sentinel = useRef<HTMLDivElement | null>(null)
+  // 分享分兩步:先上傳拿到連結,再由使用者按「分享…」或「複製連結」。
+  // 手機(尤其 iPhone)要求分享面板與寫剪貼簿必須由點擊直接觸發,中間先等上傳就會被擋
+  const [shareLink, setShareLink] = useState<string | null>(null)
+  const shareInput = useRef<HTMLInputElement | null>(null)
 
   // 搜尋、排序或狀態篩選變了就從頭算起
   useEffect(() => { setVisibleCount(PAGE_SIZE) }, [search, sort, status])
@@ -224,6 +229,23 @@ export default function DeckDetail() {
       return
     }
     try {
+      // 同一副牌組裡「單字+讀音」相同就先問一聲(和匯入去重同一個判準);搬到別副時比對目標牌組
+      const targetDeckId = editingId !== 'new' && moveTo !== null ? moveTo : deck.id
+      const siblings = targetDeckId === deck.id
+        ? notes
+        : await db.notes.where('deck_id').equals(targetDeckId).toArray()
+      // 編輯時只改意思或重音、也沒搬牌組,就不必再問:牌組裡本來就有的重複,不該每次存檔都跳出來
+      const orig = editingId !== 'new' && editingId !== null ? notes.find((n) => n.id === editingId) : undefined
+      const keyUnchanged = orig !== undefined && targetDeckId === deck.id
+        && orig.expression.trim() === form.expression.trim() && orig.reading.trim() === form.reading.trim()
+      const dup = keyUnchanged
+        ? undefined
+        : findDuplicateNote(siblings, form.expression, form.reading, editingId === 'new' ? undefined : editingId ?? undefined)
+      if (dup !== undefined) {
+        const label = dup.reading !== '' ? `${dup.expression}(${dup.reading})` : dup.expression
+        const where = targetDeckId === deck.id ? '這副牌組' : '要搬去的牌組'
+        if (!confirm(`${where}已經有「${label}」了,還要${editingId === 'new' ? '新增' : '儲存'}嗎?`)) return
+      }
       if (editingId === 'new') await createNote(deck.id, form)
       else if (editingId) {
         await updateNote(editingId, form)
@@ -268,51 +290,55 @@ export default function DeckDetail() {
     }
   })
 
-  /** 產生分享連結:內容上傳到 /api/share,拿 code 組網址;手機開分享面板、桌機複製 */
+  // 系統分享面板只給觸控裝置:桌機的 navigator.share 也存在,但 macOS 的 popover 常沒人注意到
+  const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function' && isTouchDevice()
+
+  /** 第一步:上傳內容拿分享碼。桌機順手複製(剛點完的幾秒內瀏覽器允許),手機等使用者按「分享…」 */
   const shareDeck = () => run(async () => {
+    setShareLink(null)
     try {
       setShareMsg(`上傳 ${notes.length} 筆…`)
-      const rows = notes.map((n) => ({
+      const code = await createShare(deck.name, notes.map((n) => ({
         expression: n.expression, reading: n.reading, meaning: n.meaning, accent: n.accent ?? '',
-      }))
-      // 大牌組的 JSON 有幾十 KB,行動網路上行慢 —— 能壓就壓(約剩 1/3)
-      const json = JSON.stringify({ name: deck.name, rows })
-      const headers: Record<string, string> = { 'content-type': 'application/json' }
-      let payload: BodyInit = json
-      if (typeof CompressionStream === 'function') {
-        payload = await new Response(
-          new Blob([json]).stream().pipeThrough(new CompressionStream('gzip')),
-        ).blob()
-        headers['x-body-gzip'] = '1'
-      }
-      const res = await fetch('/api/share', { method: 'POST', headers, body: payload })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const { code } = await res.json() as { code: string }
-      const url = `${location.origin}/import?share=${code}`
+      })))
+      const url = shareUrlFor(location.origin, code)
+      setShareLink(url)
       setErrMsg(null)
-      // 系統分享面板只給觸控裝置:桌機的 navigator.share 也存在,但 macOS 的
-      // popover 常沒人注意到,await 不會 resolve,busy 鎖住整頁按鈕 =「卡死」。
-      if (typeof navigator.share === 'function' && matchMedia('(hover: none)').matches) {
-        try {
-          await navigator.share({ title: `字卡牌組:${deck.name}`, url })
-          setShareMsg('已分享')
-          return
-        } catch (e) {
-          // 自己關掉面板 → 收工;其他失敗(如上傳太久手勢過期)→ 落到複製
-          if (e instanceof DOMException && e.name === 'AbortError') { setShareMsg(null); return }
-        }
-      }
+      if (canNativeShare) { setShareMsg('連結好了,按「分享…」傳給朋友'); return }
       try {
         await navigator.clipboard.writeText(url)
-        setShareMsg(`已複製連結:${url}`)
+        setShareMsg('已複製連結,貼給朋友就好')
       } catch {
-        setShareMsg(`連結(請手動複製):${url}`)
+        setShareMsg('連結好了,按「複製連結」')
       }
     } catch (e) {
       setShareMsg(null)
       setErrMsg(`分享失敗:${e instanceof Error ? e.message : String(e)}`)
     }
   })
+
+  /** 第二步(手機):點擊當下直接開系統分享面板,前面不能先 await 別的東西 */
+  const nativeShare = async () => {
+    if (shareLink === null) return
+    try {
+      await navigator.share({ title: `字卡牌組:${deck.name}`, url: shareLink })
+      setShareMsg('已分享')
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return // 自己關掉面板
+      setShareMsg('系統分享沒有成功,改按「複製連結」')
+    }
+  }
+
+  const copyShareLink = async () => {
+    if (shareLink === null) return
+    try {
+      await navigator.clipboard.writeText(shareLink)
+      setShareMsg('已複製連結,貼給朋友就好')
+    } catch {
+      shareInput.current?.select()
+      setShareMsg('沒辦法自動複製,連結已選取,請手動拷貝')
+    }
+  }
 
   const removeDeck = () => run(async () => {
     if (!confirm(`刪除牌組「${deck.name}」與其所有卡片?`)) return
@@ -354,6 +380,17 @@ export default function DeckDetail() {
       </div>
       {annotateMsg && <p className="hint" role="status" aria-live="polite">{annotateMsg}</p>}
       {shareMsg && <p className="hint" role="status" aria-live="polite">{shareMsg}</p>}
+      {shareLink !== null && (
+        <div className="share-panel">
+          <input ref={shareInput} className="share-link-input" readOnly value={shareLink} aria-label="分享連結"
+            onFocus={(e) => e.currentTarget.select()} />
+          <div className="form-actions">
+            {canNativeShare && <button className="btn" onClick={() => void nativeShare()}>分享…</button>}
+            <button className={canNativeShare ? 'btn secondary' : 'btn'} onClick={() => void copyShareLink()}>複製連結</button>
+            <button className="link" onClick={() => { setShareLink(null); setShareMsg(null) }}>收起</button>
+          </div>
+        </div>
+      )}
 
       {/* 收合放列表上方:長牌組的列表會越捲越長,放底部根本捲不到 */}
       <details className="deck-settings-details">

@@ -489,14 +489,26 @@ kbd {
   border-radius: var(--radius); box-shadow: var(--shadow-sm);
 }
 .share-card > .hint, .share-card > .err { margin: 0; }
+/* 匯入結果直接顯示在分享卡片裡,佔滿整列 */
+.share-card { flex-wrap: wrap; }
+.share-result { width: 100%; }
+/* 分享連結:可以選取的唯讀框 + 分享/複製鈕(手機上兩步走) */
+.share-panel { display: flex; flex-direction: column; gap: 8px; margin: -12px 0 20px; }
+.share-link-input { width: 100%; font-family: ui-monospace, monospace; color: var(--muted); }
+.notice.onboard .share-link-input { margin-top: -12px; }
+/* 匯入頁「分享連結」分頁:貼上欄 + 讀取鈕 */
+.paste-share { display: flex; gap: 8px; }
+.paste-share input { flex: 1; min-width: 0; }
 
 /* ---------- 匯入 / 設定 ---------- */
 .tabs { display: flex; gap: 6px; margin-bottom: 18px; }
 .tab {
-  flex: 1; padding: 9px 12px; font-size: 14px; font-weight: 600; font-family: inherit;
+  flex: 1; padding: 9px 6px; font-size: 14px; font-weight: 600; font-family: inherit; white-space: nowrap;
   color: var(--muted); background: var(--surface-2); border: 1px solid var(--border);
   border-radius: var(--radius-sm); cursor: pointer;
 }
+/* 比 300px 還窄的螢幕排不下單行,讓標籤換行,總比整排溢出好 */
+@media (max-width: 299px) { .tab { white-space: normal; } }
 .tab.active { color: var(--primary); background: var(--primary-weak); border-color: var(--primary); }
 
 .import-form, .settings-block {
@@ -525,7 +537,7 @@ input[type="file"]::file-selector-button {
 .preview th, .preview td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; }
 .preview th { background: var(--surface-2); font-weight: 600; color: var(--muted); }
 .summary { background: var(--good-weak); border: 1px solid color-mix(in srgb, var(--good) 25%, transparent); border-radius: var(--radius-sm); padding: 14px; }
-.summary ul { margin: 8px 0 0 20px; max-height: 200px; overflow-y: auto; }
+.summary ul { margin: 8px 0 14px; padding-left: 20px; max-height: 200px; overflow-y: auto; }
 
 /* ---------- 統計 ---------- */
 .stat-row { display: flex; gap: 10px; margin-bottom: 4px; }

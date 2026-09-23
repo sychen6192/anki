@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseCsv, autoMapHeaders, mapRows, noteKey, dedupeRows, exportCsv } from '../src/lib/csv'
+import { parseCsv, autoMapHeaders, mapRows, noteKey, dedupeRows, exportCsv, findDuplicateNote } from '../src/lib/csv'
 import type { NoteRecord } from '../shared/types'
 
 const VOCAB_SAMPLE = `id,漢字,拼音,中文翻譯
@@ -96,5 +96,27 @@ describe('exportCsv', () => {
     expect(csv.split('\n')[0]).toBe('單字,讀音,意思,重音')
     expect(csv).toContain('犬,いぬ,狗,2')
     expect(csv).not.toContain('猫')
+  })
+})
+
+describe('findDuplicateNote', () => {
+  const n = (id: string, expression: string, reading: string, deleted: 0 | 1 = 0) => ({ id, expression, reading, deleted })
+  const notes = [n('a', '試験', 'しけん'), n('b', '犬', ''), n('c', '猫', 'ねこ', 1)]
+
+  it('單字+讀音相同(修剪空白後)就是重複', () => {
+    expect(findDuplicateNote(notes, ' 試験 ', 'しけん ')?.id).toBe('a')
+    expect(findDuplicateNote(notes, '犬', '')?.id).toBe('b')
+  })
+
+  it('excludeId 只排除自己:同一個字還有另一筆時照樣找得到', () => {
+    expect(findDuplicateNote(notes, '試験', 'しけん', 'b')?.id).toBe('a')
+    const twins = [n('a', '試験', 'しけん'), n('x', '試験', 'しけん')]
+    expect(findDuplicateNote(twins, '試験', 'しけん', 'a')?.id).toBe('x')
+  })
+
+  it('讀音不同、已刪除的、或是自己,都不算', () => {
+    expect(findDuplicateNote(notes, '試験', 'しけんかん')).toBeUndefined()
+    expect(findDuplicateNote(notes, '猫', 'ねこ')).toBeUndefined()
+    expect(findDuplicateNote(notes, '試験', 'しけん', 'a')).toBeUndefined()
   })
 })

@@ -10,6 +10,7 @@
 - 複習中可復原評分、跳過、直接編輯這張卡
 - 日文重音(ピッチアクセント):自動標註(kanjium 字典)、卡片與編輯器以高低線圖顯示
 - CSV 匯入(自動欄位對應、預覽、跳過重複)與匯出
+- 分享牌組:產生連結給朋友,朋友打開或在 App 裡貼上就能匯入(只含單字,不含進度)
 - Anki 牌組匯入(`.apkg`,只取文字內容,卡片從新卡開始排程)
 - 完整資料 JSON 備份與還原
 - 背景同步(push/pull、Last-Write-Wins 合併)
@@ -54,7 +55,7 @@ PR 與其他分支只跑檢查、不部署。同時只會有一個部署在跑,�
 
 | 名稱 | 內容 |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare 後台 → My Profile → API Tokens → Create Token,選「Edit Cloudflare Workers」範本;確認權限裡有 Account → D1 → Edit,沒有就加上(套 migration 要用) |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare 後台 → My Profile → API Tokens → Create Token,選「Edit Cloudflare Workers」範本,**再加上 Account → D1 → Edit**:範本本身不含 D1 權限,少了它套 migration 會被拒(code 7403) |
 | `CLOUDFLARE_ACCOUNT_ID` | 本機 `npx wrangler whoami` 印出的 Account ID |
 
 有裝 gh 的話也可以直接在 repo 目錄下設定,會提示你貼上值:
@@ -66,13 +67,24 @@ gh secret set CLOUDFLARE_ACCOUNT_ID
 
 沒設的話,deploy job 會在第一步失敗並指回這一段。
 
+### 部署失敗時
+
+到 Actions 頁面點開失敗的那次 run,看是哪一步紅了:
+
+- **確認 Cloudflare 憑證已設定**:secret 沒設,或 account ID 不是 32 字元的格式。
+- **套用 D1 migration**,訊息有 `code: 7403`:API token 沒有 Account → D1 → Edit 權限,或 account ID 不是資料庫所在的帳號。本機的 `wrangler login` 本來就有 D1 權限,所以「本機跑得動、CI 被拒」幾乎都是這個。到 Cloudflare 編輯那個 token 加上權限、按 Update token 即可;token 的值不會變,secret 不用改。
+- **部署 Worker 與靜態檔**,訊息有 `code: 10000`:token 沒有 Workers Scripts 的 Edit 權限。
+- **煙霧測試**:部署已經上線但行為不對,訊息會說是 API 路由還是標頭的問題。
+
+修好之後在那次 run 的頁面按 Re-run failed jobs,只會重跑部署,不用再推一次。
+
 ### migration 只能做加法
 
 migration 在新版上線**之前**套用,那段時間是舊版程式碼跑在新 schema 上。所以 migration 只能加新表、加帶預設值的新欄位,不能刪欄位或改名。真的要刪,先上一版不再用它的程式碼,下一版再刪。
 
 ### 手動部署與自架
 
-緊急時本機仍可 `npm run deploy`,它等同 `npm run build && wrangler deploy`,**不含** migration;有新的 migration 要先跑 `npx wrangler d1 migrations apply anki-pwa --remote`。部署完可以跑 `scripts/smoke-test.sh <網址>` 檢查。
+緊急時本機仍可 `npm run deploy`,順序和 CI 相同:打包、列出並套用 migration、部署(`scripts/deploy.mjs`)。用的是本機 `wrangler login` 的登入,沒登入時會在列出 migration 那一步帶你登入;套用時和 CI 一樣不再詢問,任何一步失敗就不會部署。部署完可以跑 `scripts/smoke-test.sh <網址>` 檢查。
 
 若要部署到自己的 Cloudflare 帳號,先 `npx wrangler d1 create anki-pwa` 並把回傳的 `database_id` 填入 `wrangler.jsonc`(本 repo 已填入原作者的 id),再照上面設定兩個 secret,推到 main 就會套好資料庫結構並部署。
 
@@ -140,6 +152,15 @@ wasm 約 340KB,不進 precache,第一次最佳化時才下載,之後離線也能
 - 牌組名稱預設帶入 apkg 內卡片最多的牌組(子牌組會併成同一個牌組)
 - 讀 SQLite 用的 sql.js wasm 約 1.2MB,不進 precache,第一次匯入時才下載(需連線),之後離線也能用
 - 檔案大小上限 60MB
+
+## 分享牌組
+
+牌組頁按「分享牌組」會把單字(不含複習進度)上傳,產生 `/import?share=<碼>` 的連結,半年後自動清掉。
+
+- **傳出去**:桌機產生後直接複製;手機產生後再按「分享…」開系統分享面板。手機分兩步是因為 iPhone 要求分享面板與寫剪貼簿都由點擊直接觸發,先等上傳就會被擋。每一步都有「複製連結」可以退回。
+- **收到連結**:打開是專用的匯入頁,只有分享卡片;匯入後結果直接顯示在卡片上,按鈕收起來,不會重複匯入。匯入到同名牌組,沒有就新建,已經有的字會跳過。
+- **iPhone/iPad、Mac 的 Safari、Mac/Linux 的 Firefox、App 內建瀏覽器**:主畫面(或 Mac Dock)上的 App 與 Safari 的資料是分開存的;Mac/Linux 的 Firefox 不能安裝網頁 App,App 一定裝在別的瀏覽器;LINE 等 App 的內建瀏覽器更是自己一份。在這些地方匯入,App 裡看不到。在這些環境打開連結時頁面會提醒,並提供「複製連結」,帶到 App 的「匯入」頁「分享連結」分頁貼上;內建瀏覽器則建議改貼到平常用的 App 或瀏覽器。平常就在這個瀏覽器用字卡的話,提醒裡也寫了直接匯入就好(判斷偶爾會誤認)。
+- 牌組頁新增卡片、或編輯時改了單字或讀音,如果牌組裡已經有同樣的單字與讀音,會先問要不要繼續,判準與匯入去重相同。
 
 ## CSV 格式說明
 
