@@ -54,7 +54,7 @@ PR 與其他分支只跑檢查、不部署。同時只會有一個部署在跑,�
 
 | 名稱 | 內容 |
 |---|---|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare 後台 → My Profile → API Tokens → Create Token,選「Edit Cloudflare Workers」範本;確認權限裡有 Account → D1 → Edit,沒有就加上(套 migration 要用) |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare 後台 → My Profile → API Tokens → Create Token,選「Edit Cloudflare Workers」範本,**再加上 Account → D1 → Edit**:範本本身不含 D1 權限,少了它套 migration 會被拒(code 7403) |
 | `CLOUDFLARE_ACCOUNT_ID` | 本機 `npx wrangler whoami` 印出的 Account ID |
 
 有裝 gh 的話也可以直接在 repo 目錄下設定,會提示你貼上值:
@@ -65,6 +65,17 @@ gh secret set CLOUDFLARE_ACCOUNT_ID
 ```
 
 沒設的話,deploy job 會在第一步失敗並指回這一段。
+
+### 部署失敗時
+
+到 Actions 頁面點開失敗的那次 run,看是哪一步紅了:
+
+- **確認 Cloudflare 憑證已設定**:secret 沒設,或 account ID 不是 32 字元的格式。
+- **套用 D1 migration**,訊息有 `code: 7403`:API token 沒有 Account → D1 → Edit 權限,或 account ID 不是資料庫所在的帳號。本機的 `wrangler login` 本來就有 D1 權限,所以「本機跑得動、CI 被拒」幾乎都是這個。到 Cloudflare 編輯那個 token 加上權限、按 Update token 即可;token 的值不會變,secret 不用改。
+- **部署 Worker 與靜態檔**,訊息有 `code: 10000`:token 沒有 Workers Scripts 的 Edit 權限。
+- **煙霧測試**:部署已經上線但行為不對,訊息會說是 API 路由還是標頭的問題。
+
+修好之後在那次 run 的頁面按 Re-run failed jobs,只會重跑部署,不用再推一次。
 
 ### migration 只能做加法
 
