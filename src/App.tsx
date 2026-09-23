@@ -1,10 +1,12 @@
 import { Suspense, useEffect } from 'react'
-import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Link, Route, Routes, useLocation } from 'react-router-dom'
 import { setupAutoSync } from './lib/sync'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Loading } from './components/Loading'
-import { TopNav, type Tab } from './components/TopNav'
+import { TabBar, type Tab } from './components/TabBar'
 import { UpdateBanner } from './components/UpdateBanner'
+import { ConfirmProvider } from './components/Confirm'
+import { ChartIcon, DecksIcon, GearIcon } from './components/icons'
 import { lazyRoute, prefetchRoutes } from './lib/lazyRoute'
 import DeckList from './pages/DeckList'
 import Review from './pages/Review'
@@ -24,32 +26,46 @@ const StatsPage = lazyRoute(loadStatsPage)
 const SettingsPage = lazyRoute(loadSettingsPage)
 const GuidePage = lazyRoute(loadGuidePage)
 
+// 三個分頁:每天用的「牌組」、偶爾看的「統計」、很少動的「設定」。
+// 匯入從「牌組」右上的 + 進去,說明在設定裡 —— 一年用幾次的東西不佔分頁
 const TABS: Tab[] = [
-  { to: '/', label: '牌組' },
-  { to: '/import', label: '匯入', prefetch: loadImportPage },
-  { to: '/stats', label: '統計', prefetch: loadStatsPage },
-  { to: '/settings', label: '設定', prefetch: loadSettingsPage },
-  { to: '/guide', label: '說明', prefetch: loadGuidePage },
+  {
+    to: '/', label: '牌組', icon: <DecksIcon />,
+    match: (p) => p === '/' || p.startsWith('/deck/') || p.startsWith('/import'),
+  },
+  { to: '/stats', label: '統計', icon: <ChartIcon />, match: (p) => p.startsWith('/stats'), prefetch: loadStatsPage },
+  {
+    to: '/settings', label: '設定', icon: <GearIcon />,
+    match: (p) => p.startsWith('/settings') || p.startsWith('/guide'), prefetch: loadSettingsPage,
+  },
 ]
 
 function NotFound() {
   return (
-    <div className="review-done">
-      <h1>找不到這個頁面</h1>
-      <Link to="/" className="btn">回牌組列表</Link>
+    <div className="empty-state" style={{ paddingTop: 'calc(80px + var(--safe-top))' }}>
+      <h2>找不到這個頁面</h2>
+      <Link to="/" className="btn">回牌組</Link>
     </div>
   )
 }
 
-export default function App() {
-  useEffect(() => {
-    setupAutoSync()
-    // 開場閒下來後先把其他頁面抓回來,點 tab 就不用等網路
-    prefetchRoutes([loadDeckDetail, loadImportPage, loadStatsPage, loadSettingsPage, loadGuidePage])
-  }, [])
+/** 換頁時回到頂端(BrowserRouter 不會自己做,新頁面會停在上一頁的捲動位置) */
+function ScrollToTop() {
+  const { pathname } = useLocation()
+  useEffect(() => { window.scrollTo(0, 0) }, [pathname])
+  return null
+}
+
+function Shell() {
+  const { pathname, search } = useLocation()
+  // 複習是專注模式;朋友從分享連結打開的是專用頁 —— 這兩種不放分頁列
+  const hideTabbar = pathname.startsWith('/review/')
+    || (pathname === '/import' && new URLSearchParams(search).has('share'))
   return (
-    <BrowserRouter>
-      <TopNav tabs={TABS} />
+    <div className={`app${hideTabbar ? ' no-tabbar' : ''}`}>
+      <ScrollToTop />
+      {/* DOM 放在內容前面:手機上是 fixed 在底部,位置不受影響;寬螢幕時 sticky 在頂端要排第一個 */}
+      {!hideTabbar && <TabBar tabs={TABS} />}
       <main className="page">
         <ErrorBoundary>
           <Suspense fallback={<Loading />}>
@@ -67,6 +83,21 @@ export default function App() {
         </ErrorBoundary>
       </main>
       <UpdateBanner />
+    </div>
+  )
+}
+
+export default function App() {
+  useEffect(() => {
+    setupAutoSync()
+    // 開場閒下來後先把其他頁面抓回來,點分頁就不用等網路
+    prefetchRoutes([loadDeckDetail, loadImportPage, loadStatsPage, loadSettingsPage, loadGuidePage])
+  }, [])
+  return (
+    <BrowserRouter>
+      <ConfirmProvider>
+        <Shell />
+      </ConfirmProvider>
     </BrowserRouter>
   )
 }

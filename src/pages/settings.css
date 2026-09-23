@@ -1,0 +1,24 @@
+/* ---------- 設定 ---------- */
+.row .segmented { flex: 1; }
+.row-icon.danger { background: var(--danger-tint); color: var(--danger); font-weight: 700; }
+label.row.accent { color: var(--accent); }
+label.row.disabled { opacity: .4; pointer-events: none; }
+.footer-status { display: block; margin-top: 6px; color: var(--text); font-weight: 550; }
+.inline-link { color: var(--accent); text-decoration: none; font-weight: 550; }
+
+/* 金鑰面板 */
+.key-sheet { display: flex; flex-direction: column; gap: 14px; }
+.key-sheet .list-section { margin-top: 8px; }
+.key-intro { color: var(--text-2); font-size: 15px; line-height: 1.6; }
+.key-or {
+  display: flex; align-items: center; gap: 10px; margin: 8px 0 0;
+  color: var(--text-2); font-size: 13.5px;
+}
+.key-or::before, .key-or::after { content: ''; flex: 1; border-top: 0.5px solid var(--separator); }
+.key-row { gap: 4px; }
+.key-row .key-code {
+  flex: 1; min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, monospace; font-size: 16px; letter-spacing: .02em;
+  overflow-wrap: anywhere; user-select: all;
+}
+.key-msg { padding: 0 4px; }

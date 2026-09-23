@@ -3,7 +3,7 @@ import { beforeEach, describe, it, expect, vi, afterEach } from 'vitest'
 import { db } from '../src/db/db'
 import { createDeck, createNote, softDeleteDeck } from '../src/db/repo'
 import { requestSync, syncNow } from '../src/lib/sync'
-import { getSyncSpace, setSyncSpace, clearLocalData } from '../src/lib/space'
+import { adoptSyncSpace, countUnsynced, getSyncSpace, hasLocalData, setSyncSpace, clearLocalData } from '../src/lib/space'
 import { DEFAULT_FSRS_SETTINGS, getFsrsSettings, saveFsrsSettings } from '../src/lib/fsrsSettings'
 
 type Row = Record<string, any>
@@ -371,17 +371,56 @@ describe('純本機模式(沒設金鑰)', () => {
     expect((await syncNow(noFetch)).reason).toBe('local-only')
   })
 
-  it('補上金鑰後,先前累積的本機資料一次推上雲端', async () => {
+  it('補上金鑰後,先前累積的本機資料一次推上雲端(adoptSyncSpace 不清本機)', async () => {
     await setSyncSpace('')
-    await createDeck('離線期間建的')
+    const local = await createDeck('只存這台時建的')
+    await createNote(local.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
     expect((await syncNow(noFetch)).reason).toBe('local-only')
 
     const server = makeServer()
-    await setSyncSpace('mykey') // 換空間會清本機,所以改用「先設金鑰再建資料」的順序驗推送
+    await adoptSyncSpace('  mykey  ')
+    expect(await getSyncSpace()).toBe('mykey')
+    expect(await db.decks.count()).toBe(1) // 沒被清掉
     await createDeck('設完金鑰建的')
     const r = await syncNow(server.fetchFn)
     expect(r.ok).toBe(true)
-    expect(server.tables.decks.size).toBe(1)
+    expect(server.tables.decks.size).toBe(2)
+    expect(server.tables.notes.size).toBe(1)
+    expect(server.tables.cards.size).toBe(1)
+    expect((await db.decks.get(local.id))!.dirty).toBe(0)
+  })
+
+  it('adoptSyncSpace:已經推過的列(dirty=0)也重新標成待上傳,游標歸零好把新空間整份拉回來', async () => {
+    const server = makeServer()
+    const deck = await createDeck('A')
+    await syncNow(server.fetchFn)
+    expect((await db.decks.get(deck.id))!.dirty).toBe(0)
+    await db.meta.put({ key: 'sync_cursor', value: 99 })
+
+    const other = makeServer()
+    other.inject('decks', { id: 'remote', name: '另一台的牌組', new_per_day: 20, updated_at: 1000, deleted: 0 })
+    await adoptSyncSpace('newspace')
+    expect((await db.decks.get(deck.id))!.dirty).toBe(1)
+    expect(await db.meta.get('sync_cursor')).toBeUndefined()
+    const r = await syncNow(other.fetchFn)
+    expect(r.ok).toBe(true)
+    expect(other.tables.decks.has(deck.id)).toBe(true) // 這台的推上去
+    expect(await db.decks.get('remote')).toBeDefined() // 空間裡原本的拉下來,兩邊合併
+  })
+
+  it('countUnsynced:算出還沒推上去的列,同步後歸零', async () => {
+    const server = makeServer()
+    const deck = await createDeck('A')
+    await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: false, accent: '' })
+    expect(await countUnsynced()).toBe(3) // 牌組 + 筆記 + 卡片
+    await syncNow(server.fetchFn)
+    expect(await countUnsynced()).toBe(0)
+  })
+
+  it('hasLocalData:有牌組或複習紀錄才算', async () => {
+    expect(await hasLocalData()).toBe(false)
+    await createDeck('A')
+    expect(await hasLocalData()).toBe(true)
   })
 
   it('切回純本機會清掉舊的 sync_error,紅點不會永遠掛著', async () => {

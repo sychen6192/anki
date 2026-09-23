@@ -1,0 +1,115 @@
+/* ============================================================
+   設計 token。所有元件走變數,深淺色一次切換。
+   參考 iOS 的分組列表配色:淺灰底 + 白色表面;深色是純黑底 + 深灰表面。
+   ============================================================ */
+:root {
+  color-scheme: light;
+
+  --bg: #f2f2f7;
+  --surface: #ffffff;
+  --surface-2: #f7f7fa;
+  --elevated: #ffffff;           /* sheet、選單等浮在上面的層 */
+  /* 輸入框、分段控制、搜尋框的底色:半透明灰,疊在白或灰上都自然 */
+  --fill: rgb(118 118 128 / 0.12);
+  --fill-2: rgb(118 118 128 / 0.08);
+  --separator: rgb(60 60 67 / 0.16);
+  --border: rgb(60 60 67 / 0.14);
+
+  --text: #1c1c1e;
+  --text-2: #6b6b70;             /* 次要文字:白底與灰底都 4.5:1 以上 */
+  --text-3: #8e8e93;             /* 只給 placeholder、不重要的標記 */
+
+  --accent: #5b57d6;
+  --accent-pressed: #4a46c4;
+  --accent-tint: rgb(91 87 214 / 0.12);
+  --accent-tint-pressed: rgb(91 87 214 / 0.2);
+  --on-accent: #ffffff;
+
+  --danger: #d93b3b;
+  --danger-tint: rgb(217 59 59 / 0.1);
+  --success: #248a4f;
+  --success-tint: rgb(36 138 79 / 0.1);
+  --warning: #b86e00;
+
+  /* 計數與圖表共用同一組語意色(Anki 的慣例:新卡藍、學習中紅、待複習綠) */
+  --c-new: #2f62c8;
+  --c-learn: #cc4046;
+  --c-due-count: #2f8253;
+  --chart-reviews: #5b57d6;
+  --chart-due: #2f8253;
+
+  /* 評分鍵:白字 4.5:1 以上 —— 這是每天按最多次的按鈕 */
+  --rate-again: #cc4046;
+  --rate-hard: #a76229;
+  --rate-good: #2f8253;
+  --rate-easy: #4a6fc0;
+
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.04), 0 1px 3px rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.08), 0 12px 32px rgb(0 0 0 / 0.08);
+  --shadow-lg: 0 10px 40px rgb(0 0 0 / 0.18);
+
+  --font: -apple-system, BlinkMacSystemFont, "PingFang TC", "Hiragino Sans",
+    "Noto Sans TC", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  /* 日文內容(單字/讀音)要用日文字型:同一個漢字的中日字形不同(例:直、令、骨),
+     用 PingFang 排日文單字會學到台版字形。標了 lang="ja" 的元素走這組。 */
+  --font-ja: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP",
+    "Yu Gothic", "Meiryo", sans-serif;
+
+  --tabbar-h: 56px;
+  --header-h: 48px;
+  --page-x: 16px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+/* 深色 token:由 lib/theme.ts 解析(系統偏好或手動鎖定)後寫進 data-theme */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #000000;
+  --surface: #1c1c1e;
+  --surface-2: #2c2c2e;
+  --elevated: #2c2c2e;
+  --fill: rgb(118 118 128 / 0.24);
+  --fill-2: rgb(118 118 128 / 0.16);
+  --separator: rgb(84 84 88 / 0.55);
+  --border: rgb(84 84 88 / 0.5);
+
+  --text: #f2f2f7;
+  --text-2: #a1a1a6;
+  --text-3: #7c7c80;
+
+  --accent: #8683f0;
+  --accent-pressed: #9a97f4;
+  --accent-tint: rgb(134 131 240 / 0.2);
+  --accent-tint-pressed: rgb(134 131 240 / 0.3);
+  --on-accent: #12121a;
+
+  --danger: #ff6b6b;
+  --danger-tint: rgb(255 107 107 / 0.14);
+  --success: #4bb37c;
+  --success-tint: rgb(75 179 124 / 0.15);
+  --warning: #e6a23c;
+
+  --c-new: #7ea6ff;
+  --c-learn: #ff7a7f;
+  --c-due-count: #4bb37c;
+  --chart-reviews: #8683f0;
+  --chart-due: #4bb37c;
+
+  --rate-again: #c2383e;
+  --rate-hard: #9c5a22;
+  --rate-good: #2a7a4c;
+  --rate-easy: #4566b8;
+
+  --shadow-sm: none;
+  --shadow-md: 0 4px 16px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 10px 40px rgb(0 0 0 / 0.6);
+}

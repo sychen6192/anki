@@ -2,7 +2,7 @@ import type { RatingValue } from './fsrs'
 
 export type ReviewKeyAction =
   | { type: 'show' } | { type: 'edit' } | { type: 'skip' } | { type: 'undo' } | { type: 'cancel-edit' }
-  | { type: 'known' }
+  | { type: 'known' } | { type: 'exit' }
   | { type: 'rate'; rating: RatingValue }
 
 /** 只取 KeyboardEvent 裡用得到的欄位,測試不必造整個事件 */
@@ -20,7 +20,9 @@ export function reviewKeyAction(
   // 編輯中鍵盤要留給輸入框,只保留 Esc 取消
   if (ctx.editing) return e.key === 'Escape' ? { type: 'cancel-edit' } : null
   switch (e.key) {
-    case ' ': return { type: 'show' }
+    // 空白鍵 / Enter:正面翻面;背面等於「普通」(跟 Anki 一樣,一路按空白鍵就能複習)
+    case ' ': case 'Enter': return ctx.showBack ? { type: 'rate', rating: 3 } : { type: 'show' }
+    case 'Escape': return { type: 'exit' }
     case 'e': return { type: 'edit' }
     case 's': return { type: 'skip' }
     case 'u': return { type: 'undo' }

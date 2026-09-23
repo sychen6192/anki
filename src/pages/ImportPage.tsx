@@ -18,6 +18,10 @@ import {
 } from '../lib/share'
 import { useBusy } from '../lib/useBusy'
 import { Loading } from '../components/Loading'
+import { PageHeader } from '../components/PageHeader'
+import { ListSection, Segmented, Switch } from '../components/controls'
+import { CheckIcon, FileIcon, LinkIcon, UploadIcon } from '../components/icons'
+import './import.css'
 
 type MappingField = keyof ApkgMapping
 // CSV 與 apkg 都能對應重音欄(重音一向可匯入,只是之前 CSV 的 UI 沒把它露出來)
@@ -38,8 +42,12 @@ interface ImportResult { summary: Summary; deckId: string }
 type Mode = 'csv' | 'apkg' | 'templates' | 'share'
 
 const MODE_LABELS: readonly (readonly [Mode, string])[] = [
-  ['csv', 'CSV'], ['apkg', 'Anki 牌組'], ['templates', '範本'], ['share', '分享連結'],
+  ['templates', '範本'], ['csv', 'CSV'], ['apkg', 'Anki'], ['share', '分享連結'],
 ]
+const MODE_TITLES: Record<Mode, string> = {
+  templates: '從範本加入', csv: '匯入 CSV', apkg: '匯入 Anki 牌組', share: '貼上分享連結',
+}
+const isMode = (m: string | null): m is Mode => m === 'csv' || m === 'apkg' || m === 'templates' || m === 'share'
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -48,23 +56,26 @@ function SummaryView({ result }: { result: ImportResult }) {
   const { summary, deckId } = result
   return (
     <div className="summary" role="status" aria-live="polite">
-      <p>✓ 匯入 {summary.imported} 筆,跳過重複 {summary.skipped.length} 筆
-        {summary.otherSkipped > 0 && `,略過其他樣板 ${summary.otherSkipped} 筆`}</p>
+      <p className="summary-title"><CheckIcon size={18} />匯入 {summary.imported} 筆
+        {summary.skipped.length > 0 && <span className="summary-sub">,跳過重複 {summary.skipped.length} 筆</span>}
+        {summary.otherSkipped > 0 && <span className="summary-sub">,略過其他樣板 {summary.otherSkipped} 筆</span>}
+      </p>
       {summary.annotateSkipped
-        ? <p className="hint">沒連上字典,重音先空著;之後在牌組頁按「自動標註重音」補。</p>
+        ? <p className="hint">沒連上字典,重音先空著;之後在牌組頁的「⋯」→「自動標註重音」補。</p>
         : <p className="hint">自動標註重音 {summary.annotated} 筆,查無 {summary.missed} 筆</p>}
       {summary.skipped.length > 0 && (
-        <>
+        <details className="summary-skipped">
+          <summary>看跳過了哪些</summary>
           {/* 只列前 10 筆:整副重匯時全列出來會生出上千個節點 */}
           <ul>{summary.skipped.slice(0, 10).map((r, i) => (
-            <li key={i}>{r.expression}{r.reading && `(${r.reading})`} — {r.meaning}</li>
+            <li key={i}><span lang="ja">{r.expression}{r.reading && `(${r.reading})`}</span> — {r.meaning}</li>
           ))}</ul>
           {summary.skipped.length > 10 && (
             <p className="hint">…還有 {summary.skipped.length - 10} 筆重複未列出</p>
           )}
-        </>
+        </details>
       )}
-      <div className="form-actions">
+      <div className="btn-row">
         <Link to={`/review/${deckId}`} className="btn">開始複習</Link>
         <Link to={`/deck/${deckId}`} className="btn secondary">查看牌組</Link>
       </div>
@@ -88,31 +99,43 @@ function ShareCard({ shared, loadError, importError, result, busy, withReverse, 
 
   if (loadError !== '') {
     return (
-      <div className="template-card share-card">
+      <div className="card share-card">
         <p className="err" role="alert">{loadError}</p>
         {/* 主畫面的 App 沒有重新整理鈕:離線或伺服器一時出錯時,要能在這裡再試一次 */}
         {onRetry !== undefined && <button className="btn secondary" onClick={onRetry}>重試</button>}
       </div>
     )
   }
-  if (shared === null) return <div className="template-card share-card"><p className="hint">讀取分享內容…</p></div>
+  if (shared === null) {
+    return <div className="card share-card share-loading" role="status"><span className="spinner" aria-hidden="true" />讀取分享內容…</div>
+  }
   return (
-    <div className="template-card share-card">
-      <div className="template-info">
-        <b>{shared.name}</b>
-        <p className="hint">朋友分享的牌組,{shared.rows.length} 筆</p>
-        {result === null && (
-          <label className="check-row"><input type="checkbox" checked={withReverse}
-            onChange={(e) => onWithReverse(e.target.checked)} /> 同時建立反向卡</label>
-        )}
+    <div className="card share-card">
+      <div className="share-head">
+        <span className="share-icon"><LinkIcon size={20} /></span>
+        <div className="share-info">
+          <b className="share-name">{shared.name}</b>
+          <span className="hint">朋友分享的牌組 · {shared.rows.length} 筆</span>
+        </div>
       </div>
-      {result === null && (
-        <button className="btn" disabled={busy || shared.rows.length === 0} onClick={onImport}>
-          {busy ? '匯入中…' : '匯入'}
-        </button>
+      {shared.rows.length > 0 && (
+        <p className="share-preview" lang="ja">
+          {shared.rows.slice(0, 4).map((r) => r.expression).join('、')}{shared.rows.length > 4 ? '…' : ''}
+        </p>
       )}
-      {importError !== '' && <p className="err share-result" role="alert">匯入失敗:{importError}</p>}
-      {result !== null && <div className="share-result" ref={resultRef}><SummaryView result={result} /></div>}
+      {result === null && (
+        <>
+          <label className="switch-row">
+            <span>同時建立反向卡</span>
+            <Switch label="同時建立反向卡" checked={withReverse} onChange={onWithReverse} />
+          </label>
+          <button className="btn lg" disabled={busy || shared.rows.length === 0} onClick={onImport}>
+            {busy ? '匯入中…' : `匯入 ${shared.rows.length} 筆`}
+          </button>
+        </>
+      )}
+      {importError !== '' && <p className="err" role="alert">匯入失敗:{importError}</p>}
+      {result !== null && <div ref={resultRef}><SummaryView result={result} /></div>}
     </div>
   )
 }
@@ -138,24 +161,24 @@ function BrowserNotice({ inApp }: { inApp: boolean }) {
     }
   }
   return (
-    <div className="notice onboard" role="note">
+    <div className="card browser-notice" role="note">
       {inApp ? (
         <>
           <p><b>看起來你是在 LINE 之類 App 的內建瀏覽器裡打開這個連結的。</b>在這裡匯入的牌組只會存在這個內建瀏覽器,平常用的字卡裡看不到。</p>
-          <p className="hint">請複製連結:用主畫面上的字卡 App 的話,到「匯入」頁選「分享連結」貼上;平常在別的瀏覽器用字卡的話,把連結貼到那個瀏覽器的網址列。App 裡找不到「分享連結」的話,先按 App 下方的「更新」,或把 App 完全關掉再打開。如果這就是你平常用字卡的瀏覽器,直接在下面匯入就好。</p>
+          <p className="hint">請複製連結:用主畫面上的字卡 App 的話,到「牌組」右上的「+」→「貼上分享連結」;平常在別的瀏覽器用字卡的話,把連結貼到那個瀏覽器的網址列。App 裡找不到這個選項,先按 App 下方的「更新」,或把 App 完全關掉再打開。如果這就是你平常用字卡的瀏覽器,直接在下面匯入就好。</p>
         </>
       ) : (
         <>
           <p><b>你是在瀏覽器裡打開這個連結的。</b>加到主畫面(或 Mac 的 Dock)的字卡 App 和瀏覽器的資料是分開的,在這裡匯入的牌組不會出現在 App 裡。</p>
-          <p className="hint">要匯入到 App:複製連結,打開字卡 App,到「匯入」頁選「分享連結」貼上;找不到這個分頁的話,先按 App 下方的「更新」,或把 App 完全關掉再打開。平常就在這個瀏覽器用字卡的話,直接在下面匯入就好。</p>
+          <p className="hint">要匯入到 App:複製連結,打開字卡 App,到「牌組」右上的「+」→「貼上分享連結」;找不到這個選項的話,先按 App 下方的「更新」,或把 App 完全關掉再打開。平常就在這個瀏覽器用字卡的話,直接在下面匯入就好。</p>
         </>
       )}
       <input ref={input} className="share-link-input" readOnly value={href} aria-label="分享連結"
         onFocus={(e) => e.currentTarget.select()} />
-      <div className="form-actions">
-        <button className="btn secondary" onClick={() => void copy()}>{copied === 'yes' ? '已複製 ✓' : '複製連結'}</button>
-        {copied === 'failed' && <span className="hint">沒辦法自動複製,連結已選取,請手動拷貝</span>}
+      <div className="btn-row">
+        <button className="btn tinted" onClick={() => void copy()}>{copied === 'yes' ? '已複製 ✓' : '複製連結'}</button>
       </div>
+      {copied === 'failed' && <p className="hint">沒辦法自動複製,連結已選取,請手動拷貝</p>}
     </div>
   )
 }
@@ -170,13 +193,18 @@ export default function ImportPage() {
     })
     return counts
   }, [])
-  const [searchParams] = useSearchParams()
-  // 空牌組列表/說明頁的「從範本開始」直達 ?mode=templates;?mode=share 直接開「分享連結」分頁
+  const [searchParams, setSearchParams] = useSearchParams()
+  // 「牌組」右上的「+」各項直達對應的方式(?mode=templates / csv / apkg / share);沒指定就從範本開始
   const [mode, setMode] = useState<Mode>(() => {
     const m = searchParams.get('mode')
-    return m === 'templates' || m === 'share' ? m : 'csv'
+    return isMode(m) ? m : 'templates'
   })
-  const [deckId, setDeckId] = useState('new')
+  // 牌組頁「匯入 CSV」帶 ?deck=<id>:目標牌組預設就是那一副
+  const [deckId, setDeckId] = useState(() => searchParams.get('deck') ?? 'new')
+  // 範本:目前在匯哪一份、結果屬於哪一份(結果顯示在那一份的卡片裡)
+  const [importingTemplate, setImportingTemplate] = useState<string | null>(null)
+  const [resultTemplate, setResultTemplate] = useState<string | null>(null)
+  const [fileName, setFileName] = useState('')
   const [newDeckName, setNewDeckName] = useState('')
   const [withReverse, setWithReverse] = useState(false)
   const [summary, setSummary] = useState<Summary | null>(null)
@@ -265,6 +293,9 @@ export default function ImportPage() {
     setMode(next)
     setSummary(null)
     setErrMsg('')
+    setFileName('')
+    // 寫回網址:重新整理或返回時停在同一個分頁
+    setSearchParams({ mode: next }, { replace: true })
   }
 
   /** CSV/apkg/範本的結果顯示在表單下方,目標牌組切到剛匯入的那副 */
@@ -380,16 +411,23 @@ export default function ImportPage() {
 
   // csv 本體是動態 import 進來的,整段(含下載)都在 busy 內,免得下載期間又被按一次
   const importTemplate = (t: DeckTemplate) => runImport(async () => {
-    let csv: string
+    setImportingTemplate(t.id)
+    setResultTemplate(null)
     try {
-      csv = await t.loadCsv()
-    } catch {
-      throw new Error('範本資料載入失敗,請重新整理後再試')
+      let csv: string
+      try {
+        csv = await t.loadCsv()
+      } catch {
+        throw new Error('範本資料載入失敗,請重新整理後再試')
+      }
+      const tRows = parseCsv(csv)
+      const tMapping = autoMapHeaders(tRows[0])
+      if (!tMapping) throw new Error('範本表頭無法解析')
+      showResult(await importNamed(t.name, mapRows(tRows.slice(1), tMapping)))
+      setResultTemplate(t.id)
+    } finally {
+      setImportingTemplate(null)
     }
-    const tRows = parseCsv(csv)
-    const tMapping = autoMapHeaders(tRows[0])
-    if (!tMapping) throw new Error('範本表頭無法解析')
-    showResult(await importNamed(t.name, mapRows(tRows.slice(1), tMapping)))
   })
 
   /** 分享的牌組匯入到同名牌組(沒有就建),結果顯示在分享卡片裡;匯入一次後按鈕就收掉 */
@@ -408,6 +446,11 @@ export default function ImportPage() {
     })
   }
 
+  // ?deck= 指到不存在的牌組(被刪了、打錯)就退回「建立新牌組」
+  useEffect(() => {
+    if (decks !== undefined && deckId !== 'new' && !decks.some((d) => d.id === deckId)) setDeckId('new')
+  }, [decks, deckId])
+
   if (!decks) return <Loading />
 
   const shareCard = (
@@ -419,45 +462,83 @@ export default function ImportPage() {
   // 從分享連結打開:只放分享卡片,不混進 CSV 表單;要用別的方式匯入再點下面的連結
   if (linkMode) {
     return (
-      <div>
-        <h1>匯入分享的牌組</h1>
-        {showBrowserNotice && <BrowserNotice inApp={inAppBrowser} />}
-        {shareCard}
-        <p className="hint"><Link to="/import" className="link">改用 CSV、Anki 牌組或範本匯入</Link></p>
-      </div>
+      <>
+        <PageHeader title="匯入分享的牌組" back={{ to: '/', label: '牌組' }} />
+        <div className="import-body">
+          {showBrowserNotice && <BrowserNotice inApp={inAppBrowser} />}
+          {shareCard}
+          <p className="import-alt"><Link to="/import" className="link">改用範本、CSV 或 Anki 牌組匯入</Link></p>
+        </div>
+      </>
     )
   }
 
-  return (
-    <div>
-      <h1>匯入</h1>
+  const targetDeck = (
+    <ListSection header="匯入到">
+      <label className="row">
+        <span className="row-main"><span className="row-title">牌組</span></span>
+        <select className="row-select" value={deckId} onChange={(e) => setDeckId(e.target.value)} aria-label="目標牌組">
+          <option value="new">＋ 建立新牌組</option>
+          {decks.map((d) => (
+            <option key={d.id} value={d.id}>{d.name}({noteCounts?.get(d.id) ?? 0} 筆)</option>
+          ))}
+        </select>
+      </label>
+      {deckId === 'new' && (
+        <label className="row">
+          <span className="row-main"><span className="row-title">名稱</span></span>
+          <input className="row-input" placeholder="新牌組名稱" value={newDeckName} onChange={(e) => setNewDeckName(e.target.value)} />
+        </label>
+      )}
+    </ListSection>
+  )
 
-      <div className="tabs">
-        {MODE_LABELS.map(([m, label]) => (
-          <button key={m} className={`tab${mode === m ? ' active' : ''}`} onClick={() => switchMode(m)}>{label}</button>
-        ))}
+  const reverseToggle = (
+    <ListSection footer="反向卡:看中文意思,想出日文單字。">
+      <label className="row">
+        <span className="row-main"><span className="row-title">同時建立反向卡</span></span>
+        <Switch label="同時建立反向卡" checked={withReverse} onChange={setWithReverse} />
+      </label>
+    </ListSection>
+  )
+
+  return (
+    <>
+      <PageHeader title={MODE_TITLES[mode]} shortTitle="匯入" back={{ to: '/', label: '牌組' }} />
+      <div className="import-modes">
+        <Segmented label="匯入方式" value={mode} options={MODE_LABELS} onChange={switchMode} />
       </div>
 
-      <div className="import-form">
-        {(mode === 'csv' || mode === 'apkg') && (
+      <div className="import-body">
+        {mode === 'templates' && (
           <>
-            <label>目標牌組
-              <select value={deckId} onChange={(e) => setDeckId(e.target.value)}>
-                <option value="new">＋ 建立新牌組</option>
-                {decks.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}({noteCounts?.get(d.id) ?? 0} 筆)</option>
-                ))}
-              </select>
-            </label>
-            {deckId === 'new' && (
-              <input placeholder="新牌組名稱" value={newDeckName} onChange={(e) => setNewDeckName(e.target.value)} />
-            )}
+            <p className="import-intro">選一份直接開始。重音會自動標好;同一份重複匯入只會補上新字。</p>
+            {reverseToggle}
+            <div className="template-list">
+              {DECK_TEMPLATES.map((t) => (
+                <div className="card template-card" key={t.id}>
+                  <div className="template-head">
+                    <b className="template-name">{t.name}</b>
+                    <span className="template-count">{t.count} 字</span>
+                  </div>
+                  <p className="template-desc">{t.description}</p>
+                  <p className="template-preview" lang="ja">{t.preview}</p>
+                  {resultTemplate === t.id && summary && lastDeckId !== null ? (
+                    <SummaryView result={{ summary, deckId: lastDeckId }} />
+                  ) : (
+                    <button className="btn lg" disabled={busy} onClick={() => importTemplate(t)}>
+                      {importingTemplate === t.id ? '匯入中…(要查重音,稍等一下)' : `加入這 ${t.count} 字`}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
           </>
         )}
 
         {mode === 'share' && (
           <>
-            <p className="hint">朋友傳來的分享連結貼在這裡,會匯入成同名的牌組;已經有的字會跳過。</p>
+            <p className="import-intro">朋友傳來的分享連結貼在這裡,會匯入成同名的牌組;已經有的字會跳過。</p>
             <form className="paste-share" onSubmit={(e) => { e.preventDefault(); loadPasted() }}>
               <input value={pasteText} onChange={(e) => setPasteText(e.target.value)}
                 placeholder="貼上分享連結" aria-label="分享連結" inputMode="url" autoCapitalize="off" autoCorrect="off" />
@@ -468,111 +549,105 @@ export default function ImportPage() {
           </>
         )}
 
-        {mode === 'templates' && (
+        {(mode === 'csv' || mode === 'apkg') && (
           <>
-            <p className="hint">選一份直接開始。重音自動標;重複匯入只補新字,不會重複。</p>
-            <label className="check-row"><input type="checkbox" checked={withReverse}
-              onChange={(e) => setWithReverse(e.target.checked)} /> 同時建立反向卡(意思→單字)</label>
-            {DECK_TEMPLATES.map((t) => (
-              <div className="template-card" key={t.id}>
-                <div className="template-info">
-                  <b>{t.name}</b>
-                  <p className="hint">{t.description}</p>
-                  <p className="hint" lang="ja">{t.preview}</p>
-                </div>
-                <button className="btn" disabled={busy} onClick={() => importTemplate(t)}>
-                  {busy ? '匯入中…' : `匯入 ${t.count} 筆`}
-                </button>
-              </div>
-            ))}
-          </>
-        )}
-
-        {mode === 'csv' && (
-          <>
-            <input type="file" accept=".csv,text/csv"
-              onChange={async (e) => {
-                const f = e.target.files?.[0]
-                e.target.value = '' // 清掉選檔紀錄,否則選同一個檔案第二次不會觸發
-                if (!f) return
-                // 檔名當牌組名的預設值,免得沒填名稱默默生出一副「新牌組」
-                if (deckId === 'new' && newDeckName.trim() === '') {
-                  setNewDeckName(f.name.replace(/\.csv$/i, ''))
-                }
-                onTextLoaded(await f.text())
-              }} />
-            <textarea rows={5} placeholder="或直接貼上 CSV 內容" value={text}
-              onChange={(e) => onTextLoaded(e.target.value)} />
-            {rows.length > 0 && mapping && (
-              <label><input type="checkbox" checked={hasHeader}
-                onChange={(e) => setHasHeader(e.target.checked)} /> 第一列是表頭</label>
+            {mode === 'csv' ? (
+              <p className="import-intro">一列一個字:單字、讀音、意思(重音可有可無)。第一列可以是表頭,欄位會自動對應。</p>
+            ) : (
+              <p className="import-intro">讀 Anki / AnkiWeb 的 .apkg。只拿文字;進度、圖片、音檔不帶,全部當新卡重排。</p>
             )}
-          </>
-        )}
-        {mode === 'apkg' && (
-          <>
-            <input type="file" accept=".apkg,.colpkg"
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                e.target.value = ''
-                if (f) void onApkgFile(f)
-              }} />
-            <p className="hint">讀 Anki / AnkiWeb 的 .apkg。只拿文字;進度、圖片、音檔不帶,全部當新卡重排。</p>
-            {parsing && <p className="hint">解析中…</p>}
-            {apkg && apkg.notetypes.length > 1 && (
-              <label>樣板
-                <select value={notetypeId} onChange={(e) => selectNotetype(apkg, e.target.value)}>
-                  {apkg.notetypes.map((t) => (
-                    <option key={t.id} value={t.id}>{t.name}({t.noteCount} 筆)</option>
-                  ))}
-                </select>
+            <div className="file-row">
+              <label className="file-pick">
+                <input type="file" accept={mode === 'csv' ? '.csv,text/csv' : '.apkg,.colpkg'}
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0]
+                    e.target.value = '' // 清掉選檔紀錄,否則選同一個檔案第二次不會觸發
+                    if (!f) return
+                    setFileName(f.name)
+                    if (mode === 'apkg') { void onApkgFile(f); return }
+                    // 檔名當牌組名的預設值,免得沒填名稱默默生出一副「新牌組」
+                    if (deckId === 'new' && newDeckName.trim() === '') {
+                      setNewDeckName(f.name.replace(/\.csv$/i, ''))
+                    }
+                    onTextLoaded(await f.text())
+                  }} />
+                <span className="btn tinted">{mode === 'csv' ? <FileIcon size={18} /> : <UploadIcon size={18} />}
+                  選擇{mode === 'csv' ? ' CSV ' : ' .apkg '}檔</span>
               </label>
+              {fileName !== '' && <span className="file-name">{fileName}</span>}
+            </div>
+            {mode === 'csv' && (
+              <textarea rows={5} placeholder={'或直接貼上 CSV 內容,例如:\n単語,たんご,單字'} value={text}
+                aria-label="CSV 內容" onChange={(e) => { setFileName(''); onTextLoaded(e.target.value) }} />
             )}
-          </>
-        )}
-
-        {activeMapping && fieldOptions.length > 0 && (
-          <>
-            <div className="mapping">
-              {labels.map(([field, label]) => (
-                <label key={field}>{label}
-                  <select
-                    value={activeMapping[field] === null ? '' : String(activeMapping[field])}
-                    onChange={(e) => setMappingField(field, e.target.value === '' ? null : Number(e.target.value))}>
-                    {OPTIONAL_FIELDS.has(field) && <option value="">(無)</option>}
-                    {fieldOptions.map((cell, i) => (
-                      <option key={i} value={i}>
-                        {mode === 'csv' ? `第 ${i + 1} 欄(${cell}…)` : cell || `欄位 ${i + 1}`}
-                      </option>
+            {mode === 'apkg' && parsing && <p className="hint import-status" role="status"><span className="spinner" aria-hidden="true" />解析中…</p>}
+            {mode === 'apkg' && apkg && apkg.notetypes.length > 1 && (
+              <ListSection header="樣板">
+                <label className="row">
+                  <span className="row-main"><span className="row-title">使用的樣板</span></span>
+                  <select className="row-select" value={notetypeId} onChange={(e) => selectNotetype(apkg, e.target.value)}>
+                    {apkg.notetypes.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}({t.noteCount} 筆)</option>
                     ))}
                   </select>
                 </label>
-              ))}
-            </div>
-            <table className="preview">
-              <thead><tr><th>單字</th><th>讀音</th><th>意思</th><th>重音</th></tr></thead>
-              <tbody>
-                {parsed.slice(0, 5).map((r, i) => (
-                  <tr key={i}><td>{r.expression}</td><td>{r.reading}</td><td>{r.meaning}</td><td>{r.accent}</td></tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="hint">重音留空的字,匯入時自動查字典。</p>
-            <p className="hint">
-              共 {parsed.length} 筆有效資料
-              {mode === 'apkg' && otherNoteCount > 0 && `,另有 ${otherNoteCount} 筆屬於其他樣板不會匯入`}
-            </p>
-            <label className="check-row"><input type="checkbox" checked={withReverse}
-              onChange={(e) => setWithReverse(e.target.checked)} /> 同時建立反向卡(意思→單字)</label>
-            <button className="btn" disabled={busy || parsed.length === 0} onClick={doImport}>
-              {busy ? '匯入中…' : `匯入 ${parsed.length} 筆`}
-            </button>
+              </ListSection>
+            )}
+
+            {activeMapping && fieldOptions.length > 0 && (
+              <>
+                <ListSection header="欄位對應" footer="重音留空的字,匯入時會自動查字典。">
+                  {mode === 'csv' && rows.length > 0 && (
+                    <label className="row">
+                      <span className="row-main"><span className="row-title">第一列是表頭</span></span>
+                      <Switch label="第一列是表頭" checked={hasHeader} onChange={setHasHeader} />
+                    </label>
+                  )}
+                  {labels.map(([field, label]) => (
+                    <label className="row" key={field}>
+                      <span className="row-main"><span className="row-title">{label}</span></span>
+                      <select className="row-select"
+                        value={activeMapping[field] === null ? '' : String(activeMapping[field])}
+                        onChange={(e) => setMappingField(field, e.target.value === '' ? null : Number(e.target.value))}>
+                        {OPTIONAL_FIELDS.has(field) && <option value="">(無)</option>}
+                        {fieldOptions.map((cell, i) => (
+                          <option key={i} value={i}>
+                            {mode === 'csv' ? `第 ${i + 1} 欄(${cell}…)` : cell || `欄位 ${i + 1}`}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                </ListSection>
+
+                <ListSection header={`預覽(共 ${parsed.length} 筆${mode === 'apkg' && otherNoteCount > 0 ? `,另有 ${otherNoteCount} 筆屬於其他樣板不會匯入` : ''})`}>
+                  <div className="preview-scroll">
+                    <table className="preview">
+                      <thead><tr><th>單字</th><th>讀音</th><th>意思</th><th>重音</th></tr></thead>
+                      <tbody>
+                        {parsed.slice(0, 5).map((r, i) => (
+                          <tr key={i}><td lang="ja">{r.expression}</td><td lang="ja">{r.reading}</td><td>{r.meaning}</td><td>{r.accent}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </ListSection>
+
+                {targetDeck}
+                {reverseToggle}
+                <button className="btn lg import-go" disabled={busy || parsed.length === 0} onClick={doImport}>
+                  {busy ? '匯入中…' : `匯入 ${parsed.length} 筆`}
+                </button>
+              </>
+            )}
           </>
         )}
 
-        {summary && lastDeckId !== null && mode !== 'share' && <SummaryView result={{ summary, deckId: lastDeckId }} />}
-        {errMsg && <p className="err" role="alert">匯入失敗:{errMsg}</p>}
+        {summary && lastDeckId !== null && mode !== 'share' && mode !== 'templates' && (
+          <SummaryView result={{ summary, deckId: lastDeckId }} />
+        )}
+        {errMsg && <p className="err import-err" role="alert">匯入失敗:{errMsg}</p>}
       </div>
-    </div>
+    </>
   )
 }

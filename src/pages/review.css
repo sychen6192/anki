@@ -1,0 +1,145 @@
+/* ---------- 複習(專注模式) ----------
+   頂列(✕ 進度 剩幾張 ↶ ⋯)、中間卡片、底部固定的「顯示答案」/評分鍵(拇指區) */
+.page:has(.review-screen), .page:has(.review-done) { padding-bottom: 0; }
+
+.review-screen {
+  --actions-h: 84px;
+  display: flex; flex-direction: column;
+  min-height: 100dvh;
+  padding-bottom: calc(var(--actions-h) + var(--safe-bottom) + 8px);
+}
+
+.review-bar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 2px;
+  margin: 0 calc(-1 * (var(--page-x) + var(--safe-right))) 0 calc(-1 * (var(--page-x) + var(--safe-left)));
+  min-height: calc(52px + var(--safe-top));
+  padding: var(--safe-top) calc(6px + var(--safe-right)) 0 calc(6px + var(--safe-left));
+  background: var(--bg);
+}
+.review-bar .icon-btn { color: var(--text-2); }
+.review-bar .icon-btn:not(:disabled):active { color: var(--text); }
+.review-progress {
+  flex: 1; height: 6px; margin: 0 8px;
+  background: var(--fill); border-radius: 999px; overflow: hidden;
+}
+.review-progress > span {
+  display: block; height: 100%; min-width: 6px;
+  background: var(--accent); border-radius: inherit;
+  transition: width .3s ease;
+}
+.review-remaining {
+  min-width: 30px; margin-right: 2px; text-align: right;
+  font-size: 14px; font-weight: 650; color: var(--text-2); font-variant-numeric: tabular-nums;
+}
+.review-err { margin: 4px 4px 0; }
+
+.flashcard {
+  position: relative;
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center;
+  /* 從上往下排、不置中:單字的位置正反面都一樣,翻面時不會往上跳 */
+  justify-content: flex-start;
+  margin-top: 8px; min-height: 300px;
+  padding: clamp(52px, 13vh, 120px) 22px 36px;
+  background: var(--surface); border-radius: 24px;
+  box-shadow: var(--shadow-sm);
+  text-align: center; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  animation: card-in .22s ease;
+}
+.flashcard.flipped { cursor: default; }
+@keyframes card-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.card-face { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; animation: card-in .16s ease; }
+/* 跨牌組複習時,左上角標出這張卡屬於哪副牌組 */
+.card-deck {
+  position: absolute; top: 14px; left: 18px; right: 18px;
+  font-size: 12.5px; font-weight: 600; color: var(--text-3); text-align: left;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.expression {
+  font-size: 48px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.25;
+  /* 日文單字盡量整個不斷;真的放不下才換行 */
+  line-break: strict; overflow-wrap: anywhere;
+}
+/* 依字數分級,正反面同一個字級 */
+.expression.size-md { font-size: 36px; }
+.expression.size-sm { font-size: 29px; line-height: 1.35; }
+.expression.size-xs { font-size: 23px; line-height: 1.5; font-weight: 650; }
+/* 反向卡正面是中文意思:字重輕一點,跟日文單字分得出來 */
+.expression.prompt-text { font-weight: 600; }
+.card-prompt {
+  font-size: 12.5px; font-weight: 650; color: var(--accent); letter-spacing: .04em;
+  padding: 3px 10px; border-radius: 999px; background: var(--accent-tint);
+}
+.card-hint { font-size: 14px; color: var(--text-3); }
+
+/* 答案:正面時先佔好位置但看不見,翻面只淡入,不推動上面的單字 */
+.card-answer { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; }
+.card-answer.concealed { visibility: hidden; }
+.flashcard.flipped .card-answer { animation: answer-in .2s ease; }
+@keyframes answer-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.reading-row { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
+.reading-row .speak-btn { width: 44px; height: 44px; }
+.card-divider { width: 40px; height: 3px; border-radius: 2px; background: var(--separator); margin: 2px 0; }
+/* 意思是這張卡的「答案」,不該是最灰的一層 */
+.meaning { font-size: 22px; font-weight: 550; line-height: 1.5; overflow-wrap: anywhere; }
+
+.review-actions {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  padding: 12px calc(16px + var(--safe-right)) calc(12px + var(--safe-bottom)) calc(16px + var(--safe-left));
+  background: linear-gradient(to top, var(--bg) 72%, color-mix(in srgb, var(--bg) 0%, transparent));
+}
+.review-actions > * { max-width: 688px; margin: 0 auto; }
+.show-answer { min-height: 60px; font-size: 18px; border-radius: 16px; }
+.show-answer .kbd-hint { font-size: 13px; font-weight: 500; }
+
+.ratings { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.rating {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  min-height: 60px; padding: 6px 2px;
+  border: none; border-radius: 16px; color: #fff;
+  font-family: inherit; cursor: pointer;
+  transition: transform .08s ease, filter .15s ease;
+}
+.rating:active { transform: scale(0.96); filter: brightness(.94); }
+@media (hover: hover) { .rating:hover { filter: brightness(1.06); } }
+.rating-label { font-size: 17px; font-weight: 650; }
+.rating-interval { font-size: 12.5px; font-weight: 500; opacity: .9; font-variant-numeric: tabular-nums; }
+.rating-key { position: absolute; top: 5px; right: 8px; font-size: 11px; }
+
+/* 評分後的回饋(可復原):浮在評分鍵上方 */
+.review-toast { bottom: calc(var(--safe-bottom) + 96px); }
+.app.no-tabbar .review-toast { bottom: calc(var(--safe-bottom) + 96px); }
+
+/* ---------- 完成畫面 ---------- */
+.review-done {
+  min-height: 100dvh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; text-align: center;
+  padding: calc(32px + var(--safe-top)) 0 calc(32px + var(--safe-bottom));
+}
+.done-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 80px; height: 80px; border-radius: 50%; margin-bottom: 4px;
+  background: var(--success-tint); color: var(--success);
+  animation: pop-in .35s cubic-bezier(.2, .8, .2, 1);
+}
+.review-done h1 { font-size: 28px; font-weight: 750; }
+.done-stats { color: var(--text-2); font-size: 16px; }
+.done-stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+.done-wait { color: var(--text-2); font-size: 15px; max-width: 24em; }
+.review-done .btn-stack { width: 100%; max-width: 340px; margin-top: 16px; }
+.btn-note { font-size: 13px; font-weight: 500; opacity: .75; }
+
+/* 寬螢幕:按鈕接在卡片下面,不必跑到畫面最底 */
+@media (min-width: 768px) {
+  .review-screen { min-height: 0; padding-bottom: 32px; }
+  .review-bar { position: static; margin: 0; padding: 12px 0 0; min-height: 0; background: none; }
+  .flashcard { flex: none; min-height: 360px; margin-top: 12px; }
+  .review-actions { position: static; padding: 16px 0 0; background: none; }
+  .review-actions > * { max-width: none; }
+  .review-toast, .app.no-tabbar .review-toast { bottom: 24px; }
+  .review-done { min-height: 70vh; }
+}

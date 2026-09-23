@@ -9,12 +9,15 @@ import { startOfToday } from '../lib/queue'
 import { lastNDays, streakDays, trueRetention } from '../lib/stats'
 import { getFsrsSettings } from '../lib/fsrsSettings'
 import { Loading } from '../components/Loading'
+import { PageHeader } from '../components/PageHeader'
+import { Link } from 'react-router-dom'
+import './stats.css'
 
 /** 熱力圖顏色:單一色相由淺到深(0 張另外用底色) */
 function heatColor(count: number): string {
-  if (count === 0) return 'var(--surface-2)'
+  if (count === 0) return 'var(--fill)'
   const pct = count < 5 ? 30 : count < 15 ? 55 : count < 30 ? 78 : 100
-  return `color-mix(in srgb, var(--primary) ${pct}%, var(--surface))`
+  return `color-mix(in srgb, var(--accent) ${pct}%, var(--surface))`
 }
 const HEAT_WEEKS = 17
 
@@ -54,7 +57,7 @@ export default function StatsPage() {
     ? allLogs
     : allLogs.filter((l) => cardDeck.get(l.card_id) === deckFilter)
   const inDeck = allCards.filter((c) => !c.deleted && (deckFilter === 'all' || c.deck_id === deckFilter))
-  // 已會 / 暫停的卡不在排程裡:狀態分布與到期預測都不算,另外報數量
+  // 已會 / 擱置的卡不在排程裡:狀態分布與到期預測都不算,另外報數量
   const cards = inDeck.filter((c) => !c.suspended)
   const parked = { known: 0, paused: 0 }
   for (const c of inDeck) {
@@ -112,47 +115,56 @@ export default function StatsPage() {
     return first === undefined ? -1 : new Date(first.start).getMonth()
   }
 
-  return (
-    <div>
-      <h1>統計</h1>
+  const retentionTone = (r: { passed: number; total: number }) => {
+    if (r.total === 0) return ''
+    const p = (r.passed / r.total) * 100
+    return p < targetPct - 5 ? ' low' : p > targetPct + 4 ? ' high' : ''
+  }
 
+  return (
+    <>
+      <PageHeader title="統計" />
       {decks.length > 1 && (
-        <select className="sort-select stats-deck-filter" aria-label="篩選牌組"
-          value={deckFilter} onChange={(e) => setDeckFilter(e.target.value)}>
-          <option value="all">全部牌組</option>
-          {decks.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
+        <div className="stats-filter">
+          <select aria-label="篩選牌組" value={deckFilter} onChange={(e) => setDeckFilter(e.target.value)}>
+            <option value="all">全部牌組</option>
+            {decks.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        </div>
       )}
 
-      <div className="stat-row">
-        <div className="stat-tile"><b>{todayCount}</b><span>今日複習</span></div>
-        <div className="stat-tile"><b>{streak}</b><span>連續天數</span></div>
-        <div className="stat-tile"><b>{logs.length}</b><span>累計複習</span></div>
+      <div className="stat-grid">
+        <div className="stat card"><b>{todayCount}</b><span>今天複習</span></div>
+        <div className="stat card"><b>{streak}</b><span>連續天數</span></div>
+        <div className="stat card"><b>{logs.length}</b><span>累計複習</span></div>
       </div>
 
-      <h2>真實保持率</h2>
-      <div className="chart-block">
+      <section className="stat-card card">
+        <div className="stat-card-head">
+          <h2>真實保持率</h2>
+          <span className="stat-card-note">目標 {targetPct}%</span>
+        </div>
         {retentionAll.total === 0 ? (
-          <p className="empty">還沒有「複習中」卡片的紀錄 —— 新卡畢業、再次到期後才算</p>
+          <p className="stat-empty">還沒有資料 —— 卡片畢業、再次到期複習後才開始算</p>
         ) : (
           <>
-            <div className="stat-row">
+            <div className="retention-row">
               {retention.map(([label, r]) => (
-                <div className="stat-tile" key={label}>
+                <div className={`retention${retentionTone(r)}`} key={label}>
                   <b>{pct(r)}</b><span>{label} · {r.total} 次</span>
                 </div>
               ))}
             </div>
             <p className="hint">
-              複習中的卡片到期時答對的比例,目標 {targetPct}%(設定頁可調)。
-              明顯低於目標:到設定頁用自己的紀錄最佳化參數;明顯高於目標:可以把目標調低,少複習一點。
+              到期時答對的比例。明顯低於目標可以到<Link to="/settings" className="inline-link">設定</Link>用自己的紀錄最佳化參數;
+              明顯高於目標可以把目標調低,少複習一點。
             </p>
           </>
         )}
-      </div>
+      </section>
 
-      <h2>複習熱力圖</h2>
-      <div className="chart-block">
+      <section className="stat-card card">
+        <div className="stat-card-head"><h2>每天複習量</h2><span className="stat-card-note">最近 {HEAT_WEEKS} 週</span></div>
         <div className="heatmap" role="img" aria-label={`過去 ${HEAT_WEEKS} 週每日複習量`}>
           {weeks.map((w, i) => (
             <div className="heat-week" key={i}>
@@ -174,49 +186,49 @@ export default function StatsPage() {
           {[0, 3, 8, 20, 40].map((n) => <span key={n} className="heat-cell" style={{ background: heatColor(n) }} />)}
           多
         </div>
-      </div>
+      </section>
 
-      <h2>過去 30 天複習量</h2>
-      <div className="chart-block">
+      <section className="stat-card card">
+        <div className="stat-card-head"><h2>過去 30 天</h2><span className="stat-card-note">複習張數</span></div>
         {logs.length === 0 ? (
-          <p className="empty">還沒有複習紀錄 —— 完成第一次複習後就會出現</p>
+          <p className="stat-empty">還沒有複習紀錄 —— 完成第一次複習後就會出現</p>
         ) : (
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={past}>
-              <XAxis dataKey="day" interval={6} tickLine={false} />
-              <YAxis allowDecimals={false} width={32} tickLine={false} axisLine={false} />
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={past} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+              <XAxis dataKey="day" interval={6} tickLine={false} axisLine={false} />
+              <YAxis allowDecimals={false} width={36} tickLine={false} axisLine={false} />
               <Tooltip />
-              <Bar dataKey="count" name="複習數" fill={C_REVIEWS} radius={[3, 3, 0, 0]} />
+              <Bar dataKey="count" name="複習數" fill={C_REVIEWS} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}
-      </div>
+      </section>
 
-      <h2>未來 30 天到期預測</h2>
-      <div className="chart-block">
+      <section className="stat-card card">
+        <div className="stat-card-head"><h2>未來 30 天</h2><span className="stat-card-note">到期張數</span></div>
         {scheduled.length === 0 ? (
-          <p className="empty">沒有已排程的卡片 —— 新卡完成第一次複習後就會進入排程</p>
+          <p className="stat-empty">還沒有排程的卡片 —— 新卡第一次複習後就會進入排程</p>
         ) : (
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={forecast}>
-              <XAxis dataKey="day" interval={6} tickLine={false} />
-              <YAxis allowDecimals={false} width={32} tickLine={false} axisLine={false} />
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={forecast} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+              <XAxis dataKey="day" interval={6} tickLine={false} axisLine={false} />
+              <YAxis allowDecimals={false} width={36} tickLine={false} axisLine={false} />
               <Tooltip />
-              <Bar dataKey="count" name="到期數" fill={C_DUE} radius={[3, 3, 0, 0]} />
+              <Bar dataKey="count" name="到期數" fill={C_DUE} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}
-      </div>
+      </section>
 
-      <h2>卡片狀態</h2>
-      <div className="chart-block state-dist">
+      <section className="stat-card card">
+        <div className="stat-card-head"><h2>卡片狀態</h2></div>
         {cards.length === 0 ? (
-          <p className="empty">還沒有卡片 —— 到匯入頁或牌組頁新增</p>
+          <p className="stat-empty">還沒有卡片 —— 到「牌組」右上的「+」新增或匯入</p>
         ) : (
-          <>
-            <ResponsiveContainer width={200} height={200}>
+          <div className="state-dist">
+            <ResponsiveContainer width={150} height={150}>
               <PieChart>
-                <Pie data={dist} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80}>
+                <Pie data={dist} dataKey="value" nameKey="name" innerRadius={44} outerRadius={70} strokeWidth={0}>
                   {dist.map((d) => <Cell key={d.name} fill={d.color} />)}
                 </Pie>
                 <Tooltip />
@@ -224,15 +236,15 @@ export default function StatsPage() {
             </ResponsiveContainer>
             <ul className="dist-legend">
               {dist.map((d) => (
-                <li key={d.name}><span className="dot" style={{ background: d.color }} />{d.name}:{d.value}</li>
+                <li key={d.name}><span className="dot" style={{ background: d.color }} />{d.name}<b>{d.value}</b></li>
               ))}
             </ul>
-          </>
+          </div>
         )}
-      </div>
-      {(parked.known > 0 || parked.paused > 0) && (
-        <p className="hint">不含已經會了 {parked.known} 張、暫停 {parked.paused} 張,牌組頁可以恢復。</p>
-      )}
-    </div>
+        {(parked.known > 0 || parked.paused > 0) && (
+          <p className="hint">不含已經會了 {parked.known} 張、擱置 {parked.paused} 張(牌組頁可以恢復)。</p>
+        )}
+      </section>
+    </>
   )
 }

@@ -25,9 +25,9 @@ export class ErrorBoundary extends Component<Props, State> {
         <h1>出了點問題</h1>
         <p className="hint">你的資料還在本機,沒有遺失。重新載入通常就能繼續。</p>
         <pre className="crash-detail">{this.state.error.message}</pre>
-        <div className="form-actions">
+        <div className="btn-row">
           <button className="btn" onClick={() => window.location.reload()}>重新載入</button>
-          <button className="btn secondary" onClick={() => { window.location.href = '/' }}>回牌組列表</button>
+          <button className="btn secondary" onClick={() => { window.location.href = '/' }}>回牌組</button>
         </div>
       </div>
     )

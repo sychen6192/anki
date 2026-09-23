@@ -1,0 +1,63 @@
+/* ---------- 匯入 ---------- */
+.import-modes { margin-top: 16px; }
+.import-body { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+.import-body > .list-section { margin-top: 4px; }
+.import-intro { color: var(--text-2); font-size: 14.5px; line-height: 1.6; }
+.import-alt { text-align: center; margin-top: 4px; }
+.import-status { display: flex; align-items: center; gap: 8px; }
+.import-err { padding: 0 4px; }
+.import-go { margin-top: 4px; }
+
+/* 列裡的下拉與輸入:靠右、不佔滿 */
+.row-select, .row-input { flex: 0 1 60%; min-width: 0; text-align: right; }
+.row .row-select { text-align-last: right; padding-right: 22px; background-position: right 2px center; }
+.row .row-input::placeholder { text-align: right; }
+
+/* 範本 */
+.template-list { display: flex; flex-direction: column; gap: 12px; }
+.template-card { display: flex; flex-direction: column; gap: 8px; }
+.template-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.template-name { font-size: 18px; font-weight: 650; }
+.template-count { color: var(--text-2); font-size: 14px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.template-desc { color: var(--text-2); font-size: 14.5px; line-height: 1.55; }
+.template-preview { color: var(--text-3); font-size: 14px; margin-bottom: 6px; }
+
+/* 檔案 */
+.file-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.file-pick .btn { pointer-events: none; }
+.preview-scroll { overflow-x: auto; }
+.preview { width: 100%; border-collapse: collapse; font-size: 14px; }
+.preview th, .preview td { padding: 9px 12px; text-align: left; border-bottom: 0.5px solid var(--separator); white-space: nowrap; }
+.preview th { color: var(--text-2); font-weight: 600; font-size: 13px; }
+.preview tr:last-child td { border-bottom: none; }
+
+/* 匯入結果 */
+.summary {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 14px; border-radius: var(--radius);
+  background: var(--success-tint);
+}
+.summary-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-weight: 650; color: var(--success); }
+.summary-sub { font-weight: 500; color: var(--text-2); }
+.summary-skipped summary { cursor: pointer; color: var(--accent); font-size: 14px; font-weight: 550; }
+.summary-skipped ul { margin: 8px 0 4px; padding-left: 20px; max-height: 200px; overflow-y: auto; font-size: 14px; }
+.summary .btn-row { margin-top: 4px; }
+
+/* 分享 */
+.paste-share { display: flex; gap: 8px; }
+.paste-share input { flex: 1; min-width: 0; background: var(--surface); }
+.share-card { display: flex; flex-direction: column; gap: 12px; }
+.share-loading { flex-direction: row; align-items: center; justify-content: center; min-height: 96px; color: var(--text-2); gap: 10px; }
+.share-head { display: flex; align-items: center; gap: 12px; }
+.share-icon {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 44px; height: 44px; border-radius: 12px; background: var(--accent-tint); color: var(--accent);
+}
+.share-info { display: flex; flex-direction: column; min-width: 0; }
+.share-name { font-size: 18px; font-weight: 650; overflow-wrap: anywhere; }
+.share-preview { color: var(--text-2); font-size: 14.5px; }
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+.browser-notice { display: flex; flex-direction: column; gap: 10px; background: var(--accent-tint); }
+.browser-notice .share-link-input {
+  font-family: ui-monospace, SFMono-Regular, monospace; font-size: 14px; color: var(--text-2); background: var(--surface);
+}

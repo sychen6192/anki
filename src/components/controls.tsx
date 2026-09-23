@@ -1,0 +1,89 @@
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+
+/** 分段控制(iOS segmented control),語意上是一組單選 */
+export function Segmented<T extends string>({ value, options, onChange, label }: {
+  value: T
+  options: readonly (readonly [T, string])[]
+  onChange: (value: T) => void
+  label: string
+}) {
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    const i = options.findIndex(([v]) => v === value)
+    const next = options[(i + (e.key === 'ArrowRight' ? 1 : options.length - 1)) % options.length]
+    onChange(next[0])
+    const buttons = e.currentTarget.querySelectorAll('button')
+    buttons[options.indexOf(next)]?.focus()
+  }
+  return (
+    <div className="segmented" role="radiogroup" aria-label={label} onKeyDown={onKeyDown}>
+      {options.map(([v, text]) => (
+        <button key={v} type="button" role="radio" aria-checked={v === value}
+          tabIndex={v === value ? 0 : -1} onClick={() => onChange(v)}>{text}</button>
+      ))}
+    </div>
+  )
+}
+
+/** 開關:原生 checkbox 換 iOS 外觀,讀螢幕軟體念成「開關」 */
+export function Switch({ checked, onChange, label, disabled }: {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  label: string
+  disabled?: boolean
+}) {
+  return (
+    <input type="checkbox" role="switch" className="switch" aria-label={label}
+      checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+  )
+}
+
+/** 分組列表的一段:小標題 + 白底圓角列表 + 底下小字 */
+export function ListSection({ header, footer, children, withIcons, className }: {
+  header?: ReactNode
+  footer?: ReactNode
+  children: ReactNode
+  withIcons?: boolean
+  className?: string
+}) {
+  return (
+    <section className={`list-section${className ? ` ${className}` : ''}`}>
+      {header !== undefined && <h2 className="list-header">{header}</h2>}
+      <div className={`list${withIcons ? ' with-icons' : ''}`}>{children}</div>
+      {footer !== undefined && <div className="list-footer">{footer}</div>}
+    </section>
+  )
+}
+
+export interface ToastAction { label: string; onClick: () => void }
+
+/**
+ * 底部浮動提示。show() 顯示幾秒後自己消失,可以帶一顆動作鈕(例如「復原」)。
+ * 回傳的 node 放在頁面最後面就好。
+ */
+export function useToast(duration = 4000) {
+  const [toast, setToast] = useState<{ text: string; action?: ToastAction } | null>(null)
+  const timer = useRef(0)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const show = useCallback((text: string, action?: ToastAction) => {
+    setToast({ text, action })
+    clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setToast(null), duration)
+  }, [duration])
+  const hide = useCallback(() => {
+    clearTimeout(timer.current)
+    setToast(null)
+  }, [])
+  const node = toast === null ? null : (
+    <div className={`toast${toast.action ? '' : ' no-action'}`} role="status" aria-live="polite">
+      <span>{toast.text}</span>
+      {toast.action && (
+        <button type="button" className="link" onClick={() => { hide(); toast.action?.onClick() }}>
+          {toast.action.label}
+        </button>
+      )}
+    </div>
+  )
+  return { node, show, hide, visible: toast !== null }
+}

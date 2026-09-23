@@ -1,0 +1,100 @@
+/* ---------- 重設與排版 ---------- */
+* { box-sizing: border-box; margin: 0; }
+
+/* 只在可點擊元件上關掉雙擊縮放(保留捲動與雙指縮放);避免對所有元素套用 touch-action */
+a, button, .btn, .row, input, select, textarea, label, summary {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+[lang="ja"] { font-family: var(--font-ja); }
+
+h1, h2, h3 { font-weight: 700; letter-spacing: -0.01em; line-height: 1.25; }
+b, strong { font-weight: 650; }
+.num, .tabular { font-variant-numeric: tabular-nums; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- 版面 ---------- */
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 calc(var(--page-x) + var(--safe-right)) calc(var(--tabbar-h) + var(--safe-bottom) + 40px) calc(var(--page-x) + var(--safe-left));
+}
+/* 沒有分頁列的頁面(複習、分享連結專用頁)底部不必讓出分頁列的高度 */
+.app.no-tabbar .page { padding-bottom: calc(var(--safe-bottom) + 32px); }
+
+/* 頁首:上面一條導覽列(返回 / 動作),下面大標題。
+   導覽列要是 .page 的直接子元素:sticky 只在父層的範圍內黏得住,包一層就會跟著捲走。
+   左右用負 margin 撐滿整個寬度,捲動時底下的內容才不會從兩側露出來 */
+.nav-bar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin: 0 calc(-1 * (var(--page-x) + var(--safe-right))) 0 calc(-1 * (var(--page-x) + var(--safe-left)));
+  min-height: calc(var(--header-h) + var(--safe-top));
+  padding: var(--safe-top) calc(6px + var(--safe-right)) 0 calc(6px + var(--safe-left));
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  backdrop-filter: saturate(180%) blur(16px);
+  transition: box-shadow .15s ease;
+}
+.nav-bar-side { display: flex; align-items: center; gap: 2px; min-width: 44px; }
+.nav-bar-side.end { justify-content: flex-end; }
+/* 大標題捲到導覽列底下後,才在導覽列中間出現小標題 */
+.nav-bar-title {
+  flex: 1; min-width: 0; text-align: center;
+  font-size: 16px; font-weight: 650;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  opacity: 0; transition: opacity .15s ease;
+}
+.nav-bar.scrolled .nav-bar-title { opacity: 1; }
+.nav-bar.scrolled { box-shadow: 0 0.5px 0 var(--separator); }
+.large-title {
+  font-size: 30px; font-weight: 750; letter-spacing: -0.02em; line-height: 1.2;
+  padding-top: 2px;
+  overflow-wrap: anywhere;
+}
+.page-subtitle { color: var(--text-2); font-size: 14px; margin-top: 4px; }
+
+/* 返回鈕:箭頭 + 上一頁名稱(iOS 樣式) */
+.back-btn {
+  display: inline-flex; align-items: center; gap: 0;
+  min-height: 44px; padding: 0 10px 0 2px;
+  color: var(--accent); text-decoration: none; font-size: 16px; font-weight: 500;
+  background: none; border: none; border-radius: var(--radius-sm); cursor: pointer; font-family: inherit;
+}
+.back-btn:active { opacity: .55; }
+
+.section-title {
+  font-size: 20px; font-weight: 700; letter-spacing: -0.01em;
+  margin: 28px 0 10px;
+}
+
+.hint { color: var(--text-2); font-size: 13.5px; line-height: 1.5; }
+.err { color: var(--danger); font-size: 14px; }
+.muted { color: var(--text-2); }
+
+/* 寬螢幕:分頁列移到頂端,底部不用再讓位 */
+@media (min-width: 768px) {
+  .page { padding-bottom: 48px; }
+  .nav-bar { position: static; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; padding-top: 8px; min-height: var(--header-h); }
+  .nav-bar.scrolled { box-shadow: none; }
+  .nav-bar-title { display: none; }
+  .large-title { font-size: 32px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

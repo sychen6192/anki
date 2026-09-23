@@ -54,3 +54,34 @@ export async function setSyncSpace(key: string): Promise<void> {
     await db.meta.put({ key: 'sync_space', value: next })
   })
 }
+
+/**
+ * 從「只存這台」開始同步:**保留**本機資料,全部標成待上傳、游標歸零,再寫入金鑰。
+ * 下一次同步就把這台的牌組與紀錄推進這個空間;空間裡原本就有資料的話,兩邊依 updated_at 合併。
+ * (setSyncSpace 會清空本機,那是給「已經在同步、換到另一個空間」用的 ——
+ * 純本機的人照「產生一組、儲存」的提示走那條路,會把只存在這台的資料整份清掉。)
+ */
+export async function adoptSyncSpace(key: string): Promise<void> {
+  const next = key.trim()
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
+    await db.decks.toCollection().modify({ dirty: 1 })
+    await db.notes.toCollection().modify({ dirty: 1 })
+    await db.cards.toCollection().modify({ dirty: 1 })
+    await db.review_logs.toCollection().modify({ dirty: 1 })
+    await db.settings.toCollection().modify({ dirty: 1 })
+    await db.meta.delete('sync_cursor')
+    await db.meta.put({ key: 'sync_space', value: next })
+  })
+}
+
+/** 本機有沒有任何牌組或複習紀錄(決定換金鑰時要不要問「帶過去還是捨棄」) */
+export async function hasLocalData(): Promise<boolean> {
+  return (await db.decks.count()) + (await db.review_logs.count()) > 0
+}
+
+/** 還沒推上雲端的列數(換金鑰或停止同步前先確認,不然這些會跟著本機一起清掉) */
+export async function countUnsynced(): Promise<number> {
+  const counts = await Promise.all([db.decks, db.notes, db.cards, db.review_logs, db.settings]
+    .map((t) => (t as typeof db.decks).where('dirty').equals(1).count()))
+  return counts.reduce((a, b) => a + b, 0)
+}

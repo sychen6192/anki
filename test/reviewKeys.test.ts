@@ -22,6 +22,14 @@ describe('reviewKeyAction', () => {
     expect(reviewKeyAction(key('k'), { editing: true, showBack: false })).toBeNull()
   })
 
+  it('空白鍵 / Enter:正面翻面,背面等於「普通」;Esc 離開複習', () => {
+    expect(reviewKeyAction(key('Enter'), front)).toEqual({ type: 'show' })
+    expect(reviewKeyAction(key(' '), back)).toEqual({ type: 'rate', rating: 3 })
+    expect(reviewKeyAction(key('Enter'), back)).toEqual({ type: 'rate', rating: 3 })
+    expect(reviewKeyAction(key('Escape'), front)).toEqual({ type: 'exit' })
+    expect(reviewKeyAction(key('Escape'), back)).toEqual({ type: 'exit' })
+  })
+
   it('翻面後 1~4 評分', () => {
     for (const k of ['1', '2', '3', '4'] as const) {
       expect(reviewKeyAction(key(k), back)).toEqual({ type: 'rate', rating: Number(k) })
