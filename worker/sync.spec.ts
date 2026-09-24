@@ -283,15 +283,17 @@ describe('/api/sync', () => {
     expect(a.review_logs.map((l: { id: string; card_id: string }) => [l.id, l.card_id])).toEqual([['lA', 'cA']])
   })
 
-  it('summary:空間裡沒刪除的牌組數,別的空間與刪除的不算', async () => {
+  it('summary:空間裡沒刪除的牌組數與認得的牌組 id,別的空間不算', async () => {
     const summary = async (space: string) =>
       (await app.request('/api/sync/summary', { headers: { 'x-sync-space': space } }, env)).json()
-    expect(await summary('A')).toEqual({ decks: 0 })
+    expect(await summary('A')).toEqual({ decks: 0, ids: [] })
     await pushNs('A', { ...empty, decks: [deck({ id: 'a1' }), deck({ id: 'a2' }), deck({ id: 'a3', deleted: 1 })] })
     await pushNs('B', { ...empty, decks: [deck({ id: 'b1' })] })
-    expect(await summary('A')).toEqual({ decks: 2 })
-    expect(await summary('B')).toEqual({ decks: 1 })
-    expect(await summary('C')).toEqual({ decks: 0 })
+    const a = await summary('A') as { decks: number; ids: string[] }
+    expect(a.decks).toBe(2)
+    expect([...a.ids].sort()).toEqual(['a1', 'a2', 'a3']) // 刪掉的也算空間認得的
+    expect(await summary('B')).toEqual({ decks: 1, ids: ['b1'] })
+    expect(await summary('C')).toEqual({ decks: 0, ids: [] })
   })
 
   it('同一個空間裡重推自己的列不算衝突', async () => {

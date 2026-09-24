@@ -91,7 +91,7 @@
 button.row, a.row, label.row { cursor: pointer; }
 button.row:active, a.row:active, label.row:active { background: var(--fill-2); }
 @media (hover: hover) { button.row:hover, a.row:hover { background: var(--fill-2); } }
-button.row:disabled { opacity: .4; cursor: default; background: none; }
+button.row:disabled, button.row[aria-disabled="true"] { opacity: .4; cursor: default; background: none; }
 .row-icon {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; flex-shrink: 0; border-radius: 7px;

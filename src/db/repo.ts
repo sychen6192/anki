@@ -72,10 +72,16 @@ export async function createNotes(deckId: string, inputs: NoteInput[]): Promise<
   return notes
 }
 
-export async function updateNote(id: string, patch: Partial<NoteInput>): Promise<void> {
+/**
+ * 改一個字(與它的反向卡)。字已經刪掉了(別的分頁或裝置刪的)就什麼都不寫、回傳 false ——
+ * 寫進刪掉的那筆會把反向卡救回來,留下一張找不到字的卡,之後的「復原」也對不上。
+ */
+export async function updateNote(id: string, patch: Partial<NoteInput>): Promise<boolean> {
+  let written = false
   await db.transaction('rw', [db.notes, db.cards], async () => {
     const note = await db.notes.get(id)
-    if (!note) return
+    if (!note || note.deleted) return
+    written = true
     const t = now()
     const reversed: 0 | 1 = patch.reversed === undefined ? note.reversed : patch.reversed ? 1 : 0
     await db.notes.update(id, {
@@ -98,6 +104,7 @@ export async function updateNote(id: string, patch: Partial<NoteInput>): Promise
       await db.cards.update(rev.id, { deleted: 1, updated_at: t, dirty: 1 })
     }
   })
+  return written
 }
 
 /**
@@ -127,6 +134,8 @@ export async function enableReverseCards(deckId: string): Promise<number> {
 /** 把 note 連同底下所有卡片搬到另一副牌組;排程進度不動。 */
 export async function moveNote(id: string, deckId: string): Promise<void> {
   await db.transaction('rw', [db.notes, db.cards], async () => {
+    const note = await db.notes.get(id)
+    if (!note || note.deleted) return // 刪掉的字不搬(不然刪除的時間戳被改掉,「復原」就對不上它的卡)
     const t = now()
     await db.notes.update(id, { deck_id: deckId, updated_at: t, dirty: 1 })
     await db.cards.where('note_id').equals(id).modify({ deck_id: deckId, updated_at: t, dirty: 1 })

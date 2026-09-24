@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
+import Dexie, { type ObservabilitySet } from 'dexie'
 import { db } from '../db/db'
 import { describeBackup, exportBackup, importBackup, pruneToBackup, type BackupSummary } from '../lib/backup'
 import { download } from '../lib/download'
-import { probeSyncKey, requestSync, syncNow } from '../lib/sync'
+import { fetchSpaceSummary, probeSyncKey, requestSync, syncNow } from '../lib/sync'
 import {
-  adoptSyncSpace, clearLocalData, countLocalContents, countUnsynced, foldIntoSameNameDecks, generateSyncKey, getSyncSpace,
-  hasLocalData, leaveSyncSpace, normalizeSyncKey, readRekeyed, setSyncSpace,
+  adoptSyncSpace, clearLocalData, countLocalContents, countUnsynced, generateSyncKey, getSyncSpace,
+  hasLocalData, leaveSyncSpace, normalizeSyncKey, setSyncSpace,
 } from '../lib/space'
 import { errorText, humanizeSyncError, syncMessage } from '../lib/syncText'
 import { isTouchDevice } from '../lib/share'
@@ -183,22 +184,20 @@ export default function SettingsPage() {
   }
 
   /**
-   * 這台的資料帶進那個空間(空間裡原本有的照 updated_at 合併)。同步完之後,同名的牌組併成一副
-   * (兩台都從同一份範本開始的話,不併每個字都會有兩份)。
+   * 這台的資料帶進那個空間(空間裡原本有的照 updated_at 合併)。同步完之後,這台新帶進去的牌組併進同名的那副
+   * (兩台都從同一份範本開始的話,不併每個字都會有兩份);這次同步沒成功的話,之後第一次成功的同步會補做。
    */
   const mergeInto = async (key: string) => {
-    setKeyInput('')
     setMsg('同步中…')
-    await adoptSyncSpace(key)
-    const mine = (await db.decks.toArray()).map((d) => d.id)
+    // 空間認得哪些牌組:那些不是這台新帶進去的,不拿去併(停止同步後回到同一個空間時,共用的那副不能被併掉)
+    const summary = await fetchSpaceSummary(key)
+    if (summary === null) { setMsg('連不上伺服器，這台什麼都沒改；連上網路後再試一次'); return }
+    setKeyInput('')
+    await adoptSyncSpace(key, summary.ids === null ? undefined : new Set(summary.ids))
     const r = await syncNow()
-    if (!r.ok) { setMsg(syncMessage(r, '')); return }
-    // 推上去時撞到別的空間的牌組會換 id(見 rekeyConflicts):照換過的 id 認
-    const rekeyed = await readRekeyed()
-    const folded = await foldIntoSameNameDecks(new Set(mine.map((id) => rekeyed[id] ?? id)))
-    if (folded === 0) { setMsg('✓ 已把這台的資料合併進這個空間'); return }
-    const r2 = await syncNow()
-    setMsg(syncMessage(r2, `✓ 已把這台的資料合併進這個空間；同名的 ${folded} 副牌組併成一副，重複的字只留一份`))
+    setMsg(syncMessage(r, r.folded
+      ? `✓ 已把這台的資料合併進這個空間；同名的 ${r.folded} 副牌組併成一副，重複的字只留一份（進度留多的那份）`
+      : '✓ 已把這台的資料合併進這個空間'))
   }
 
   /** 純本機 → 輸入別台的金鑰。本機有資料就先問要帶過去還是捨棄(空的空間就直接帶過去,沒有東西可以改用) */
@@ -327,7 +326,8 @@ export default function SettingsPage() {
       const name = `字卡備份-${new Date().toISOString().slice(0, 10)}.json`
       if (isTouchDevice()) {
         setBackupFile({ name, text, kb: Math.max(1, Math.round(new Blob([text]).size / 1024)) })
-        setBackupMsg('')
+        // 同一塊播報區換字(不是清掉):讀螢幕才會唸,知道還要再按一下
+        setBackupMsg('備份檔準備好了，按「儲存備份檔」存到「檔案」或傳給其他 App')
       } else {
         await download(name, text, 'application/json')
         setBackupMsg('✓ 已下載備份檔')
@@ -336,6 +336,26 @@ export default function SettingsPage() {
       setBackupMsg(`備份失敗：${errorText(err)}`)
     }
   })
+
+  /** 第二步:在這一下點擊裡叫出分享面板。存好(或下載)了這份就用掉了;自己關掉面板的話留著,可以再按 */
+  const saveBackup = async (file: { name: string; text: string }) => {
+    const how = await download(file.name, file.text, 'application/json')
+    if (how === 'cancelled') return
+    setBackupFile(null)
+    setBackupMsg(how === 'shared' ? '✓ 已存好備份檔' : '✓ 已下載備份檔')
+  }
+
+  // 準備好之後資料又變了(同步拉到別台的改動、還原、在別的分頁改了):那份檔案已經不是現在的樣子,收回來重新準備
+  useEffect(() => {
+    if (backupFile === null) return
+    const onChange = (parts: ObservabilitySet) => {
+      if (!Object.keys(parts).some((k) => /\/(decks|notes|cards|review_logs|settings)\//.test(k))) return
+      setBackupFile(null)
+      setBackupMsg('資料有變動，按「下載完整備份」重新準備')
+    }
+    Dexie.on.storagemutated.subscribe(onChange)
+    return () => Dexie.on.storagemutated.unsubscribe(onChange)
+  }, [backupFile])
 
   const copyKey = () => {
     if (!currentSpace) return
@@ -446,13 +466,15 @@ export default function SettingsPage() {
         </>
       }>
         {backupFile === null ? (
-          <button type="button" className="row accent" disabled={busy} onClick={() => void prepareBackup()}>
+          // aria-disabled 而不是 disabled:停用正在按的按鈕,鍵盤與讀螢幕的焦點會掉到頁首
+          <button type="button" className="row accent" aria-disabled={busy || undefined}
+            onClick={() => { if (!busy) void prepareBackup() }}>
             <span className="row-icon"><DownloadIcon size={17} /></span>下載完整備份
           </button>
         ) : (
           // 同一次點擊裡叫出分享面板(存到「檔案」、AirDrop、傳給別的 App)
-          <button type="button" className="row accent"
-            onClick={() => void download(backupFile.name, backupFile.text, 'application/json')}>
+          <button type="button" className="row accent" aria-disabled={busy || undefined}
+            onClick={() => { if (!busy) void saveBackup(backupFile) }}>
             <span className="row-icon"><DownloadIcon size={17} /></span>
             <span className="row-main">
               <span className="row-title">儲存備份檔</span>

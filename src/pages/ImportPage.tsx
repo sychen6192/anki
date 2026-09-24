@@ -381,7 +381,9 @@ export default function ImportPage() {
    * 免得沒填名稱默默生出一副「新牌組」。使用者自己選的牌組、自己打的名稱不動;
    * 上一次匯入後頁面自己切過去的那副不算使用者選的,新檔案不跟著匯進去
    */
-  const applyFileName = (name: string) => {
+  const applyFileName = (fileName: string) => {
+    // 牌組名稱存的是修剪過的;Mac 的檔名可能是拆開的組合字(NFD),比對前統一
+    const name = fileName.normalize('NFC').trim()
     const cur = latest.current
     if (cur.deckId === 'new') {
       if (cur.newDeckName.trim() !== '' && cur.newDeckName !== autoName.current) return
@@ -390,7 +392,10 @@ export default function ImportPage() {
     }
     autoName.current = name
     setNewDeckName(name)
-    const same = pickedNew.current ? undefined : cur.decks?.find((d) => d.name === name)
+    // 同名的不只一副時,優先現在的目標(剛匯進去的那副),不要跳到另一副同名的
+    const named = (d: { id: string; name: string }) => d.name.normalize('NFC') === name
+    const same = pickedNew.current ? undefined
+      : cur.decks?.find((d) => d.id === cur.deckId && named(d)) ?? cur.decks?.find(named)
     autoTarget.current = same?.id ?? null
     setDeckId(same?.id ?? 'new')
   }
@@ -520,6 +525,8 @@ export default function ImportPage() {
       }
       showResult(r)
       autoTarget.current = pageTarget ? r.deckId : null
+      // 特地選的「建立新牌組」只算這一次:目標已經切到剛建好的那副,下一個檔案照檔名挑
+      pickedNew.current = false
     })
   }
 
@@ -713,14 +720,17 @@ export default function ImportPage() {
             )}
             <div className="file-row">
               <label className="file-pick">
-                <input type="file" accept={mode === 'csv' ? '.csv,text/csv' : '.apkg,.colpkg'}
+                {/* Excel 的「Unicode 文字」存成 .txt(tab 分隔),也一起收 */}
+                <input type="file" accept={mode === 'csv' ? '.csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain' : '.apkg,.colpkg'}
                   onChange={async (e) => {
                     const f = e.target.files?.[0]
                     e.target.value = '' // 清掉選檔紀錄,否則選同一個檔案第二次不會觸發
                     if (!f) return
                     setFileName(f.name)
                     if (mode === 'apkg') { void onApkgFile(f); return }
-                    applyFileName(f.name.replace(/\.csv$/i, ''))
+                    // 讀檔之前就算表單改了:匯入剛好在讀檔的空檔跑完,不能把目標切回上一副
+                    formGen.current++
+                    applyFileName(f.name.replace(/\.(csv|tsv|txt)$/i, ''))
                     // Excel 存的 CSV 常是 Big5 / Shift_JIS / UTF-16:自動認出來,並說一聲
                     const { text: decoded, encoding } = decodeCsvBytes(await f.arrayBuffer())
                     setEncodingNote(describeEncoding(encoding))

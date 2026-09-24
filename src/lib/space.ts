@@ -1,5 +1,5 @@
 import type { Table } from 'dexie'
-import type { ConflictTable } from '../../shared/types'
+import type { CardRecord, ConflictTable, NoteRecord } from '../../shared/types'
 import { db, type Local } from '../db/db'
 
 /**
@@ -31,6 +31,7 @@ export async function clearLocalData(): Promise<void> {
     await db.settings.clear()
     await db.meta.delete('sync_cursor')
     await db.meta.delete(REKEYED)
+    await db.meta.delete(PENDING_FOLD)
   })
 }
 
@@ -56,6 +57,7 @@ export async function setSyncSpace(key: string): Promise<void> {
     await db.meta.delete('sync_cursor')
     await db.meta.delete(LAST_SPACE) // 本機清空了,沒有哪一列還屬於之前的空間
     await db.meta.delete(REKEYED)
+    await db.meta.delete(PENDING_FOLD)
     await db.meta.put({ key: 'sync_space', value: next })
     await db.meta.put({ key: SYNC_SINCE, value: Date.now() })
   })
@@ -72,6 +74,16 @@ export const SYNC_SINCE = 'sync_since'
 
 /** 因為撞到別的空間而換過 id 的列:舊 id → 新 id(JSON)。還原備份後的整理要用,見 backup.ts pruneToBackup */
 export const REKEYED = 'rekeyed_ids'
+
+/** 帶著本機資料合併進空間後,等同步成功再併進同名牌組的那幾副(JSON 的 id 陣列),見 runPendingFold */
+export const PENDING_FOLD = 'pending_fold'
+
+/** 照換 id 的紀錄一路找到最後的 id:換過不只一次(舊 → 中間 → 新)時,只看一層會停在已經不存在的中間那個 */
+export function resolveRekeyed(map: Readonly<Record<string, string>>, id: string): string {
+  let cur = id
+  for (let i = 0; i < 32 && map[cur] !== undefined && map[cur] !== cur; i++) cur = map[cur]
+  return cur
+}
 
 export async function readRekeyed(): Promise<Record<string, string>> {
   const row = await db.meta.get(REKEYED)
@@ -142,6 +154,9 @@ export async function rekeyConflicts(
         moved[id] = next
       }
       count += out.size
+      // 同一批裡新 id 自己也被換掉的(舊 → 中間 → 新):子列要指到最後那個
+      const chain = Object.fromEntries(out)
+      for (const [from, to] of out) out.set(from, resolveRekeyed(chain, to))
       return out
     }
     // 父表先換:子列的外鍵先改好,輪到子列自己換 id 時讀到的就是新的外鍵
@@ -160,7 +175,12 @@ export async function rekeyConflicts(
       await db.review_logs.where('card_id').anyOf([...cards.keys()]).modify((l) => { l.card_id = cards.get(l.card_id)!; l.dirty = 1 })
     }
     await renew(db.review_logs, conflicts.review_logs)
-    if (count > 0) await db.meta.put({ key: REKEYED, value: JSON.stringify({ ...await readRekeyed(), ...moved }) })
+    if (count > 0) {
+      // 以前換過的再被換一次:舊的紀錄也改指到最後的 id(還原後的整理、合併時的併牌組都靠它認)
+      const all: Record<string, string> = { ...await readRekeyed(), ...moved }
+      for (const from of Object.keys(all)) all[from] = resolveRekeyed(all, all[from])
+      await db.meta.put({ key: REKEYED, value: JSON.stringify(all) })
+    }
   })
   return count
 }
@@ -200,11 +220,18 @@ async function rekeyLocalRows(next: string): Promise<void> {
  * 設定(FSRS 參數、目標保持率)的時間戳歸零:空間裡已經有的(例如別台最佳化過的參數)優先,
  * 空間裡沒有才用這台的。
  */
-export async function adoptSyncSpace(key: string): Promise<void> {
+export async function adoptSyncSpace(key: string, knownDeckIds?: ReadonlySet<string>): Promise<void> {
   const next = key.trim()
   await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
     const last = await db.meta.get(LAST_SPACE)
     if (typeof last?.value === 'string' && last.value !== '' && last.value !== next) await rekeyLocalRows(next)
+    // 合併進已經有東西的空間(knownDeckIds = 空間認得的牌組,含刪掉的):這台新帶進去的牌組記下來,
+    // 同步成功、空間的牌組拉下來之後併進同名的那副(見 runPendingFold)。空間認得的不算這台的 ——
+    // 停止同步後回到同一個空間時,共用的那副要是被當成「這台的」併掉,別台在那副的進度就沒了
+    const fold = knownDeckIds === undefined || knownDeckIds.size === 0 ? []
+      : (await db.decks.toArray()).filter((d) => !d.deleted && !knownDeckIds.has(d.id)).map((d) => d.id)
+    if (fold.length > 0) await db.meta.put({ key: PENDING_FOLD, value: JSON.stringify(fold) })
+    else await db.meta.delete(PENDING_FOLD)
     await db.decks.toCollection().modify({ dirty: 1 })
     await db.notes.toCollection().modify({ dirty: 1 })
     await db.cards.toCollection().modify({ dirty: 1 })
@@ -217,11 +244,48 @@ export async function adoptSyncSpace(key: string): Promise<void> {
   })
 }
 
+/** 排程欄位:同一個字兩邊都有、這台背得比較多時,整組抄到留下來的那張卡 */
+const SCHEDULE = [
+  'due', 'stability', 'difficulty', 'elapsed_days', 'scheduled_days', 'learning_steps', 'reps', 'lapses', 'state', 'last_review',
+] as const
+const scheduleOf = (c: CardRecord): Partial<CardRecord> => Object.fromEntries(SCHEDULE.map((k) => [k, c[k]]))
+
+/** a 的進度比 b 多:複習次數多;一樣多就看誰最近複習過 */
+const aheadOf = (a: CardRecord, b: CardRecord): boolean =>
+  a.reps > b.reps || (a.reps === b.reps && (a.last_review ?? 0) > (b.last_review ?? 0))
+
+/**
+ * 同一個字兩邊都有:字留空間裡那筆,進度一張一張比(正向、反向各自比)——
+ * 這台背得比較多的,排程抄過去;「已經會了」「先不學」任一邊標過就留著(之後隨時可以恢復)。
+ * 空間裡那筆沒有這個方向的卡、這台又背過或標過:整張搬過去(複習紀錄跟著)。最後刪掉這台那筆。
+ */
+async function mergeTwin(mine: Local<NoteRecord>, twin: Local<NoteRecord>, t: number): Promise<void> {
+  const theirs = await db.cards.where('note_id').equals(twin.id).toArray()
+  let reverseOn = false
+  for (const lc of (await db.cards.where('note_id').equals(mine.id).toArray()).filter((c) => !c.deleted)) {
+    const tc = theirs.find((c) => c.direction === lc.direction)
+    if (tc === undefined || tc.deleted) {
+      if (lc.reps === 0 && lc.suspended === 0) continue // 沒背過也沒標過:不必帶
+      if (tc === undefined) await db.cards.update(lc.id, { note_id: twin.id, deck_id: twin.deck_id, updated_at: t, dirty: 1 })
+      else await db.cards.update(tc.id, { ...scheduleOf(lc), suspended: lc.suspended, deleted: 0, updated_at: t, dirty: 1 })
+      if (lc.direction === 'reverse') reverseOn = true
+      continue
+    }
+    const patch: Partial<CardRecord> = aheadOf(lc, tc) ? scheduleOf(lc) : {}
+    if (lc.suspended > tc.suspended) patch.suspended = lc.suspended
+    if (Object.keys(patch).length > 0) await db.cards.update(tc.id, { ...patch, updated_at: t, dirty: 1 })
+  }
+  if (reverseOn && !twin.reversed) await db.notes.update(twin.id, { reversed: 1, updated_at: t, dirty: 1 })
+  await db.notes.update(mine.id, { deleted: 1, updated_at: t, dirty: 1 })
+  await db.cards.where('note_id').equals(mine.id).modify({ deleted: 1, updated_at: t, dirty: 1 })
+}
+
 /**
  * 帶著本機資料加入一個已經有東西的空間之後,同名的牌組併成一副 —— 最常見的是兩台都從同一份範本開始,
- * 不併的話每個字都有兩份、每天的新卡也變兩倍。這台的牌組併進空間裡原本就有的同名牌組:
- * 那邊沒有的字搬過去,兩邊都有的(單字+讀音相同)刪掉這台那一筆,進度以空間裡的為準(那是別台背過的);
- * 空掉的牌組刪掉。localDeckIds 是這台帶過去的牌組。回傳併掉幾副。
+ * 不併的話每個字都有兩份、每天的新卡也變兩倍。localDeckIds 是這台新帶進去的牌組(空間原本不認得的),
+ * 併進空間裡同名的那副(不只一副時每台挑到同一副):那邊沒有的字搬過去;兩邊都有的(單字+讀音相同)
+ * 字留空間裡那筆、進度留多的那份(見 mergeTwin)。只拿空間的字比 —— 這台自己拼法相同的兩筆照樣一起搬過去。
+ * 空掉的牌組刪掉。回傳併掉幾副。
  */
 export async function foldIntoSameNameDecks(localDeckIds: Set<string>): Promise<number> {
   const key = (n: { expression: string; reading: string }) => `${n.expression.trim()}\u0000${n.reading.trim()}`
@@ -230,28 +294,59 @@ export async function foldIntoSameNameDecks(localDeckIds: Set<string>): Promise<
     const t = Date.now()
     const live = (await db.decks.toArray()).filter((d) => !d.deleted)
       .sort((a, b) => (a.id < b.id ? -1 : 1)) // 同名的不只一副時,每台挑到同一副
-    const existing = new Map<string, string>()
+    const spaceDecks = new Map<string, string[]>()
     for (const d of live) {
-      if (!localDeckIds.has(d.id) && !existing.has(d.name.trim())) existing.set(d.name.trim(), d.id)
+      if (localDeckIds.has(d.id)) continue
+      const name = d.name.trim()
+      spaceDecks.set(name, [...(spaceDecks.get(name) ?? []), d.id])
     }
     for (const local of live.filter((d) => localDeckIds.has(d.id))) {
-      const target = existing.get(local.name.trim())
-      if (target === undefined) continue
-      const keys = new Set((await db.notes.where('deck_id').equals(target).toArray()).filter((n) => !n.deleted).map(key))
+      const same = spaceDecks.get(local.name.trim())
+      if (same === undefined) continue
+      const target = same[0]
+      // 空間裡已經有的字:同名的每一副都算,優先對到要併進去的那副
+      const inSpace = new Map<string, Local<NoteRecord>>()
+      for (const id of same) {
+        for (const n of await db.notes.where('deck_id').equals(id).toArray()) {
+          if (!n.deleted && !inSpace.has(key(n))) inSpace.set(key(n), n)
+        }
+      }
       for (const n of (await db.notes.where('deck_id').equals(local.id).toArray()).filter((x) => !x.deleted)) {
-        const cards = db.cards.where('note_id').equals(n.id)
-        if (keys.has(key(n))) {
-          await db.notes.update(n.id, { deleted: 1, updated_at: t, dirty: 1 })
-          await cards.modify({ deleted: 1, updated_at: t, dirty: 1 })
+        const twin = inSpace.get(key(n))
+        if (twin !== undefined) {
+          await mergeTwin(n, twin, t)
         } else {
           await db.notes.update(n.id, { deck_id: target, updated_at: t, dirty: 1 })
-          await cards.modify({ deck_id: target, updated_at: t, dirty: 1 })
-          keys.add(key(n))
+          await db.cards.where('note_id').equals(n.id).modify({ deck_id: target, updated_at: t, dirty: 1 })
         }
       }
       await db.decks.update(local.id, { deleted: 1, updated_at: t, dirty: 1 })
       folded++
     }
+  })
+  return folded
+}
+
+/**
+ * 合併進空間時記下的待併牌組(見 adoptSyncSpace):同步成功、空間的牌組都拉下來之後才做,
+ * 合併當下那次同步失敗也不會漏掉。推上去時換過 id 的照最後的 id 認。回傳併掉幾副。
+ */
+export async function runPendingFold(): Promise<number> {
+  let folded = 0
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.meta], async () => {
+    const row = await db.meta.get(PENDING_FOLD)
+    if (row === undefined) return
+    await db.meta.delete(PENDING_FOLD)
+    let ids: string[] = []
+    try {
+      const parsed: unknown = JSON.parse(String(row.value))
+      if (Array.isArray(parsed)) ids = parsed.filter((x): x is string => typeof x === 'string')
+    } catch {
+      return // 紀錄壞了就不併(頂多留著同名的兩副,不會刪錯東西)
+    }
+    if (ids.length === 0) return
+    const map = await readRekeyed()
+    folded = await foldIntoSameNameDecks(new Set(ids.map((id) => resolveRekeyed(map, id))))
   })
   return folded
 }
@@ -277,6 +372,7 @@ export async function leaveSyncSpace(): Promise<void> {
     const cur = await db.meta.get('sync_space')
     if (typeof cur?.value === 'string' && cur.value !== '') await db.meta.put({ key: LAST_SPACE, value: cur.value })
     await db.meta.delete('sync_cursor')
+    await db.meta.delete(PENDING_FOLD)
     // 不再連線,上次的同步錯誤也不再成立(不然導覽列紅點會一直掛著)
     await db.meta.delete('sync_error')
     await db.meta.put({ key: 'sync_space', value: '' })

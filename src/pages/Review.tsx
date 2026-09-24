@@ -420,9 +420,8 @@ export default function Review() {
         setEditErr('重音格式錯誤（只能是數字，多重音用逗號分隔，如 0 或 0,3）')
         return
       }
-      await updateNote(noteId, { ...fields, accent })
-      const fresh = await db.notes.get(noteId)
-      // 另一個分頁或裝置已經把這個字刪了(或換了空間):不要假裝存好了
+      // 另一個分頁或裝置已經把這個字刪了(或換了空間):一個字都不寫,也不假裝存好了
+      const fresh = await updateNote(noteId, { ...fields, accent }) ? await db.notes.get(noteId) : undefined
       if (fresh === undefined || fresh.deleted) {
         setEditErr('這個字已經不在了（可能在另一個分頁或裝置刪掉了），沒有存到')
         return

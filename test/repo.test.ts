@@ -77,6 +77,23 @@ describe('note 與卡片生成', () => {
     for (const c of await db.cards.where('note_id').equals(note.id).toArray()) expect(c.deleted).toBe(1)
   })
 
+  it('字已經刪掉了(別的分頁或裝置):updateNote 什麼都不寫、回 false,反向卡不會被救回來,復原照樣對得上', async () => {
+    const deck = await createDeck('A')
+    const note = await createNote(deck.id, { expression: '犬', reading: 'いぬ', meaning: '狗', reversed: true, accent: '' })
+    await softDeleteNote(note.id)
+    const before = (await db.notes.get(note.id))!
+    expect(await updateNote(note.id, { meaning: '改過的狗' })).toBe(false)
+    const after = (await db.notes.get(note.id))!
+    expect(after).toMatchObject({ meaning: '狗', deleted: 1, updated_at: before.updated_at })
+    for (const c of await db.cards.where('note_id').equals(note.id).toArray()) expect(c.deleted).toBe(1)
+    await moveNote(note.id, (await createDeck('B')).id)
+    expect((await db.notes.get(note.id))!.deck_id).toBe(deck.id)
+    await restoreNote(note.id)
+    expect((await db.notes.get(note.id))!.deleted).toBe(0)
+    expect((await db.cards.where('note_id').equals(note.id).toArray()).every((c) => c.deleted === 0)).toBe(true)
+    expect(await updateNote(note.id, { meaning: '改過的狗' })).toBe(true)
+  })
+
   it('createNotes 批次建立 3 筆(1 筆 reversed)→ 3 notes + 4 cards,皆 dirty=1', async () => {
     const deck = await createDeck('A')
     const notes = await createNotes(deck.id, [

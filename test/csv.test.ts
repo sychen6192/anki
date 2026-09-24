@@ -147,6 +147,15 @@ describe('parseCsv:Excel 留下的空白列', () => {
     expect(parseCsv('單字,意思\n犬,狗\n,,\n  \n , \n猫,貓\n,,\n')).toEqual([['單字', '意思'], ['犬', '狗'], ['猫', '貓']])
   })
 
+  it('開頭好幾列空白、開頭引號前的空格、結尾引號後的空格:照樣解得對', () => {
+    const tsv = '\n'.repeat(12) + '\t\t\n' + '單字\t讀音\t意思\n犬\tいぬ\t狗\n'
+    const rows = parseCsv(tsv)
+    expect(rows[0]).toEqual(['單字', '讀音', '意思'])
+    expect(autoMapHeaders(rows[0])).not.toBeNull()
+    expect(parseCsv('  "單字","意思"\n犬,狗\n')[0]).toEqual(['單字', '意思'])
+    expect(parseCsv('單字,意思\n引用,"引用,引述"  ')[1]).toEqual(['引用', '引用,引述'])
+  })
+
   it('tab 分隔、第一格空著的表頭不會少一欄(Excel 的「Unicode 文字」)', () => {
     const tsv = '\t單字\t讀音\t意思\r\n1\t犬\tいぬ\t狗\r\n2\t猫\tねこ\t貓\r\n'
     const le = new Uint8Array([0xff, 0xfe, ...Array.from(tsv).flatMap((ch) => [ch.charCodeAt(0) & 0xff, ch.charCodeAt(0) >> 8])])

@@ -3,10 +3,11 @@ import { beforeEach, describe, it, expect, vi, afterEach } from 'vitest'
 import { db } from '../src/db/db'
 import { createDeck, createNote } from '../src/db/repo'
 import {
-  countSpaceDecks, KEEPALIVE_BUDGET, MAX_SYNC_WAIT_MS, probeSyncKey, pushBeforeHidden, requestSync, syncNow,
+  countSpaceDecks, fetchSpaceSummary, KEEPALIVE_BUDGET, MAX_SYNC_WAIT_MS, probeSyncKey, pushBeforeHidden, requestSync, syncNow,
 } from '../src/lib/sync'
 import {
-  adoptSyncSpace, clearLocalData, foldIntoSameNameDecks, leaveSyncSpace, normalizeSyncKey, readRekeyed, setSyncSpace,
+  adoptSyncSpace, clearLocalData, foldIntoSameNameDecks, leaveSyncSpace, normalizeSyncKey, PENDING_FOLD, readRekeyed,
+  rekeyConflicts, resolveRekeyed, setSyncSpace,
 } from '../src/lib/space'
 import { exportBackup, importBackup, pruneToBackup } from '../src/lib/backup'
 import { getFsrsSettings, saveFsrsSettings, DEFAULT_FSRS_SETTINGS } from '../src/lib/fsrsSettings'
@@ -32,8 +33,8 @@ function makeSpacesServer() {
     const url = new URL(String(input), 'http://x')
     const space = init?.headers?.['x-sync-space'] ?? ''
     if (url.pathname === '/api/sync/summary') {
-      const decks = [...tables.decks.values()].filter((d) => d.ns === space && !d.deleted).length
-      return new Response(JSON.stringify({ decks }))
+      const mine = [...tables.decks.values()].filter((d) => d.ns === space)
+      return new Response(JSON.stringify({ decks: mine.filter((d) => !d.deleted).length, ids: mine.map((d) => d.id) }))
     }
     if (init?.method === 'POST') {
       posts.push({ space, bytes: new TextEncoder().encode(String(init.body)).length, keepalive: init.keepalive === true })
@@ -479,26 +480,146 @@ describe('帶著本機資料合併進空間:同名牌組併成一副', () => {
     expect(liveCards).toHaveLength(4)
   })
 
+  /** 設定頁「一起帶過去（合併）」:先問空間認得哪些牌組,帶著本機資料加入,同步(成功時併同名牌組) */
+  const mergeInto = async (key: string, fetchFn: typeof fetch) => {
+    const summary = await fetchSpaceSummary(key, fetchFn)
+    await adoptSyncSpace(key, new Set(summary!.ids ?? []))
+    return syncNow(fetchFn)
+  }
+  const startSpace = async (key: string, list: string[], fetchFn: typeof fetch) => {
+    const a = await createDeck('範本')
+    await words(a.id, list)
+    await adoptSyncSpace(key)
+    expect((await syncNow(fetchFn)).ok).toBe(true)
+    return a
+  }
+
   it('兩台都從同一份範本開始,第二台合併後每個字只有一份', async () => {
     const server = makeSpacesServer()
     const key = 'kkkk-kkkk-kkkk'
-    // A:範本 → 開始同步
-    const a = await createDeck('範本')
-    await words(a.id, ['一', '二', '三'])
-    await adoptSyncSpace(key)
-    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    await startSpace(key, ['一', '二', '三'], server.fetchFn)
     // B:同一份範本 → 輸入 A 的金鑰 → 一起帶過去(合併)
     await db.delete(); await db.open()
     const b = await createDeck('範本')
     await words(b.id, ['一', '二', '三', '四'])
-    await adoptSyncSpace(key)
-    const mine = (await db.decks.toArray()).map((d) => d.id)
-    expect((await syncNow(server.fetchFn)).ok).toBe(true)
-    const rekeyed = await readRekeyed()
-    expect(await foldIntoSameNameDecks(new Set(mine.map((id) => rekeyed[id] ?? id)))).toBe(1)
-    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    expect(await mergeInto(key, server.fetchFn)).toMatchObject({ ok: true, folded: 1 })
     expect(server.liveNames(key)).toEqual(['範本'])
     const liveNotes = server.inSpace('notes', key).filter((n) => !n.deleted)
     expect(liveNotes.map((n) => n.expression).sort()).toEqual(['一', '三', '二', '四'])
+    expect(await db.meta.get(PENDING_FOLD)).toBeUndefined()
+  })
+
+  it('兩邊都有的字留進度多的那份:這台背過的、標成已經會了的,合併後照樣在', async () => {
+    const server = makeSpacesServer()
+    const key = 'pppp-pppp-pppp'
+    await startSpace(key, ['一', '二', '三'], server.fetchFn) // A 開了同步但還沒背
+    await db.delete(); await db.open()
+    const b = await createDeck('範本')
+    await words(b.id, ['一', '二', '三'])
+    const cardOf = async (w: string) => {
+      const n = (await db.notes.where('deck_id').equals(b.id).toArray()).find((x) => x.expression === w)!
+      return (await db.cards.where('note_id').equals(n.id).first())!
+    }
+    const due = Date.now() + 30 * 86_400_000
+    await db.cards.update((await cardOf('一')).id, { reps: 12, state: 2, stability: 40, due, last_review: Date.now() })
+    await db.cards.update((await cardOf('三')).id, { suspended: 2 })
+    expect(await mergeInto(key, server.fetchFn)).toMatchObject({ ok: true, folded: 1 })
+    const liveNotes = server.inSpace('notes', key).filter((n) => !n.deleted)
+    expect(liveNotes).toHaveLength(3)
+    const liveCards = server.inSpace('cards', key).filter((c) => !c.deleted)
+    expect(liveCards).toHaveLength(3)
+    const cardFor = (w: string) => liveCards.find((c) => c.note_id === liveNotes.find((n) => n.expression === w)!.id)!
+    expect(cardFor('一')).toMatchObject({ reps: 12, state: 2, due })
+    expect(cardFor('三').suspended).toBe(2)
+    expect(cardFor('二').reps).toBe(0)
+  })
+
+  it('停止同步後用「一起帶過去」回到同一個空間:空間原本就有的牌組不會被當成這台的併掉', async () => {
+    const server = makeSpacesServer()
+    const key = 'rrrr-rrrr-rrrr'
+    const shared = await startSpace(key, ['一', '二'], server.fetchFn)
+    await leaveSyncSpace()
+    // 這台離開的期間,另一台在同一個空間多了一副也叫「範本」的,還把共用那副的「一」背了 9 次
+    const deckRow = { ...(await db.decks.get(shared.id))!, id: 'other-deck', updated_at: Date.now() }
+    const noteOne = (await db.notes.where('deck_id').equals(shared.id).toArray()).find((n) => n.expression === '一')!
+    const cardOne = (await db.cards.where('note_id').equals(noteOne.id).first())!
+    const otherNote = { ...noteOne, id: 'other-note', deck_id: 'other-deck', updated_at: Date.now() }
+    const otherCard = { ...cardOne, id: 'other-card', note_id: 'other-note', deck_id: 'other-deck', updated_at: Date.now() }
+    await server.fetchFn('/api/sync', {
+      method: 'POST', headers: { 'x-sync-space': key },
+      body: JSON.stringify({
+        decks: [deckRow], notes: [otherNote], review_logs: [], settings: [],
+        cards: [otherCard, { ...cardOne, reps: 9, state: 2, updated_at: Date.now() + 1000 }],
+      }),
+    })
+    const r = await mergeInto(key, server.fetchFn)
+    expect(r.ok).toBe(true)
+    expect(r.folded).toBeUndefined()
+    expect(server.liveNames(key)).toEqual(['範本', '範本'])
+    expect(server.tables.cards.get(cardOne.id)).toMatchObject({ reps: 9, deleted: 0 })
+    expect(server.inSpace('notes', key).filter((n) => !n.deleted)).toHaveLength(3)
+  })
+
+  it('合併當下那次同步失敗:之後第一次成功的同步把同名牌組併掉,不會每個字兩份', async () => {
+    const server = makeSpacesServer()
+    const key = 'ffff-ffff-ffff'
+    await startSpace(key, ['一', '二', '三'], server.fetchFn)
+    await db.delete(); await db.open()
+    const b = await createDeck('範本')
+    await words(b.id, ['一', '二', '三'])
+    const summary = await fetchSpaceSummary(key, server.fetchFn)
+    await adoptSyncSpace(key, new Set(summary!.ids ?? []))
+    const offline = (async () => { throw new TypeError('Failed to fetch') }) as typeof fetch
+    expect((await syncNow(offline)).ok).toBe(false)
+    expect(await db.meta.get(PENDING_FOLD)).toBeDefined()
+    expect(await syncNow(server.fetchFn)).toMatchObject({ ok: true, folded: 1 })
+    expect(server.liveNames(key)).toEqual(['範本'])
+    expect(server.inSpace('notes', key).filter((n) => !n.deleted)).toHaveLength(3)
+    expect(await syncNow(server.fetchFn)).toEqual({ ok: true }) // 只做一次
+  })
+
+  it('只拿空間的字比:這台自己拼法相同的兩筆(意思不同)一起搬過去,不會刪掉其中一筆', async () => {
+    const remote = await createDeck('N5')
+    await words(remote.id, ['一'])
+    const local = await createDeck('N5')
+    await createNote(local.id, { expression: '四', reading: '', meaning: '四的意思', accent: '', reversed: false })
+    await createNote(local.id, { expression: '四', reading: '', meaning: '另一個意思', accent: '', reversed: false })
+    expect(await foldIntoSameNameDecks(new Set([local.id]))).toBe(1)
+    const live = (await db.notes.toArray()).filter((n) => !n.deleted && n.deck_id === remote.id)
+    expect(live.map((n) => n.meaning).sort()).toEqual(['一的意思', '另一個意思', '四的意思'].sort())
+  })
+})
+
+describe('連上之前的確認:照原樣的金鑰', () => {
+  it('照原樣的那個沒問到:當成連不上(什麼都不改),不當成空的;放不進 header 的原樣不去問', async () => {
+    const flaky = (async (_input: unknown, init?: RequestInit) => {
+      const space = (init?.headers as Record<string, string>)['x-sync-space']
+      if (space === 'japa-nn3z-4xjv') return new Response(JSON.stringify({ decks: 0, ids: [] }))
+      throw new TypeError('Failed to fetch')
+    }) as typeof fetch
+    expect(await probeSyncKey('JapanN3Z4xjv', 'japa-nn3z-4xjv', flaky)).toBeNull()
+    let calls = 0
+    const empty = (async () => { calls++; return new Response(JSON.stringify({ decks: 0, ids: [] })) }) as typeof fetch
+    expect(await probeSyncKey('ａｂｃｄーｅｆｇｈーｊｋｍｎ', 'abcd-efgh-jkmn', empty)).toEqual({ key: 'abcd-efgh-jkmn', decks: 0 })
+    expect(calls).toBe(1)
+  })
+})
+
+describe('換 id 的紀錄換過不只一次', () => {
+  it('舊 → 中間 → 新:一路追到最後的 id,子列也指到最後那個', async () => {
+    expect(resolveRekeyed({ a: 'b', b: 'c' }, 'a')).toBe('c')
+    expect(resolveRekeyed({ a: 'a' }, 'a')).toBe('a')
+    expect(['a', 'b']).toContain(resolveRekeyed({ a: 'b', b: 'a' }, 'a')) // 繞圈也會停
+    await setSyncSpace('ssss-ssss-ssss')
+    const deck = await addDeckWithWord('日文', '犬')
+    await rekeyConflicts({ decks: [deck.id] }, 'ssss-ssss-ssss')
+    const mid = (await readRekeyed())[deck.id]
+    await rekeyConflicts({ decks: [mid] }, 'ssss-ssss-ssss')
+    const map = await readRekeyed()
+    const last = map[mid]
+    expect(last).not.toBe(mid)
+    expect(map[deck.id]).toBe(last)
+    expect((await db.decks.get(last))?.name).toBe('日文')
+    expect((await db.notes.toArray())[0].deck_id).toBe(last)
   })
 })

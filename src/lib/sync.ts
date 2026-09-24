@@ -4,7 +4,7 @@ import type {
   CardRecord, DeckRecord, NoteRecord, ReviewLogRecord, SettingRecord,
   SyncPush, SyncPullResponse, SyncPushResponse,
 } from '../../shared/types'
-import { getSyncSpace, rekeyConflicts } from './space'
+import { getSyncSpace, rekeyConflicts, runPendingFold } from './space'
 
 export interface SyncResult {
   ok: boolean
@@ -12,6 +12,8 @@ export interface SyncResult {
   /** skipped 的原因:沒設金鑰(純本機)/ 離線 / 同步中被換了空間 / 一直被別的同步搶先(下次再拉) */
   reason?: 'local-only' | 'offline' | 'switched' | 'busy'
   error?: string
+  /** 這次同步順便把合併時等著的同名牌組併掉了幾副(見 runPendingFold) */
+  folded?: number
 }
 
 // Cap each push POST at this many rows so a big first sync (e.g. importing an
@@ -275,14 +277,19 @@ export async function syncNow(fetchFn: typeof fetch = fetch, opts?: { holdRecent
     return { ok: false, skipped: true, reason: 'offline' }
   }
   try {
-    await pushDirty(space, fetchFn, opts?.holdRecentLogs ? Date.now() - RECENT_LOG_HOLD_MS : undefined)
+    const holdLogsAfter = opts?.holdRecentLogs ? Date.now() - RECENT_LOG_HOLD_MS : undefined
+    await pushDirty(space, fetchFn, holdLogsAfter)
     // 游標被動過就用新的游標再拉一次(還原備份後的整理靠這次拉到的資料,不能少)
     let outcome: PullOutcome = 'moved'
     for (let attempt = 0; attempt < 3 && outcome === 'moved'; attempt++) outcome = await pullOnce(space, fetchFn)
     if (outcome === 'switched') return { ok: false, skipped: true, reason: 'switched' }
     if (outcome === 'moved') return { ok: false, skipped: true, reason: 'busy' }
     await db.meta.delete('sync_error')
-    return { ok: true }
+    // 帶著本機資料合併進空間後等著併的同名牌組(見 adoptSyncSpace):要等同步成功、空間的牌組都拉下來了
+    // 才併得了 —— 合併當下那次同步失敗的話,就在之後第一次成功的同步做。併完馬上推上去
+    const folded = await runPendingFold()
+    if (folded > 0) await pushDirty(space, fetchFn, holdLogsAfter)
+    return folded > 0 ? { ok: true, folded } : { ok: true }
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     // 背景同步的失敗沒有畫面可報,寫進 meta 讓導覽列紅點/牌組頁橫幅撿去顯示
@@ -303,25 +310,38 @@ export async function probeSyncKey(
   if (decks === null) return null
   const raw = input.trim()
   if (decks > 0 || raw === '' || raw === normalized) return { key: normalized, decks }
+  // 照原樣的只試舊版存得下來的:header 放不進全形字、長音符號這類字元,用那種金鑰的舊版也從來沒同步成功過
+  if (!/^[\x20-\x7e]+$/.test(raw)) return { key: normalized, decks }
   const rawDecks = await countSpaceDecks(raw, fetchFn)
-  if (rawDecks !== null && rawDecks > 0) return { key: raw, decks: rawDecks }
+  // 第二個沒問到就當連不上:「沒問到」不能當成「空的」,讓人以為打錯、或連進正規化那個空的空間
+  if (rawDecks === null) return null
+  if (rawDecks > 0) return { key: raw, decks: rawDecks }
   return { key: normalized, decks }
 }
 
 /**
- * 連上一組金鑰之前先看那個空間有幾副牌組(不含已刪除的)。連不上、或伺服器還是舊版沒有這個端點,回 null ——
- * 呼叫端就什麼都不改,等連上網路再試。
+ * 空間的概況:沒刪除的牌組數,與空間認得的每一副牌組的 id(含刪掉的;舊版伺服器沒有,是 null)。
+ * 連不上、或伺服器還是舊版沒有這個端點,回 null —— 呼叫端就什麼都不改,等連上網路再試。
  */
-export async function countSpaceDecks(space: string, fetchFn: typeof fetch = fetch): Promise<number | null> {
+export async function fetchSpaceSummary(
+  space: string, fetchFn: typeof fetch = fetch,
+): Promise<{ decks: number; ids: string[] | null } | null> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return null
   try {
     const res = await fetchFn('/api/sync/summary', { headers: { 'x-sync-space': space } })
     if (!res.ok) return null
-    const data = await res.json() as { decks?: unknown }
-    return typeof data.decks === 'number' ? data.decks : null
+    const data = await res.json() as { decks?: unknown; ids?: unknown }
+    if (typeof data.decks !== 'number') return null
+    const ids = Array.isArray(data.ids) ? data.ids.filter((x): x is string => typeof x === 'string') : null
+    return { decks: data.decks, ids }
   } catch {
     return null
   }
+}
+
+/** 連上一組金鑰之前先看那個空間有幾副牌組(不含已刪除的);連不上回 null */
+export async function countSpaceDecks(space: string, fetchFn: typeof fetch = fetch): Promise<number | null> {
+  return (await fetchSpaceSummary(space, fetchFn))?.decks ?? null
 }
 
 let pendingSync: ReturnType<typeof setTimeout> | undefined

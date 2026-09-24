@@ -24,7 +24,7 @@ import { SpeakerIcon } from '../components/SpeakerIcon'
 import { PageHeader } from '../components/PageHeader'
 import { ActionSheet, Sheet } from '../components/Sheet'
 import { useConfirm } from '../components/Confirm'
-import { ListSection, Switch, useToast } from '../components/controls'
+import { keyboardFocused, ListSection, Switch, useToast } from '../components/controls'
 import {
   CheckIcon, ChevronRightIcon, DownloadIcon, MoreIcon, PlayIcon, PlusIcon, SearchIcon, SelectIcon, ShareIcon,
   SlidersIcon, SortIcon, SparklesIcon, TrashIcon, CloseIcon, FileIcon,
@@ -228,6 +228,7 @@ export default function DeckDetail() {
   const exitSelecting = () => { setSelecting(false); setSelected(new Set()) }
 
   const applyStatus = (value: CardSuspended) => run(async () => {
+    const viaKeyboard = keyboardFocused() // 確認框與 busy 會把焦點移走:一開始就讀
     const ids = [...selected].filter((id) => notes.some((n) => n.id === id))
     if (ids.length === 0) return
     const label = value === 2 ? '已經會了' : value === 1 ? '先不學' : '恢復學習'
@@ -238,11 +239,11 @@ export default function DeckDetail() {
     })) return
     try {
       const prev = await setNotesSuspendedUndoable(ids, value)
-      // 批次鈕在清掉選取後會停用,焦點會掉到頁首:放到「復原」上
+      // 批次鈕在清掉選取後會停用,焦點會掉到頁首:用鍵盤的人,把焦點放到「復原」上
       toast.show(`已把 ${ids.length} 個字標為「${label}」`, {
         label: '復原',
         onClick: () => void restoreCardsSuspended(prev).then(() => requestSync()),
-      }, { focusAction: true })
+      }, { focusAction: viaKeyboard })
       setSelected(new Set())
       setErrMsg(null)
       requestSync()
@@ -409,7 +410,10 @@ export default function DeckDetail() {
         return
       }
       if (editingId) {
-        await updateNote(editingId, input)
+        if (!await updateNote(editingId, input)) {
+          setErrMsg('這個字已經不在了（可能在另一個分頁或裝置刪掉了），沒有存到')
+          return
+        }
         if (moveTo !== null && moveTo !== deck.id) {
           await moveNote(editingId, moveTo)
           const target = allDecks?.find((d) => d.id === moveTo)
@@ -526,6 +530,7 @@ export default function DeckDetail() {
   })
 
   const removeNote = () => run(async () => {
+    const viaKeyboard = keyboardFocused()
     const id = editingId
     if (id === null || id === 'new') return
     const label = notes.find((n) => n.id === id)?.expression ?? form.expression
@@ -534,11 +539,11 @@ export default function DeckDetail() {
     try {
       await softDeleteNote(id)
       closeNote()
-      // 刪掉的那一列不在了,焦點會掉到頁首:放到「復原」上(鍵盤、讀螢幕的人才來得及復原)
+      // 刪掉的那一列不在了,焦點會掉到頁首:用鍵盤的人,把焦點放到「復原」上(才來得及復原)
       toast.show(`已刪除「${label}」`, {
         label: '復原',
         onClick: () => void restoreNote(id).then(() => requestSync()),
-      }, { focusAction: true })
+      }, { focusAction: viaKeyboard })
       requestSync()
     } catch (e) {
       setErrMsg(`操作失敗：${errText(e)}`)

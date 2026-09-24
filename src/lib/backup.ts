@@ -1,5 +1,5 @@
 import { db, type Local } from '../db/db'
-import { readRekeyed, REKEYED } from './space'
+import { PENDING_FOLD, readRekeyed, REKEYED, resolveRekeyed } from './space'
 import type { CardRecord, DeckRecord, NoteRecord, ReviewLogRecord, SettingRecord } from '../../shared/types'
 
 function stripDirty<T extends { dirty: 0 | 1 }>(rows: T[]): Omit<T, 'dirty'>[] {
@@ -102,6 +102,7 @@ export async function importBackup(json: string): Promise<void> {
     await db.settings.clear(); await db.settings.bulkAdd(as<Local<SettingRecord>>(data.settings.map(withDirty)))
     await db.meta.delete('sync_cursor') // 下次同步全量重拉,restore-wins 讓還原內容覆蓋雲端與其他裝置
     await db.meta.delete(REKEYED) // 之前換過的 id 跟這份備份無關;還原後的同步撞到別的空間會重新記
+    await db.meta.delete(PENDING_FOLD) // 還原成備份的樣子,不再去併之前合併時記下的牌組
   })
 }
 
@@ -116,7 +117,8 @@ export async function pruneToBackup(json: string): Promise<number> {
   const rekeyed = await readRekeyed()
   const idsOf = (rows: Record<string, unknown>[]) => new Set(rows.flatMap((r) => {
     const id = r.id as string
-    return rekeyed[id] === undefined ? [id] : [id, rekeyed[id]]
+    const latest = resolveRekeyed(rekeyed, id) // 換過不只一次的,照最後的 id 認
+    return latest === id ? [id] : [id, latest]
   }))
   const keep = { decks: idsOf(data.decks), notes: idsOf(data.notes), cards: idsOf(data.cards) }
   const now = Date.now()

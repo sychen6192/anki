@@ -242,9 +242,11 @@ app.post('/api/sync', async (c) => {
 // (打錯一碼會連進一個全新的空間,看起來像資料全不見)。有金鑰的人本來就能拉下整個空間,這裡不多透露什麼。
 app.get('/api/sync/summary', async (c) => {
   const space = c.req.header('x-sync-space') ?? ''
-  const row = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM decks WHERE namespace = ? AND deleted = 0')
-    .bind(space).first<{ n: number }>()
-  return c.json({ decks: row?.n ?? 0 })
+  // decks:沒刪除的牌組數(「空間是空的嗎」)。ids:空間認得的每一副牌組(含刪掉的)——
+  // 帶著本機資料合併進來時,這些不是這台新帶進去的,不拿去併同名牌組
+  const { results } = await c.env.DB.prepare('SELECT id, deleted FROM decks WHERE namespace = ?')
+    .bind(space).all<{ id: string; deleted: number }>()
+  return c.json({ decks: results.filter((r) => !r.deleted).length, ids: results.map((r) => r.id) })
 })
 
 app.get('/api/sync', async (c) => {
