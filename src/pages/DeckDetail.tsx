@@ -762,7 +762,10 @@ export default function DeckDetail() {
               {looking ? '查詢中…' : '查字典'}
             </button>
           </div>
-          {accentErr !== '' && <p ref={accentErrRef} className="err accent-hint" role="alert">{accentErr}</p>}
+          {/* 改對了(手打、查字典補上)就不再顯示 */}
+          {accentErr !== '' && !isValidAccent(normalizeAccent(form.accent)) && (
+            <p ref={accentErrRef} className="err accent-hint" role="alert">{accentErr}</p>
+          )}
           {accentHint !== '' && <p className="field-hint accent-hint">{accentHint}</p>}
           {form.reading.trim() !== '' && form.accent.trim() !== '' && isValidAccent(form.accent.trim()) && (
             <div className="accent-preview"><PitchAccent reading={form.reading.trim()} accent={form.accent.trim()} /></div>

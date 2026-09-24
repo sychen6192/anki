@@ -168,6 +168,8 @@ export default function SettingsPage() {
       message: `確定沒打錯嗎？打錯一碼會連到一個全新的空間。\n${probe.key}`,
       confirmLabel: '就用這組',
       cancelLabel: '重新輸入',
+      // 打錯的人多半會再按一次 Enter:預設停在「重新輸入」
+      focusCancel: true,
     })
     return ok ? probe : null
   }

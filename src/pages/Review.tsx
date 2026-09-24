@@ -132,8 +132,12 @@ export default function Review() {
   const bonusNew = useRef(0)
   // 要加碼一輪:下一次 loadNext 拿到今天的紀錄時才算得出要加多少(見 newOverLimit)。
   // 牌組頁「今天完成 · 再學一點」帶 ?more=1:一進來就加碼一輪新卡,不必先經過完成畫面
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const wantMore = useRef(searchParams.get('more') === '1')
+  // 用過就從網址拿掉:重新載入、回上一頁再往下一頁都不該再多出一批新卡(同一個頁面換網址,不會重建)
+  useEffect(() => {
+    if (searchParams.has('more')) setSearchParams((p) => { p.delete('more'); return p }, { replace: true })
+  }, [searchParams, setSearchParams])
   const [moreNew, setMoreNew] = useState(0)
   const newPerDayRef = useRef(20)
   // 防連點:上一次換卡、翻面的時間
@@ -151,7 +155,10 @@ export default function Review() {
   // 最近一次是用 Tab 移動焦點(true),還是用滑鼠/手指點的(false),見 keyTarget
   const keyboardNav = useRef(false)
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Tab') keyboardNav.current = true }
+    // 對話框裡的 Tab 不算:在編輯面板裡按過 Tab,關掉後焦點回到「⋯」,空白鍵還是翻面
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Tab' && !(e.target instanceof Element && e.target.closest('dialog[open]'))) keyboardNav.current = true
+    }
     const onPointer = () => { keyboardNav.current = false }
     window.addEventListener('keydown', onKey, true)
     window.addEventListener('pointerdown', onPointer, true)
@@ -303,15 +310,17 @@ export default function Review() {
 
   // 同步拉到別台對這張卡的改動(那邊複習過、標成已會、刪掉):畫面上的是舊資料,直接換下一張。
   // 自己的評分、復原也會改到這張卡,那段期間 answering 為 true,做完時畫面上已經是新的那份
+  // 選單或編輯面板開著時先不換:不然「已經會了/先不學/跳過/編輯」會套到使用者還沒看過的下一張。關掉後再比一次
   const liveCard = useLiveQuery(() => (cardId === undefined ? undefined : db.cards.get(cardId)), [cardId])
+  const dialogOpen = menuOpen || editing !== null
   useEffect(() => {
-    if (liveCard === undefined || current === null || liveCard.id !== current.card.id) return
+    if (dialogOpen || liveCard === undefined || current === null || liveCard.id !== current.card.id) return
     if (answering.current || liveCard.updated_at === current.card.updated_at) return
     answering.current = true
     showToast(`「${current.note.expression}」在其他裝置更新過了，換下一張`, false)
     void loadNext().finally(() => { answering.current = false })
-    // 只在這張卡的資料變了時檢查
-  }, [liveCard]) // eslint-disable-line react-hooks/exhaustive-deps
+    // 只在這張卡的資料變了、或對話框關掉時檢查
+  }, [liveCard, dialogOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const answer = useCallback(async (rating: RatingValue, fromPointer = false) => {
     if (!current || answering.current) return
@@ -356,10 +365,15 @@ export default function Review() {
 
   const skip = useCallback(async () => {
     if (!current || answering.current) return
-    skipped.current.add(current.card.id)
-    pushUndo({ kind: 'skip', cardId: current.card.id })
-    showToast(`已跳過「${current.note.expression}」`)
-    await loadNext()
+    answering.current = true
+    try {
+      skipped.current.add(current.card.id)
+      pushUndo({ kind: 'skip', cardId: current.card.id })
+      showToast(`已跳過「${current.note.expression}」`)
+      await loadNext()
+    } finally {
+      answering.current = false
+    }
   }, [current, loadNext, showToast, pushUndo])
 
   /**

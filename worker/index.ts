@@ -208,23 +208,29 @@ app.post('/api/sync', async (c) => {
     }
   }
   const taken = await findTaken(db, space, want)
-  const conflicts: Partial<Record<ConflictTable, string[]>> = {}
+  const conflictSets = emptyIdSets()
   const statements: D1PreparedStatement[] = []
   for (const { t, r } of rowsToWrite) {
     if (t !== 'settings') {
       const id = r.id as string
       if (taken[t].has(id)) {
-        (conflicts[t] ??= []).push(id)
+        conflictSets[t].add(id)
         skipped.push(id)
         continue
       }
-      if ((PARENT_REFS[t] ?? []).some(([col, parent]) => taken[parent].has(r[col] as string))) {
-        skipped.push(id) // 父列換過 id 之後客戶端會再推一次
+      const takenParents = (PARENT_REFS[t] ?? []).filter(([col, parent]) => taken[parent].has(r[col] as string))
+      if (takenParents.length > 0) {
+        // 父列也回報成衝突:就算它沒在這次推送裡(客戶端那邊沒改過),客戶端也會把它換 id、連同子列再推一次,
+        // 不然子列每次都被跳過,永遠卡在「還沒同步」
+        for (const [col, parent] of takenParents) conflictSets[parent].add(r[col] as string)
+        skipped.push(id)
         continue
       }
     }
     statements.push(...buildRowStatements(db, t, r))
   }
+  const conflicts: Partial<Record<ConflictTable, string[]>> = {}
+  for (const t of CONFLICT_TABLES) if (conflictSets[t].size > 0) conflicts[t] = [...conflictSets[t]]
   for (let i = 0; i < statements.length; i += STATEMENTS_PER_BATCH) {
     await db.batch(statements.slice(i, i + STATEMENTS_PER_BATCH))
   }

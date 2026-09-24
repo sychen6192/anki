@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 /** 分段控制(iOS segmented control),語意上是一組單選 */
-export function Segmented<T extends string>({ value, options, onChange, label }: {
+export function Segmented<T extends string>({ value, options, onChange, label, disabled }: {
   value: T
   options: readonly (readonly [T, string])[]
   onChange: (value: T) => void
   label: string
+  disabled?: boolean
 }) {
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    if (disabled || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return
     e.preventDefault()
     const i = options.findIndex(([v]) => v === value)
     const next = options[(i + (e.key === 'ArrowRight' ? 1 : options.length - 1)) % options.length]
@@ -19,7 +20,7 @@ export function Segmented<T extends string>({ value, options, onChange, label }:
   return (
     <div className="segmented" role="radiogroup" aria-label={label} onKeyDown={onKeyDown}>
       {options.map(([v, text]) => (
-        <button key={v} type="button" role="radio" aria-checked={v === value}
+        <button key={v} type="button" role="radio" aria-checked={v === value} disabled={disabled}
           tabIndex={v === value ? 0 : -1} onClick={() => onChange(v)}><span>{text}</span></button>
       ))}
     </div>

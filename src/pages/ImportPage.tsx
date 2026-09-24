@@ -221,11 +221,16 @@ export default function ImportPage() {
   const [deckId, setDeckId] = useState(() => initialDeck.current ?? 'new')
   // 從檔名(或 apkg 裡的牌組名)自動填的新牌組名稱:再選別的檔案時照新檔名換掉,使用者自己打的不動
   const autoName = useRef('')
-  // 每切一次分頁加一:匯入(查字典可能好幾秒)跑完時分頁已經換了,結果就不掛到新分頁的表單上
-  const modeGen = useRef(0)
+  // 現在是哪個分頁(切換時馬上更新,不等重繪):非同步的步驟跑完時分頁換了,結果就不掛到別的分頁上
+  const modeRef = useRef(mode)
   // 每改一次表單(換檔案、改內容、改目標或名稱)加一:匯入跑完時使用者已經在填下一批,
   // 就只回報結果,不把目標牌組和名稱改回去(不然下一批會默默匯進上一批的牌組)
   const formGen = useRef(0)
+  // 頁面自己挑的目標牌組:匯入後切到剛匯進去的那副、或照檔名選到同名的那副。
+  // 換下一個檔案時照新檔名重挑,不讓新檔案默默跟著匯進上一副(見 applyFileName)
+  const autoTarget = useRef<string | null>(null)
+  // 使用者在選單裡特地選了「建立新牌組」:照辦,不因為檔名和現有的牌組同名就改選那一副
+  const pickedNew = useRef(false)
   // 範本:目前在匯哪一份、結果屬於哪一份(結果顯示在那一份的卡片裡)
   const [importingTemplate, setImportingTemplate] = useState<string | null>(null)
   const [resultTemplate, setResultTemplate] = useState<string | null>(null)
@@ -237,6 +242,9 @@ export default function ImportPage() {
   const [lastDeckId, setLastDeckId] = useState<string | null>(null)
   const [busy, runBusy] = useBusy()
   const [errMsg, setErrMsg] = useState('')
+  // 非同步的步驟(解析 apkg、匯入)跑完時,要看「現在」的目標與名稱,不是開始那一刻的
+  const latest = useRef({ deckId, newDeckName, decks })
+  latest.current = { deckId, newDeckName, decks }
 
   const [text, setText] = useState('')
   // 選的檔案不是 UTF-8(Excel 的 Big5 / Shift_JIS)時的說明
@@ -321,13 +329,17 @@ export default function ImportPage() {
   const labels = FIELD_LABELS
 
   const switchMode = (next: Mode) => {
-    modeGen.current++
+    // 點目前這一格也會叫到這裡:不算換分頁(不然摘要和選好的檔名會被清掉)
+    if (next === mode) return
+    modeRef.current = next
     setMode(next)
     setSummary(null)
     setErrMsg('')
     setFileName('')
     // 目標牌組回到打開這頁時的樣子:剛匯入的範本不該變成 CSV 的目標,上一個檔案自動填的名稱也清掉
     setDeckId(initialDeck.current ?? 'new')
+    autoTarget.current = null
+    pickedNew.current = false
     if (newDeckName === autoName.current) setNewDeckName('')
     autoName.current = ''
     // 寫回網址:重新整理或返回時停在同一個分頁(從牌組頁帶來的目標牌組也留著)
@@ -363,6 +375,26 @@ export default function ImportPage() {
     setHasHeader(auto !== null)
   }
 
+  /**
+   * 選了新檔案:照檔名(apkg 則是裡面的牌組名)挑目標。已經有同名的牌組就選它 —— 重匯同一個檔案
+   * (或更新過的版本)會去重,不會多一副同名的;沒有就建立新牌組,檔名當名稱的預設值,
+   * 免得沒填名稱默默生出一副「新牌組」。使用者自己選的牌組、自己打的名稱不動;
+   * 上一次匯入後頁面自己切過去的那副不算使用者選的,新檔案不跟著匯進去
+   */
+  const applyFileName = (name: string) => {
+    const cur = latest.current
+    if (cur.deckId === 'new') {
+      if (cur.newDeckName.trim() !== '' && cur.newDeckName !== autoName.current) return
+    } else if (cur.deckId !== autoTarget.current) {
+      return
+    }
+    autoName.current = name
+    setNewDeckName(name)
+    const same = pickedNew.current ? undefined : cur.decks?.find((d) => d.name === name)
+    autoTarget.current = same?.id ?? null
+    setDeckId(same?.id ?? 'new')
+  }
+
   const onApkgFile = async (file: File) => {
     formGen.current++
     setSummary(null)
@@ -378,10 +410,8 @@ export default function ImportPage() {
       if (result.notetypes.length === 0) throw new Error('這副牌組裡沒有可以匯入的單字')
       setApkg(result)
       selectNotetype(result, result.notetypes[0].id)
-      if (deckId === 'new' && (newDeckName.trim() === '' || newDeckName === autoName.current) && result.deckName) {
-        setNewDeckName(result.deckName)
-        autoName.current = result.deckName
-      }
+      // 解析可能好幾秒:這段期間換到別的分頁,就不去動那一頁的目標與名稱
+      if (modeRef.current === 'apkg') applyFileName(result.deckName || file.name.replace(/\.(apkg|colpkg)$/i, ''))
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : String(e))
     } finally {
@@ -435,6 +465,11 @@ export default function ImportPage() {
     let created = 0
     let skipped: ParsedRow[] = []
     await db.transaction('rw', [db.decks, db.notes, db.cards], async () => {
+      if ('id' in target) {
+        // 選好之後牌組才被刪掉(別的分頁、同步拉下來的刪除):寫進去的字會跟著看不到,還以為匯入成功
+        const d = await db.decks.get(target.id)
+        if (d === undefined || d.deleted) throw new Error('這副牌組已經刪除了，請重新選擇')
+      }
       targetId = 'id' in target ? target.id
         : 'name' in target
           ? (await db.decks.filter((d) => !d.deleted && d.name === target.name).first())?.id ?? (await createDeck(target.name)).id
@@ -465,19 +500,26 @@ export default function ImportPage() {
 
   const doImport = () => {
     if (parsed.length === 0) return
-    const gen = modeGen.current
+    const startMode = mode
     const form = formGen.current
+    const wasNew = deckId === 'new'
+    const newName = newDeckName.trim() || '新牌組'
+    // 目標是頁面自己挑的(新牌組、照檔名選到的):匯入後切過去的那副也算頁面挑的,下一個檔案照檔名重挑
+    const pageTarget = wasNew || deckId === autoTarget.current
     runImport(async () => {
       // 新牌組也等查完重音才在交易裡建:不會先冒出一副空牌組
-      const target = deckId === 'new' ? { newName: newDeckName.trim() || '新牌組' } : { id: deckId }
-      const r = await importParsed(target, parsed, mode === 'apkg' ? otherNoteCount : 0)
-      if (gen !== modeGen.current) return
-      if (form !== formGen.current) {
+      const r = await importParsed(wasNew ? { newName } : { id: deckId }, parsed, mode === 'apkg' ? otherNoteCount : 0)
+      if (modeRef.current !== startMode) return
+      // 匯入途中換了檔案、目標或名稱:只回報結果,目標和名稱留給下一批。只改了內容(修錯字、多加一列)、
+      // 目標還是同名的新牌組的話照樣切到剛建好的那副 —— 不然再按一次「匯入」會多一副同名的,每個字兩份
+      const cur = latest.current
+      if (form !== formGen.current && !(wasNew && cur.deckId === 'new' && cur.newDeckName.trim() === newName)) {
         setSummary(r.summary)
         setLastDeckId(r.deckId)
         return
       }
       showResult(r)
+      autoTarget.current = pageTarget ? r.deckId : null
     })
   }
 
@@ -487,7 +529,6 @@ export default function ImportPage() {
 
   // csv 本體是動態 import 進來的,整段(含下載)都在 busy 內,免得下載期間又被按一次
   const importTemplate = (t: DeckTemplate) => runImport(async () => {
-    const gen = modeGen.current
     setImportingTemplate(t.id)
     setResultTemplate(null)
     try {
@@ -501,7 +542,7 @@ export default function ImportPage() {
       const tMapping = autoMapHeaders(tRows[0])
       if (!tMapping) throw new Error('範本表頭無法解析')
       const r = await importNamed(t.name, mapRows(tRows.slice(1), tMapping))
-      if (gen !== modeGen.current) return
+      if (modeRef.current !== 'templates') return
       showResult(r)
       setResultTemplate(t.id)
     } finally {
@@ -525,11 +566,14 @@ export default function ImportPage() {
     })
   }
 
-  // ?deck= 指到不存在的牌組(被刪了、打錯)就退回「建立新牌組」。只看網址帶來的那一個:
-  // 剛匯入的新牌組在同一個交易裡建好,牌組清單要晚一點才列得到它,不能在那之前被退回「建立新牌組」
-  // (退回的話再匯一次會建出第二副同名牌組,每個字都兩份)
+  // 目標牌組不在清單裡(網址帶來的 ?deck= 打錯、被別的分頁刪掉、同步拉下來的刪除)就退回「建立新牌組」。
+  // 先到資料庫確認:剛匯入的新牌組在同一個交易裡建好,牌組清單要晚一點才列得到它,
+  // 不能在那之前被退回(退回的話再匯一次會建出第二副同名牌組,每個字都兩份)
   useEffect(() => {
-    if (decks !== undefined && deckId === initialDeck.current && !decks.some((d) => d.id === deckId)) setDeckId('new')
+    if (decks === undefined || deckId === 'new' || decks.some((d) => d.id === deckId)) return
+    let off = false
+    void db.decks.get(deckId).then((d) => { if (!off && (d === undefined || d.deleted)) setDeckId('new') })
+    return () => { off = true }
   }, [decks, deckId])
 
   if (!decks) return <Loading />
@@ -561,10 +605,15 @@ export default function ImportPage() {
   const targetName = deckId === 'new' ? newDeckName.trim() : decks.find((d) => d.id === deckId)?.name ?? ''
 
   const targetDeck = (
-    <ListSection header="匯入到">
+    <ListSection header="匯入到" footer={deckId === 'new' ? undefined : '加進這副牌組，已經有的字會跳過。'}>
       <label className="row">
         <span className="row-main"><span className="row-title">牌組</span></span>
-        <select className="row-select" value={deckId} onChange={(e) => { formGen.current++; setDeckId(e.target.value) }} aria-label="目標牌組">
+        <select className="row-select" value={deckId} aria-label="目標牌組" onChange={(e) => {
+          formGen.current++
+          autoTarget.current = null
+          pickedNew.current = e.target.value === 'new'
+          setDeckId(e.target.value)
+        }}>
           <option value="new">＋ 建立新牌組</option>
           {decks.map((d) => (
             <option key={d.id} value={d.id}>{d.name}（{noteCounts?.get(d.id) ?? 0} 個字）</option>
@@ -594,7 +643,8 @@ export default function ImportPage() {
     <>
       <PageHeader title={MODE_TITLES[mode]} shortTitle="匯入" back={{ to: '/', label: '牌組' }} />
       <div className="import-modes">
-        <Segmented label="匯入方式" value={mode} options={MODE_LABELS} onChange={switchMode} />
+        {/* 匯入中不能換分頁:結果屬於這一頁的表單,換走再回來會看不到結果,再按一次就多一副同名的 */}
+        <Segmented label="匯入方式" value={mode} options={MODE_LABELS} onChange={switchMode} disabled={busy} />
       </div>
 
       <div className="import-body">
@@ -670,11 +720,7 @@ export default function ImportPage() {
                     if (!f) return
                     setFileName(f.name)
                     if (mode === 'apkg') { void onApkgFile(f); return }
-                    // 檔名當牌組名的預設值,免得沒填名稱默默生出一副「新牌組」
-                    if (deckId === 'new' && (newDeckName.trim() === '' || newDeckName === autoName.current)) {
-                      autoName.current = f.name.replace(/\.csv$/i, '')
-                      setNewDeckName(autoName.current)
-                    }
+                    applyFileName(f.name.replace(/\.csv$/i, ''))
                     // Excel 存的 CSV 常是 Big5 / Shift_JIS / UTF-16:自動認出來,並說一聲
                     const { text: decoded, encoding } = decodeCsvBytes(await f.arrayBuffer())
                     setEncodingNote(describeEncoding(encoding))

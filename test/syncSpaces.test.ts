@@ -43,12 +43,14 @@ function makeSpacesServer() {
         return ex !== undefined && ex.ns !== space
       }
       const skipped: string[] = []
-      const conflicts: Record<string, string[]> = {}
+      const conflictSets: Record<string, Set<string>> = {}
+      const conflict = (t: string, id: string) => (conflictSets[t] ??= new Set()).add(id)
       for (const t of TABLES) {
         for (const row of body[t] ?? []) {
           if (t !== 'settings') {
-            if (taken(t, row.id)) { (conflicts[t] ??= []).push(row.id); skipped.push(row.id); continue }
-            if ((PARENTS[t] ?? []).some(([col, p]) => taken(p, row[col]))) { skipped.push(row.id); continue }
+            if (taken(t, row.id)) { conflict(t, row.id); skipped.push(row.id); continue }
+            const hits = (PARENTS[t] ?? []).filter(([col, p]) => taken(p, row[col]))
+            if (hits.length > 0) { for (const [col, p] of hits) conflict(p, row[col]); skipped.push(row.id); continue }
           }
           const key = sid(t, space, row.id)
           const ex = tables[t].get(key)
@@ -56,6 +58,7 @@ function makeSpacesServer() {
           if (apply) tables[t].set(key, { ...row, id: key, ns: space, server_seq: ++seq })
         }
       }
+      const conflicts = Object.fromEntries(Object.entries(conflictSets).map(([t, ids]) => [t, [...ids]]))
       return new Response(JSON.stringify(Object.keys(conflicts).length ? { ok: true, skipped, conflicts } : { ok: true, skipped }))
     }
     const since = Number(url.searchParams.get('since') ?? '0')
@@ -167,6 +170,49 @@ describe('資料來自別的空間:不搬走原本空間的列,換 id 帶過去'
     expect((await syncNow(server.fetchFn)).ok).toBe(true)
     expect(server.liveNames('zzzz-zzzz-zzzz')).toEqual(['日文'])
     expect(server.liveNames('nnnn-nnnn-nnnn')).toEqual(['停止後加的', '日文'])
+  })
+
+  it('兩台帶著同一批別的空間的資料(同一份備份)合併進同一個空間:換出來的 id 一樣,只有一份', async () => {
+    const server = makeSpacesServer()
+    await setSyncSpace('zzzz-zzzz-zzzz')
+    await addDeckWithWord('日文', '犬')
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    const backup = await exportBackup()
+    // 第一台:只存這台,還原備份,產生新金鑰 N
+    await db.delete(); await db.open()
+    await importBackup(backup)
+    await adoptSyncSpace('nnnn-nnnn-nnnn')
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    // 第二台:同樣還原那份備份,輸入 N 合併
+    await db.delete(); await db.open()
+    await importBackup(backup)
+    await adoptSyncSpace('nnnn-nnnn-nnnn')
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    expect(server.inSpace('decks', 'nnnn-nnnn-nnnn').filter((d) => !d.deleted)).toHaveLength(1)
+    expect(server.inSpace('notes', 'nnnn-nnnn-nnnn').filter((n) => !n.deleted)).toHaveLength(1)
+    expect((await db.decks.toArray()).filter((d) => !d.deleted)).toHaveLength(1)
+    expect(server.liveNames('zzzz-zzzz-zzzz')).toEqual(['日文'])
+  })
+
+  it('子列的父列在別的空間、這台又沒改過父列:父列也換 id,子列不會一直卡在「還沒同步」', async () => {
+    const server = makeSpacesServer()
+    await setSyncSpace('xxxx-xxxx-xxxx')
+    const deck = await addDeckWithWord('日文', '犬')
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    // 舊版 worker 搬走過的狀態:伺服器上這副牌組、字、卡片都在別的空間 Y,這台還以為是自己的(而且是乾淨的)
+    for (const t of ['decks', 'notes', 'cards']) for (const r of server.tables[t].values()) r.ns = 'yyyy-yyyy-yyyy'
+    // 在這台背一張:卡片與紀錄變 dirty,父列(字、牌組)沒動
+    const card = (await db.cards.where('deck_id').equals(deck.id).first())!
+    await db.cards.update(card.id, { reps: 1, updated_at: Date.now() + 1000, dirty: 1 })
+    await addLog(card.id)
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    for (const t of [db.decks, db.notes, db.cards, db.review_logs] as typeof db.decks[]) {
+      expect(await t.where('dirty').equals(1).count()).toBe(0)
+    }
+    expect(server.liveNames('xxxx-xxxx-xxxx')).toEqual(['日文'])
+    expect(server.inSpace('review_logs', 'xxxx-xxxx-xxxx')).toHaveLength(1)
+    expect(server.liveNames('yyyy-yyyy-yyyy')).toEqual(['日文'])
   })
 
   it('回到同一個空間合併時照原 id,不會多出一份', async () => {

@@ -129,7 +129,8 @@ export default function StatsPage() {
     return p < targetPct - 5 ? 'low' : p > targetPct + 4 ? 'high' : ''
   }
   const overallTone = retentionTone(retentionAll)
-  const canOptimize = logs.length >= MIN_REVIEWS_TO_OPTIMIZE
+  // 最佳化用的是全部的複習紀錄(設定頁也是數全部):只看篩選的這副牌組,會叫人等一個其實已經能按的按鈕
+  const canOptimize = allLogs.length >= MIN_REVIEWS_TO_OPTIMIZE
 
   // 圖表的文字摘要:讀螢幕拿得到數字,手機上也不必一格一格點
   const heatTotal = heatDays.reduce((a, d) => a + d.count, 0)

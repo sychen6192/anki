@@ -9,6 +9,8 @@ export interface ConfirmOptions {
   confirmLabel?: string
   cancelLabel?: string
   destructive?: boolean
+  /** 預設焦點放在取消(例如「重新輸入」):多按一下 Enter 不會就照做 */
+  focusCancel?: boolean
 }
 
 type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>
@@ -75,9 +77,10 @@ function ConfirmDialog({ pending, onFinish }: { pending: Pending | null; onFinis
             {pending.message && <div className="alert-message" id="confirm-message">{pending.message}</div>}
           </div>
           <div className="alert-actions">
-            <button type="button" onClick={() => onFinish(false)}>{pending.cancelLabel ?? '取消'}</button>
+            <button type="button" data-autofocus={pending.focusCancel ? '' : undefined}
+              onClick={() => onFinish(false)}>{pending.cancelLabel ?? '取消'}</button>
             {/* 危險動作不給預設焦點,免得按 Enter 就刪掉 */}
-            <button type="button" data-autofocus={pending.destructive ? undefined : ''}
+            <button type="button" data-autofocus={pending.destructive || pending.focusCancel ? undefined : ''}
               className={pending.destructive ? 'destructive' : 'primary'}
               onClick={() => onFinish(true)}>{pending.confirmLabel ?? '確定'}</button>
           </div>

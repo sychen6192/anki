@@ -84,6 +84,34 @@ export async function readRekeyed(): Promise<Record<string, string>> {
   }
 }
 
+/** bryc 的 cyrb128:簡單的 128 位元字串雜湊(非加密用途),同步算得出來,可以在 Dexie 交易裡用 */
+function cyrb128(str: string): [number, number, number, number] {
+  let h1 = 1779033703, h2 = 3144134277, h3 = 1013904242, h4 = 2773480762
+  for (let i = 0; i < str.length; i++) {
+    const k = str.charCodeAt(i)
+    h1 = h2 ^ Math.imul(h1 ^ k, 597399067)
+    h2 = h3 ^ Math.imul(h2 ^ k, 2869860233)
+    h3 = h4 ^ Math.imul(h3 ^ k, 951274213)
+    h4 = h1 ^ Math.imul(h4 ^ k, 2716044179)
+  }
+  h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067)
+  h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233)
+  h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213)
+  h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179)
+  h1 ^= h2 ^ h3 ^ h4; h2 ^= h1; h3 ^= h1; h4 ^= h1
+  return [h1 >>> 0, h2 >>> 0, h3 >>> 0, h4 >>> 0]
+}
+
+/**
+ * 換 id 時的新 id:由(要進去的空間,舊 id)算出來,不是亂數。好幾台裝置把同一批別的空間的資料
+ * (例如同一份備份)帶進同一個空間,換出來的 id 一樣,就會照 updated_at 合併成一份,而不是每台各一份。
+ */
+export function derivedId(space: string, oldId: string): string {
+  const hex = cyrb128(`${space}\u0000${oldId}`).map((x) => x.toString(16).padStart(8, '0')).join('')
+  const variant = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16)
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
+
 /**
  * 伺服器回報「這些 id 已經是別的空間的」:換一組新 id,參照它們的列跟著改,全部標成待上傳。
  * 這台的資料來自別的空間時會發生 —— 還原了另一個空間的備份、在沒同步的裝置還原備份後用新金鑰開始同步,
@@ -91,20 +119,25 @@ export async function readRekeyed(): Promise<Record<string, string>> {
  * 不換 id 的話這些列永遠進不了這個空間;換了 id 就是兩份互不相干的資料,原本的空間原封不動。
  * 刪除過的列也照換(保留刪除狀態),參照才會一致。回傳換過 id 的列數。
  */
-export async function rekeyConflicts(conflicts: Partial<Record<ConflictTable, string[]>>): Promise<number> {
+export async function rekeyConflicts(
+  conflicts: Partial<Record<ConflictTable, string[]>>, space: string,
+): Promise<number> {
   let count = 0
   await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.meta], async () => {
     const moved: Record<string, string> = {}
-    const renew = async <T extends { id: string }>(
+    const renew = async <T extends { id: string; updated_at?: number }>(
       table: Table<Local<T>, string>, ids: string[] | undefined,
     ): Promise<Map<string, string>> => {
       const out = new Map<string, string>()
       for (const id of new Set(ids ?? [])) {
         const row = await table.get(id)
         if (!row) continue
-        const next = crypto.randomUUID()
+        const next = derivedId(space, id)
+        // 新 id 本機已經有了(別台換好的那份已經拉下來):照 updated_at 留新的那份,不重複加一列
+        const existing = await table.get(next)
+        if (existing === undefined) await table.add({ ...row, id: next, dirty: 1 })
+        else if ((row.updated_at ?? 0) > (existing.updated_at ?? 0)) await table.put({ ...row, id: next, dirty: 1 })
         await table.delete(id)
-        await table.add({ ...row, id: next, dirty: 1 })
         out.set(id, next)
         moved[id] = next
       }
@@ -137,15 +170,9 @@ export async function rekeyConflicts(conflicts: Partial<Record<ConflictTable, st
  * 伺服器以 id 當全部空間共用的主鍵:這台的列在伺服器上屬於原本的空間,原 id 推進新空間會撞到
  * (伺服器不寫、回報衝突,見 rekeyConflicts)。先整份換好 id,就是兩份互不相干的資料,不必等伺服器逐筆退回。
  */
-async function rekeyLocalRows(): Promise<void> {
-  const deckIds = new Map<string, string>()
-  const noteIds = new Map<string, string>()
-  const cardIds = new Map<string, string>()
-  const fresh = (ids: Map<string, string>, id: string): string => {
-    let v = ids.get(id)
-    if (v === undefined) { v = crypto.randomUUID(); ids.set(id, v) }
-    return v
-  }
+async function rekeyLocalRows(next: string): Promise<void> {
+  // 新 id 由(新空間,舊 id)算出來(見 derivedId):同一批資料從兩台帶進同一個空間,還是同一份
+  const fresh = (id: string): string => derivedId(next, id)
   const decks = (await db.decks.toArray()).filter((d) => !d.deleted)
   const notes = (await db.notes.toArray()).filter((n) => !n.deleted)
   const cards = (await db.cards.toArray()).filter((c) => !c.deleted)
@@ -154,12 +181,12 @@ async function rekeyLocalRows(): Promise<void> {
   await db.notes.clear()
   await db.cards.clear()
   await db.review_logs.clear()
-  await db.decks.bulkAdd(decks.map((d) => ({ ...d, id: fresh(deckIds, d.id) })))
-  await db.notes.bulkAdd(notes.map((n) => ({ ...n, id: fresh(noteIds, n.id), deck_id: fresh(deckIds, n.deck_id) })))
+  await db.decks.bulkAdd(decks.map((d) => ({ ...d, id: fresh(d.id) })))
+  await db.notes.bulkAdd(notes.map((n) => ({ ...n, id: fresh(n.id), deck_id: fresh(n.deck_id) })))
   await db.cards.bulkAdd(cards.map((c) => ({
-    ...c, id: fresh(cardIds, c.id), note_id: fresh(noteIds, c.note_id), deck_id: fresh(deckIds, c.deck_id),
+    ...c, id: fresh(c.id), note_id: fresh(c.note_id), deck_id: fresh(c.deck_id),
   })))
-  await db.review_logs.bulkAdd(logs.map((l) => ({ ...l, id: crypto.randomUUID(), card_id: fresh(cardIds, l.card_id) })))
+  await db.review_logs.bulkAdd(logs.map((l) => ({ ...l, id: fresh(l.id), card_id: fresh(l.card_id) })))
 }
 
 /**
@@ -177,7 +204,7 @@ export async function adoptSyncSpace(key: string): Promise<void> {
   const next = key.trim()
   await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
     const last = await db.meta.get(LAST_SPACE)
-    if (typeof last?.value === 'string' && last.value !== '' && last.value !== next) await rekeyLocalRows()
+    if (typeof last?.value === 'string' && last.value !== '' && last.value !== next) await rekeyLocalRows(next)
     await db.decks.toCollection().modify({ dirty: 1 })
     await db.notes.toCollection().modify({ dirty: 1 })
     await db.cards.toCollection().modify({ dirty: 1 })

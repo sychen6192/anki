@@ -146,6 +146,16 @@ describe('parseCsv:Excel 留下的空白列', () => {
   it('只有逗號或空白的列不算一列', () => {
     expect(parseCsv('單字,意思\n犬,狗\n,,\n  \n , \n猫,貓\n,,\n')).toEqual([['單字', '意思'], ['犬', '狗'], ['猫', '貓']])
   })
+
+  it('tab 分隔、第一格空著的表頭不會少一欄(Excel 的「Unicode 文字」)', () => {
+    const tsv = '\t單字\t讀音\t意思\r\n1\t犬\tいぬ\t狗\r\n2\t猫\tねこ\t貓\r\n'
+    const le = new Uint8Array([0xff, 0xfe, ...Array.from(tsv).flatMap((ch) => [ch.charCodeAt(0) & 0xff, ch.charCodeAt(0) >> 8])])
+    const rows = parseCsv(decodeCsvBytes(le).text)
+    expect(rows.map((r) => r.length)).toEqual([4, 4, 4])
+    const mapping = autoMapHeaders(rows[0])
+    expect(mapping).not.toBeNull()
+    expect(mapRows(rows.slice(1), mapping!)[0]).toMatchObject({ expression: '犬', reading: 'いぬ', meaning: '狗' })
+  })
 })
 
 describe('findDuplicateNote', () => {

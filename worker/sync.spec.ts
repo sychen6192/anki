@@ -267,7 +267,8 @@ describe('/api/sync', () => {
       cards: [card({ id: 'cNew', note_id: 'nA', deck_id: 'dB' }), card({ id: 'cB', note_id: 'nB', deck_id: 'dB' })],
       review_logs: [log({ id: 'lNew', card_id: 'cA' }), log({ id: 'lA', card_id: 'cB' })],
     })
-    expect(res.conflicts).toEqual({ decks: ['dA'], review_logs: ['lA'] })
+    // 參照到的父列(nA、cA)也回報:客戶端那邊沒改過、沒推的父列,也要換 id 再連同子列推上來
+    expect(res.conflicts).toEqual({ decks: ['dA'], notes: ['nA'], cards: ['cA'], review_logs: ['lA'] })
     expect([...res.skipped].sort()).toEqual(['cNew', 'dA', 'lA', 'lNew', 'nNew'])
     const ids = (rows: { id: string }[]) => rows.map((r) => r.id).sort()
     const b = await pullNs('B')

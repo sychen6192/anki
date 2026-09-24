@@ -189,3 +189,9 @@
   }
   .review-done { min-height: 0; }
 }
+/* 更矮的橫放(iPhone SE 的 568×320):有標籤的卡片上方讓出 40px 之後,答案會被評分鍵蓋住 —— 字級上限壓到 34px 還回來 */
+@media (orientation: landscape) and (max-height: 340px) {
+  .flashcard:has(.card-deck, .card-tag) .expression {
+    font-size: clamp(var(--fs-title2), calc(100cqi / var(--n, 4) - 1px), 34px);
+  }
+}

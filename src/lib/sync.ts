@@ -174,7 +174,7 @@ function chunkBody(chunk: PushChunk): SyncPush {
  * 伺服器收下一批之後:清掉存進去的列的 dirty,撞到別的空間的列換 id(換過的列會再推一次)。
  * 回傳有沒有換過 id。先清 dirty 再換 id:換 id 時改到外鍵的列會重新標成 dirty,不能被這裡清掉。
  */
-async function applyPushResponse(chunk: PushChunk, pushRes: SyncPushResponse | null): Promise<boolean> {
+async function applyPushResponse(chunk: PushChunk, pushRes: SyncPushResponse | null, space: string): Promise<boolean> {
   const skipped = new Set(pushRes?.skipped ?? [])
   const conflicts = pushRes?.conflicts
   const conflictCount = conflicts ? Object.values(conflicts).reduce((n, ids) => n + (ids?.length ?? 0), 0) : 0
@@ -186,7 +186,7 @@ async function applyPushResponse(chunk: PushChunk, pushRes: SyncPushResponse | n
   for (const log of chunk.review_logs) {
     if (!skipped.has(log.id)) await db.review_logs.update(log.id, { dirty: 0 })
   }
-  return conflictCount > 0 && await rekeyConflicts(conflicts!) > 0
+  return conflictCount > 0 && await rekeyConflicts(conflicts!, space) > 0
 }
 
 /**
@@ -214,7 +214,7 @@ async function pushDirty(space: string, fetchFn: typeof fetch, holdLogsAfter?: n
       })
       if (!res.ok) throw new Error(`push failed: ${res.status}`)
       const pushRes = await res.json().catch(() => null) as SyncPushResponse | null
-      if (await applyPushResponse(chunk, pushRes)) rekeyed = true
+      if (await applyPushResponse(chunk, pushRes, space)) rekeyed = true
     }
     if (!rekeyed) return
   }
@@ -395,7 +395,7 @@ export async function pushBeforeHidden(fetchFn: typeof fetch = fetch): Promise<v
       body: JSON.stringify(chunkBody(chunk)),
     })
     // 回應可能永遠等不到(頁面已凍結);等得到就照一般同步清掉 dirty
-    if (res.ok) await applyPushResponse(chunk, await res.json().catch(() => null) as SyncPushResponse | null)
+    if (res.ok) await applyPushResponse(chunk, await res.json().catch(() => null) as SyncPushResponse | null, space)
   } catch {
     // 下次同步會補
   } finally {
