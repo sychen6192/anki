@@ -27,7 +27,7 @@ const PARENTS: Record<string, [string, string][]> = {
 function makeSpacesServer() {
   const tables: Record<string, Map<string, Row>> = Object.fromEntries(TABLES.map((t) => [t, new Map()]))
   let seq = 0
-  const posts: { space: string; bytes: number; keepalive: boolean }[] = []
+  const posts: { space: string; bytes: number; keepalive: boolean; body: Record<string, Row[]> }[] = []
   const sid = (t: string, space: string, id: string) => (t === 'settings' ? `${space}:${id}` : id)
   const fetchFn = (async (input: any, init?: any) => {
     const url = new URL(String(input), 'http://x')
@@ -37,8 +37,8 @@ function makeSpacesServer() {
       return new Response(JSON.stringify({ decks: mine.filter((d) => !d.deleted).length, ids: mine.map((d) => d.id) }))
     }
     if (init?.method === 'POST') {
-      posts.push({ space, bytes: new TextEncoder().encode(String(init.body)).length, keepalive: init.keepalive === true })
       const body = JSON.parse(String(init.body))
+      posts.push({ space, bytes: new TextEncoder().encode(String(init.body)).length, keepalive: init.keepalive === true, body })
       const taken = (t: string, id: unknown) => {
         const ex = tables[t].get(id as string)
         return ex !== undefined && ex.ns !== space
@@ -578,6 +578,86 @@ describe('帶著本機資料合併進空間:同名牌組併成一副', () => {
     expect(await syncNow(server.fetchFn)).toEqual({ ok: true }) // 只做一次
   })
 
+  it('較舊的那份不蓋掉較新的:幾個月沒用的裝置次數多一點,空間裡昨天剛複習過的排程照樣留著', async () => {
+    const remote = await createDeck('N5')
+    await words(remote.id, ['一'])
+    const local = await createDeck('N5')
+    await words(local.id, ['一'])
+    const cardIn = async (deckId: string) => (await db.cards.where('deck_id').equals(deckId).first())!
+    const day = 86_400_000
+    const spaceDue = Date.now() + 20 * day
+    await db.cards.update((await cardIn(remote.id)).id, { reps: 5, state: 2, due: spaceDue, last_review: Date.now() - day })
+    await db.cards.update((await cardIn(local.id)).id, { reps: 6, lapses: 2, state: 2, due: Date.now() - 70 * day, last_review: Date.now() - 100 * day })
+    expect(await foldIntoSameNameDecks(new Set([local.id]))).toBe(1)
+    expect(await cardIn(remote.id)).toMatchObject({ reps: 5, due: spaceDue })
+  })
+
+  it('同一個方向有刪掉的也有活著的卡:跟活著的那張比,不會多出第二張活的反向卡', async () => {
+    const remote = await createDeck('N5')
+    const [twin] = await words(remote.id, ['一'])
+    // 空間那筆:反向卡關掉過(留著刪掉的那張),後來別台又打開一張、背了 15 次
+    const fwd = (await db.cards.where('note_id').equals(twin.id).first())!
+    await db.notes.update(twin.id, { reversed: 1 })
+    await db.cards.bulkAdd([
+      { ...fwd, id: '00000000-dead-4000-8000-000000000000', direction: 'reverse', deleted: 1 },
+      { ...fwd, id: 'ffffffff-live-4000-8000-000000000000', direction: 'reverse', reps: 15, state: 2, last_review: Date.now() - 86_400_000 },
+    ])
+    const local = await createDeck('N5')
+    const mine = await createNote(local.id, { expression: '一', reading: '', meaning: '一的意思', accent: '', reversed: true })
+    const lrev = (await db.cards.where('note_id').equals(mine.id).toArray()).find((c) => c.direction === 'reverse')!
+    await db.cards.update(lrev.id, { reps: 3, state: 2, last_review: Date.now() - 5 * 86_400_000 })
+    expect(await foldIntoSameNameDecks(new Set([local.id]))).toBe(1)
+    const liveRev = (await db.cards.where('note_id').equals(twin.id).toArray()).filter((c) => c.direction === 'reverse' && !c.deleted)
+    expect(liveRev.map((c) => [c.id, c.reps])).toEqual([['ffffffff-live-4000-8000-000000000000', 15]])
+  })
+
+  it('這台有兩副同名的牌組、各有一筆拼法相同的字:兩筆都搬過去(第一副搬的不算空間的字)', async () => {
+    const remote = await createDeck('N5')
+    await words(remote.id, ['一'])
+    const l1 = await createDeck('N5')
+    await createNote(l1.id, { expression: '四', reading: '', meaning: '第一副的意思', accent: '', reversed: false })
+    const l2 = await createDeck('N5')
+    await createNote(l2.id, { expression: '四', reading: '', meaning: '第二副的意思', accent: '', reversed: false })
+    expect(await foldIntoSameNameDecks(new Set([l1.id, l2.id]))).toBe(2)
+    const live = (await db.notes.toArray()).filter((n) => !n.deleted && n.deck_id === remote.id)
+    expect(live.map((n) => n.meaning).sort()).toEqual(['一的意思', '第一副的意思', '第二副的意思'].sort())
+  })
+
+  it('合併推上去了、還沒拉回來就停止同步,再用同一組金鑰合併:照樣併掉,不會永遠兩副', async () => {
+    const server = makeSpacesServer()
+    const key = 'llll-llll-llll'
+    await startSpace(key, ['一', '二'], server.fetchFn)
+    await db.delete(); await db.open()
+    const b = await createDeck('範本')
+    await words(b.id, ['一', '二'])
+    const summary = await fetchSpaceSummary(key, server.fetchFn)
+    await adoptSyncSpace(key, new Set(summary!.ids ?? []))
+    // 推得上去、拉不下來
+    const pushOnly = (async (input: any, init?: any) => {
+      if (init?.method === 'POST') return server.fetchFn(input, init)
+      throw new TypeError('Failed to fetch')
+    }) as typeof fetch
+    expect((await syncNow(pushOnly)).ok).toBe(false)
+    await leaveSyncSpace()
+    expect(await mergeInto(key, server.fetchFn)).toMatchObject({ ok: true, folded: 1 })
+    expect(server.liveNames(key)).toEqual(['範本'])
+  })
+
+  it('併牌組後推上去:刪掉那副牌組的那一筆排在最後(推到一半斷線,別台不會先看到牌組刪掉、字還在底下)', async () => {
+    const server = makeSpacesServer()
+    const key = 'oooo-oooo-oooo'
+    await startSpace(key, ['一'], server.fetchFn)
+    await db.delete(); await db.open()
+    const b = await createDeck('範本')
+    await words(b.id, Array.from({ length: 150 }, (_, i) => `字${i}`)) // 字、卡加起來超過一批(200 筆)
+    const before = server.posts.length
+    expect(await mergeInto(key, server.fetchFn)).toMatchObject({ ok: true, folded: 1 })
+    const after = server.posts.slice(before)
+    const withTombstone = after.findIndex((p) => (p.body.decks ?? []).some((d) => d.id === b.id && d.deleted))
+    expect(withTombstone).toBe(after.length - 1)
+    expect(after.length).toBeGreaterThan(2)
+  })
+
   it('只拿空間的字比:這台自己拼法相同的兩筆(意思不同)一起搬過去,不會刪掉其中一筆', async () => {
     const remote = await createDeck('N5')
     await words(remote.id, ['一'])
@@ -602,6 +682,17 @@ describe('連上之前的確認:照原樣的金鑰', () => {
     const empty = (async () => { calls++; return new Response(JSON.stringify({ decks: 0, ids: [] })) }) as typeof fetch
     expect(await probeSyncKey('ａｂｃｄーｅｆｇｈーｊｋｍｎ', 'abcd-efgh-jkmn', empty)).toEqual({ key: 'abcd-efgh-jkmn', decks: 0 })
     expect(calls).toBe(1)
+  })
+
+  it('舊版原樣存的金鑰有 header 放得進的非 ASCII 字(例如不斷行空格):照樣去問', async () => {
+    const server = makeSpacesServer()
+    const legacy = 'HVCR\u00a0be4a\u00a02er2'
+    await setSyncSpace(legacy)
+    await createDeck('舊的')
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    const { key } = normalizeSyncKey(legacy)
+    expect(key).toBe('hvcr-be4a-2er2')
+    expect(await probeSyncKey(legacy, key, server.fetchFn)).toEqual({ key: legacy, decks: 1 })
   })
 })
 

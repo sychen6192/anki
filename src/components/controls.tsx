@@ -124,9 +124,10 @@ export function useToast(duration = 4000) {
     actionRef.current?.focus()
   }, [toast])
   const hold = () => { held.current = true; clearTimeout(timer.current) }
-  // 滑鼠移開時鍵盤焦點還在「復原」上:繼續等(不然提示條在焦點底下消失,焦點又掉到頁首)
+  // 滑鼠移開時鍵盤焦點還在「復原」上:繼續等(不然提示條在焦點底下消失,焦點又掉到頁首)。
+  // 滑鼠按過的焦點不算,照常倒數
   const release = () => {
-    if (boxRef.current?.contains(document.activeElement)) return
+    if (boxRef.current?.contains(document.activeElement) && keyboardFocused()) return
     held.current = false
     arm()
   }
@@ -140,7 +141,9 @@ export function useToast(duration = 4000) {
           {/* 內容已經由上面的 live region 唸過,滑過去時不必再唸一次 */}
           <span aria-hidden="true">{toast.text}</span>
           {toast.action && (
-            <button ref={actionRef} type="button" className="link" onClick={() => { hide(); toast.action?.onClick() }}>
+            // 滑鼠按下去不搶焦點(點擊照樣算):焦點留在「復原」上的話,之後按空白鍵捲頁會變成按了它
+            <button ref={actionRef} type="button" className="link" onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { hide(); toast.action?.onClick() }}>
               {toast.action.label}
             </button>
           )}

@@ -57,7 +57,7 @@ export default function SettingsPage() {
   const [backupMsg, setBackupMsg] = useState('')
   // 觸控裝置的備份分兩步:iPhone 的分享面板要在點擊的當下叫出來,先等資料庫整理完備份再叫會被擋
   // (主畫面 App 又沒有一般下載可以退),所以先準備好檔案,再讓人按「儲存備份檔」
-  const [backupFile, setBackupFile] = useState<{ name: string; text: string; kb: number } | null>(null)
+  const [backupFile, setBackupFile] = useState<{ name: string; text: string; kb: number; at: number } | null>(null)
   const [resetMsg, setResetMsg] = useState('')
   // 這頁的動作共用一把鎖:清空本機、還原備份、最佳化參數都跑得久,不該在另一個跑到一半時插隊
   const [busy, run] = useBusy()
@@ -322,10 +322,11 @@ export default function SettingsPage() {
   const prepareBackup = () => run(async () => {
     try {
       setBackupMsg('準備備份…')
-      const text = await exportBackup()
-      const name = `字卡備份-${new Date().toISOString().slice(0, 10)}.json`
+      const at = Date.now()
+      const text = await exportBackup(at)
+      const name = `字卡備份-${new Date(at).toISOString().slice(0, 10)}.json`
       if (isTouchDevice()) {
-        setBackupFile({ name, text, kb: Math.max(1, Math.round(new Blob([text]).size / 1024)) })
+        setBackupFile({ name, text, at, kb: Math.max(1, Math.round(new Blob([text]).size / 1024)) })
         // 同一塊播報區換字(不是清掉):讀螢幕才會唸,知道還要再按一下
         setBackupMsg('備份檔準備好了，按「儲存備份檔」存到「檔案」或傳給其他 App')
       } else {
@@ -341,20 +342,31 @@ export default function SettingsPage() {
   const saveBackup = async (file: { name: string; text: string }) => {
     const how = await download(file.name, file.text, 'application/json')
     if (how === 'cancelled') return
+    // 分享面板叫不出來、退回一般下載:主畫面 App 裡可能什麼都沒發生,檔案留著讓人再按一次
+    if (how === 'fallback') { setBackupMsg('沒有跳出存檔畫面的話，再按一次「儲存備份檔」'); return }
     setBackupFile(null)
     setBackupMsg(how === 'shared' ? '✓ 已存好備份檔' : '✓ 已下載備份檔')
   }
 
-  // 準備好之後資料又變了(同步拉到別台的改動、還原、在別的分頁改了):那份檔案已經不是現在的樣子,收回來重新準備
+  // 準備好之後資料又變了(同步拉到別台的改動、還原、在別的分頁改了):那份檔案已經不是現在的樣子,收回來重新準備。
+  // 用同一個時間重新匯出來比 —— 同步推上去只會清掉「待上傳」的標記,備份內容沒變,不用重來
   useEffect(() => {
     if (backupFile === null) return
-    const onChange = (parts: ObservabilitySet) => {
-      if (!Object.keys(parts).some((k) => /\/(decks|notes|cards|review_logs|settings)\//.test(k))) return
+    let off = false
+    let timer = 0
+    const check = async () => {
+      const now = await exportBackup(backupFile.at)
+      if (off || now === backupFile.text) return
       setBackupFile(null)
       setBackupMsg('資料有變動，按「下載完整備份」重新準備')
     }
+    const onChange = (parts: ObservabilitySet) => {
+      if (!Object.keys(parts).some((k) => /\/(decks|notes|cards|review_logs|settings)\//.test(k))) return
+      clearTimeout(timer)
+      timer = window.setTimeout(() => void check(), 300)
+    }
     Dexie.on.storagemutated.subscribe(onChange)
-    return () => Dexie.on.storagemutated.unsubscribe(onChange)
+    return () => { off = true; clearTimeout(timer); Dexie.on.storagemutated.unsubscribe(onChange) }
   }, [backupFile])
 
   const copyKey = () => {

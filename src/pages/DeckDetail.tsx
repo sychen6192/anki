@@ -227,8 +227,12 @@ export default function DeckDetail() {
   })
   const exitSelecting = () => { setSelecting(false); setSelected(new Set()) }
 
-  const applyStatus = (value: CardSuspended) => run(async () => {
-    const viaKeyboard = keyboardFocused() // 確認框與 busy 會把焦點移走:一開始就讀
+  /**
+   * byKey:這一下是鍵盤(或讀螢幕軟體)按的 —— click 的 detail 是 0。滑鼠、手指按的是 1 以上。
+   * 再加上焦點是不是用鍵盤走過去的(確認框與 busy 會把焦點移走:一開始就讀)
+   */
+  const applyStatus = (value: CardSuspended, byKey = false) => run(async () => {
+    const viaKeyboard = byKey || keyboardFocused()
     const ids = [...selected].filter((id) => notes.some((n) => n.id === id))
     if (ids.length === 0) return
     const label = value === 2 ? '已經會了' : value === 1 ? '先不學' : '恢復學習'
@@ -529,8 +533,8 @@ export default function DeckDetail() {
     }
   })
 
-  const removeNote = () => run(async () => {
-    const viaKeyboard = keyboardFocused()
+  const removeNote = (byKey = false) => run(async () => {
+    const viaKeyboard = byKey || keyboardFocused()
     const id = editingId
     if (id === null || id === 'new') return
     const label = notes.find((n) => n.id === id)?.expression ?? form.expression
@@ -709,9 +713,9 @@ export default function DeckDetail() {
         <div ref={batchBar} className="batch-bar" role="region" aria-label="批次操作">
           <span className="batch-count">已選 <b>{selected.size}</b> 個字</span>
           <div className="batch-actions">
-            <button className="btn sm" disabled={busy || selected.size === 0} onClick={() => void applyStatus(2)}>已經會了</button>
-            <button className="btn sm secondary" disabled={busy || selected.size === 0} onClick={() => void applyStatus(1)}>先不學</button>
-            <button className="btn sm secondary" disabled={busy || selected.size === 0} onClick={() => void applyStatus(0)}>恢復</button>
+            <button className="btn sm" disabled={busy || selected.size === 0} onClick={(e) => void applyStatus(2, e.detail === 0)}>已經會了</button>
+            <button className="btn sm secondary" disabled={busy || selected.size === 0} onClick={(e) => void applyStatus(1, e.detail === 0)}>先不學</button>
+            <button className="btn sm secondary" disabled={busy || selected.size === 0} onClick={(e) => void applyStatus(0, e.detail === 0)}>恢復</button>
           </div>
         </div>
       )}
@@ -790,7 +794,7 @@ export default function DeckDetail() {
           )}
           {errMsg && <p className="err" role="alert">{errMsg}</p>}
           {!isNew && (
-            <button type="button" className="btn danger lg" disabled={busy} onClick={() => void removeNote()}>
+            <button type="button" className="btn danger lg" disabled={busy} onClick={(e) => void removeNote(e.detail === 0)}>
               <TrashIcon size={18} />刪除這個字
             </button>
           )}

@@ -156,6 +156,13 @@ describe('parseCsv:Excel 留下的空白列', () => {
     expect(parseCsv('單字,意思\n引用,"引用,引述"  ')[1]).toEqual(['引用', '引用,引述'])
   })
 
+  it('兩欄的 tab 分隔、最後一格空著:最後那個 tab 不會被吃掉(不然猜不出是 tab 分隔,一個字都匯不進來)', () => {
+    const rows = parseCsv('單字\t意思\r\n勉強\t讀書\r\n先生\t老師\r\n宿題\t\r\n')
+    expect(rows[0]).toEqual(['單字', '意思'])
+    expect(rows[3]).toEqual(['宿題', ''])
+    expect(parseCsv('單字\t意思\n犬\t狗\n鳥\t\n')[0]).toEqual(['單字', '意思'])
+  })
+
   it('tab 分隔、第一格空著的表頭不會少一欄(Excel 的「Unicode 文字」)', () => {
     const tsv = '\t單字\t讀音\t意思\r\n1\t犬\tいぬ\t狗\r\n2\t猫\tねこ\t貓\r\n'
     const le = new Uint8Array([0xff, 0xfe, ...Array.from(tsv).flatMap((ch) => [ch.charCodeAt(0) & 0xff, ch.charCodeAt(0) >> 8])])

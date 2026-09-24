@@ -43,14 +43,18 @@ type DirtyRows = {
   review_logs: Local<ReviewLogRecord>[]; settings: Local<SettingRecord>[]
 }
 
-// 父表在前(decks -> notes -> cards -> review_logs -> settings):伺服器收到子列時父列多半已經在了
+// 父表在前(decks -> notes -> cards -> review_logs -> settings):伺服器收到子列時父列多半已經在了。
+// 刪掉的牌組放最後:併牌組時「字搬過去」要比「那副刪掉」先到 —— 推到一半斷線的話,別台先拉到牌組刪掉、
+// 字卻還在那副底下,整理(reconcile)時會把還沒搬過去的字一起刪掉
 function tagRows(d: DirtyRows): TaggedRow[] {
+  const deck = (row: Local<DeckRecord>) => ({ table: 'decks' as const, row })
   return [
-    ...d.decks.map((row) => ({ table: 'decks' as const, row })),
+    ...d.decks.filter((row) => !row.deleted).map(deck),
     ...d.notes.map((row) => ({ table: 'notes' as const, row })),
     ...d.cards.map((row) => ({ table: 'cards' as const, row })),
     ...d.review_logs.map((row) => ({ table: 'review_logs' as const, row })),
     ...d.settings.map((row) => ({ table: 'settings' as const, row })),
+    ...d.decks.filter((row) => row.deleted).map(deck),
   ]
 }
 
@@ -310,8 +314,12 @@ export async function probeSyncKey(
   if (decks === null) return null
   const raw = input.trim()
   if (decks > 0 || raw === '' || raw === normalized) return { key: normalized, decks }
-  // 照原樣的只試舊版存得下來的:header 放不進全形字、長音符號這類字元,用那種金鑰的舊版也從來沒同步成功過
-  if (!/^[\x20-\x7e]+$/.test(raw)) return { key: normalized, decks }
+  // 照原樣的只試放得進 header 的(舊版存得下來、也真的同步過的):全形字、長音符號這類放不進去
+  try {
+    new Headers({ 'x-sync-space': raw })
+  } catch {
+    return { key: normalized, decks }
+  }
   const rawDecks = await countSpaceDecks(raw, fetchFn)
   // 第二個沒問到就當連不上:「沒問到」不能當成「空的」,讓人以為打錯、或連進正規化那個空的空間
   if (rawDecks === null) return null

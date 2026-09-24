@@ -15,13 +15,15 @@ export const ACCENT_ALIASES = ['重音', 'アクセント', 'accent', 'pitch', '
 export function parseCsv(text: string): string[][] {
   // greedy:只有逗號或空白的列(Excel 常在表格下面留一堆「,,」)也不算一列,
   // 不然預覽會說「有 N 列缺少單字或意思」,讓人去找根本不存在的資料。
-  // 頭尾只去掉整列空白與多餘的空格,不整段 trim:Excel 的「Unicode 文字」是 tab 分隔,第一格空著時
-  // trim 會吃掉表頭開頭的 tab,表頭少一欄、每一列都錯位。開頭的空白列還是要去掉 —— Papa 只看前 10 列
-  // 猜分隔符號,全是空白列就猜成逗號;開頭引號前的空格、結尾引號後的空格也會讓引號對不起來
+  // 頭尾只去掉整列空白與引號外多餘的空格,不整段 trim:Excel 的「Unicode 文字」是 tab 分隔,
+  // 第一格(或最後一格)空著時,trim 會吃掉那一列的 tab,那列少一欄 —— 表頭少一欄是整份錯位,
+  // 列數少的兩欄資料則會讓 Papa 猜不出是 tab 分隔。開頭的空白列還是要去掉(Papa 只看前 10 列猜分隔符號,
+  // 全是空白列就猜成逗號);開頭引號前、結尾引號後的空格也會讓引號對不起來
   const trimmed = text
     .replace(/^(?:[^\S\r\n]*\r?\n)+/, '')
     .replace(/^ +(?=")/, '')
-    .trimEnd()
+    .replace(/(?:\r?\n[^\S\r\n]*)+$/, '')
+    .replace(/" +$/, '"')
   return Papa.parse<string[]>(trimmed, { skipEmptyLines: 'greedy' }).data
 }
 

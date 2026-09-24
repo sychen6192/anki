@@ -31,7 +31,7 @@ export async function clearLocalData(): Promise<void> {
     await db.settings.clear()
     await db.meta.delete('sync_cursor')
     await db.meta.delete(REKEYED)
-    await db.meta.delete(PENDING_FOLD)
+    // 等著併的牌組(見 runPendingFold)留著:同一個空間重新下載回來之後照樣要併
   })
 }
 
@@ -224,12 +224,17 @@ export async function adoptSyncSpace(key: string, knownDeckIds?: ReadonlySet<str
   const next = key.trim()
   await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
     const last = await db.meta.get(LAST_SPACE)
-    if (typeof last?.value === 'string' && last.value !== '' && last.value !== next) await rekeyLocalRows(next)
+    const otherSpace = typeof last?.value === 'string' && last.value !== '' && last.value !== next
+    // 回到同一個空間:上次合併還沒併完(推上去了、還沒拉回來就停止同步)記下的牌組照樣要併 ——
+    // 那副已經在空間裡了,下面的「空間不認得的」算不到它
+    const carried = otherSpace ? [] : await readPendingFold()
+    if (otherSpace) await rekeyLocalRows(next)
     // 合併進已經有東西的空間(knownDeckIds = 空間認得的牌組,含刪掉的):這台新帶進去的牌組記下來,
     // 同步成功、空間的牌組拉下來之後併進同名的那副(見 runPendingFold)。空間認得的不算這台的 ——
     // 停止同步後回到同一個空間時,共用的那副要是被當成「這台的」併掉,別台在那副的進度就沒了
-    const fold = knownDeckIds === undefined || knownDeckIds.size === 0 ? []
-      : (await db.decks.toArray()).filter((d) => !d.deleted && !knownDeckIds.has(d.id)).map((d) => d.id)
+    const live = (await db.decks.toArray()).filter((d) => !d.deleted).map((d) => d.id)
+    const fresh = knownDeckIds === undefined || knownDeckIds.size === 0 ? [] : live.filter((id) => !knownDeckIds.has(id))
+    const fold = [...new Set([...fresh, ...carried.filter((id) => live.includes(id))])]
     if (fold.length > 0) await db.meta.put({ key: PENDING_FOLD, value: JSON.stringify(fold) })
     else await db.meta.delete(PENDING_FOLD)
     await db.decks.toCollection().modify({ dirty: 1 })
@@ -250,9 +255,14 @@ const SCHEDULE = [
 ] as const
 const scheduleOf = (c: CardRecord): Partial<CardRecord> => Object.fromEntries(SCHEDULE.map((k) => [k, c[k]]))
 
-/** a 的進度比 b 多:複習次數多;一樣多就看誰最近複習過 */
-const aheadOf = (a: CardRecord, b: CardRecord): boolean =>
-  a.reps > b.reps || (a.reps === b.reps && (a.last_review ?? 0) > (b.last_review ?? 0))
+/**
+ * a 的進度比 b 多:複習次數多、而且沒有比較舊;一樣多就看誰最近複習過。
+ * 較舊的那份永遠不蓋掉較新的 —— 幾個月沒用的裝置次數多一點,排程也早就過期了
+ */
+const aheadOf = (a: CardRecord, b: CardRecord): boolean => {
+  const ra = a.last_review ?? 0, rb = b.last_review ?? 0
+  return (a.reps > b.reps && ra >= rb) || (a.reps === b.reps && ra > rb)
+}
 
 /**
  * 同一個字兩邊都有:字留空間裡那筆,進度一張一張比(正向、反向各自比)——
@@ -263,7 +273,9 @@ async function mergeTwin(mine: Local<NoteRecord>, twin: Local<NoteRecord>, t: nu
   const theirs = await db.cards.where('note_id').equals(twin.id).toArray()
   let reverseOn = false
   for (const lc of (await db.cards.where('note_id').equals(mine.id).toArray()).filter((c) => !c.deleted)) {
-    const tc = theirs.find((c) => c.direction === lc.direction)
+    // 同一個方向有刪掉的也有活著的(關掉又打開過反向卡):跟活著的那張比
+    const tc = theirs.find((c) => c.direction === lc.direction && !c.deleted)
+      ?? theirs.find((c) => c.direction === lc.direction)
     if (tc === undefined || tc.deleted) {
       if (lc.reps === 0 && lc.suspended === 0) continue // 沒背過也沒標過:不必帶
       if (tc === undefined) await db.cards.update(lc.id, { note_id: twin.id, deck_id: twin.deck_id, updated_at: t, dirty: 1 })
@@ -300,19 +312,25 @@ export async function foldIntoSameNameDecks(localDeckIds: Set<string>): Promise<
       const name = d.name.trim()
       spaceDecks.set(name, [...(spaceDecks.get(name) ?? []), d.id])
     }
+    // 空間裡已經有的字(同名的每一副都算,優先對到要併進去的那副),在搬任何東西之前先記下來:
+    // 這台有兩副同名的牌組時,第一副搬過去的字不能被當成空間的字,把第二副同拼法的那筆刪掉
+    const inSpace = new Map<string, Map<string, Local<NoteRecord>>>()
+    for (const [name, ids] of spaceDecks) {
+      const words = new Map<string, Local<NoteRecord>>()
+      for (const id of ids) {
+        for (const n of await db.notes.where('deck_id').equals(id).toArray()) {
+          if (!n.deleted && !words.has(key(n))) words.set(key(n), n)
+        }
+      }
+      inSpace.set(name, words)
+    }
     for (const local of live.filter((d) => localDeckIds.has(d.id))) {
       const same = spaceDecks.get(local.name.trim())
       if (same === undefined) continue
       const target = same[0]
-      // 空間裡已經有的字:同名的每一副都算,優先對到要併進去的那副
-      const inSpace = new Map<string, Local<NoteRecord>>()
-      for (const id of same) {
-        for (const n of await db.notes.where('deck_id').equals(id).toArray()) {
-          if (!n.deleted && !inSpace.has(key(n))) inSpace.set(key(n), n)
-        }
-      }
+      const words = inSpace.get(local.name.trim())!
       for (const n of (await db.notes.where('deck_id').equals(local.id).toArray()).filter((x) => !x.deleted)) {
-        const twin = inSpace.get(key(n))
+        const twin = words.get(key(n))
         if (twin !== undefined) {
           await mergeTwin(n, twin, t)
         } else {
@@ -327,6 +345,18 @@ export async function foldIntoSameNameDecks(localDeckIds: Set<string>): Promise<
   return folded
 }
 
+/** 等著併的牌組 id;沒有或紀錄壞了是空陣列(頂多留著同名的兩副,不會刪錯東西) */
+async function readPendingFold(): Promise<string[]> {
+  const row = await db.meta.get(PENDING_FOLD)
+  if (row === undefined) return []
+  try {
+    const parsed: unknown = JSON.parse(String(row.value))
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 /**
  * 合併進空間時記下的待併牌組(見 adoptSyncSpace):同步成功、空間的牌組都拉下來之後才做,
  * 合併當下那次同步失敗也不會漏掉。推上去時換過 id 的照最後的 id 認。回傳併掉幾副。
@@ -334,16 +364,8 @@ export async function foldIntoSameNameDecks(localDeckIds: Set<string>): Promise<
 export async function runPendingFold(): Promise<number> {
   let folded = 0
   await db.transaction('rw', [db.decks, db.notes, db.cards, db.meta], async () => {
-    const row = await db.meta.get(PENDING_FOLD)
-    if (row === undefined) return
+    const ids = await readPendingFold()
     await db.meta.delete(PENDING_FOLD)
-    let ids: string[] = []
-    try {
-      const parsed: unknown = JSON.parse(String(row.value))
-      if (Array.isArray(parsed)) ids = parsed.filter((x): x is string => typeof x === 'string')
-    } catch {
-      return // 紀錄壞了就不併(頂多留著同名的兩副,不會刪錯東西)
-    }
     if (ids.length === 0) return
     const map = await readRekeyed()
     folded = await foldIntoSameNameDecks(new Set(ids.map((id) => resolveRekeyed(map, id))))
@@ -372,7 +394,7 @@ export async function leaveSyncSpace(): Promise<void> {
     const cur = await db.meta.get('sync_space')
     if (typeof cur?.value === 'string' && cur.value !== '') await db.meta.put({ key: LAST_SPACE, value: cur.value })
     await db.meta.delete('sync_cursor')
-    await db.meta.delete(PENDING_FOLD)
+    // 等著併的牌組留著:回到同一個空間時照樣要併(見 adoptSyncSpace)
     // 不再連線,上次的同步錯誤也不再成立(不然導覽列紅點會一直掛著)
     await db.meta.delete('sync_error')
     await db.meta.put({ key: 'sync_space', value: '' })

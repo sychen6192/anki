@@ -6,10 +6,11 @@ function stripDirty<T extends { dirty: 0 | 1 }>(rows: T[]): Omit<T, 'dirty'>[] {
   return rows.map(({ dirty: _d, ...rest }) => rest)
 }
 
-export async function exportBackup(): Promise<string> {
+/** exportedAt:手機上兩步備份時拿同一個時間重新匯出一次,比對內容有沒有變(見設定頁) */
+export async function exportBackup(exportedAt = Date.now()): Promise<string> {
   return JSON.stringify({
     version: 1,
-    exported_at: Date.now(),
+    exported_at: exportedAt,
     decks: stripDirty(await db.decks.toArray()),
     notes: stripDirty(await db.notes.toArray()),
     cards: stripDirty(await db.cards.toArray()),
