@@ -3,9 +3,11 @@ import { beforeEach, describe, it, expect, vi, afterEach } from 'vitest'
 import { db } from '../src/db/db'
 import { createDeck, createNote } from '../src/db/repo'
 import {
-  countSpaceDecks, KEEPALIVE_BUDGET, MAX_SYNC_WAIT_MS, pushBeforeHidden, requestSync, syncNow,
+  countSpaceDecks, KEEPALIVE_BUDGET, MAX_SYNC_WAIT_MS, probeSyncKey, pushBeforeHidden, requestSync, syncNow,
 } from '../src/lib/sync'
-import { adoptSyncSpace, clearLocalData, leaveSyncSpace, setSyncSpace } from '../src/lib/space'
+import {
+  adoptSyncSpace, clearLocalData, foldIntoSameNameDecks, leaveSyncSpace, normalizeSyncKey, readRekeyed, setSyncSpace,
+} from '../src/lib/space'
 import { exportBackup, importBackup, pruneToBackup } from '../src/lib/backup'
 import { getFsrsSettings, saveFsrsSettings, DEFAULT_FSRS_SETTINGS } from '../src/lib/fsrsSettings'
 
@@ -317,10 +319,48 @@ describe('複習時的延遲同步有上限', () => {
         requestSync(15_000, counting)
         await vi.advanceTimersByTimeAsync(10_000)
       }
+      // 等最後排的那一次也跑完:切回真的計時器時,沒觸發的假計時器會留下「還在等」的狀態給下一個測試
+      await vi.advanceTimersByTimeAsync(MAX_SYNC_WAIT_MS)
     } finally {
       vi.useRealTimers()
     }
     await vi.waitFor(() => { expect(posts).toBeGreaterThan(0) })
+  })
+})
+
+describe('等到上限才推的那一次:最近的複習紀錄先留著', () => {
+  it('連續評分到 60 秒時推上去,但最後 10 秒內的紀錄留著(剛按錯馬上復原的不會已經傳出去),之後再補推', async () => {
+    const server = makeSpacesServer()
+    await setSyncSpace('aaaa-aaaa-aaaa')
+    const deck = await addDeckWithWord('日文', '犬')
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    const card = (await db.cards.where('deck_id').equals(deck.id).first())!
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    try {
+      // 每 10 秒評一張:0、10、…、50 秒,再 55 秒一張
+      for (let t = 0; t <= 50; t += 10) {
+        await addLog(card.id)
+        requestSync(15_000, server.fetchFn)
+        await vi.advanceTimersByTimeAsync(t === 50 ? 5_000 : 10_000)
+      }
+      await addLog(card.id) // 55 秒
+      requestSync(15_000, server.fetchFn)
+      // 假計時器下 vi.waitFor 不會輪詢:用 setImmediate(沒有被換掉)讓 IndexedDB 的操作跑完
+      const settle = async (done: () => boolean | Promise<boolean>) => {
+        for (let i = 0; i < 500 && !(await done()); i++) await new Promise((r) => setImmediate(r))
+      }
+      const onServer = () => server.inSpace('review_logs', 'aaaa-aaaa-aaaa').length
+      await vi.advanceTimersByTimeAsync(5_000) // 60 秒:到上限
+      await settle(async () => onServer() > 0 && await db.review_logs.where('dirty').equals(1).count() <= 1)
+      expect(onServer()).toBe(6) // 0~50 秒那 6 筆;55 秒那筆留著
+      expect(await db.review_logs.where('dirty').equals(1).count()).toBe(1)
+      await settle(() => false) // 讓「過一會兒再推」排好
+      await vi.advanceTimersByTimeAsync(12_000) // 補推
+      await settle(() => onServer() === 7)
+      expect(onServer()).toBe(7)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -348,5 +388,71 @@ describe('countSpaceDecks(連上之前先看空間)', () => {
     await adoptSyncSpace('aaaa-aaaa-aaaa')
     expect((await syncNow(server.fetchFn)).ok).toBe(true)
     expect(server.inSpace('decks', 'aaaa-aaaa-aaaa')).toHaveLength(1)
+  })
+})
+
+describe('舊版自訂的金鑰(大小寫有差、原樣存)', () => {
+  it('正規化後像產生器格式、但空間在原樣的金鑰底下:用原樣的', async () => {
+    const server = makeSpacesServer()
+    await setSyncSpace('JapanN3Z4xjv') // 舊版照原樣存
+    await createDeck('日文')
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    const { key, standard } = normalizeSyncKey('JapanN3Z4xjv')
+    expect(standard).toBe(true)
+    expect(key).toBe('japa-nn3z-4xjv')
+    expect(await probeSyncKey('JapanN3Z4xjv', key, server.fetchFn)).toEqual({ key: 'JapanN3Z4xjv', decks: 1 })
+    // 真的是新格式的金鑰就照正規化的
+    await setSyncSpace('abcd-efgh-jkmn')
+    await createDeck('新的')
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    expect(await probeSyncKey('ABCD EFGH JKMN', 'abcd-efgh-jkmn', server.fetchFn)).toEqual({ key: 'abcd-efgh-jkmn', decks: 1 })
+    // 兩邊都是空的:回正規化的(由畫面問「空間是空的」)
+    expect(await probeSyncKey('ZZZZ2222XXXX', 'zzzz-2222-xxxx', server.fetchFn)).toEqual({ key: 'zzzz-2222-xxxx', decks: 0 })
+    vi.stubGlobal('navigator', { onLine: false })
+    expect(await probeSyncKey('JapanN3Z4xjv', key, server.fetchFn)).toBeNull()
+  })
+})
+
+describe('帶著本機資料合併進空間:同名牌組併成一副', () => {
+  const words = (deckId: string, list: string[]) =>
+    Promise.all(list.map((w) => createNote(deckId, { expression: w, reading: '', meaning: `${w}的意思`, accent: '', reversed: false })))
+
+  it('這台沒有的字搬過去、兩邊都有的刪掉這台那筆、空掉的牌組刪掉', async () => {
+    const remote = await createDeck('大家的日本語')
+    await words(remote.id, ['乙', '丙', '丁'])
+    const local = await createDeck('大家的日本語')
+    await words(local.id, ['甲', '乙', '丙'])
+    const other = await createDeck('只有這台有')
+    expect(await foldIntoSameNameDecks(new Set([local.id, other.id]))).toBe(1)
+    const decks = (await db.decks.toArray()).filter((d) => !d.deleted)
+    expect(decks.map((d) => d.id).sort()).toEqual([remote.id, other.id].sort())
+    const live = (await db.notes.toArray()).filter((n) => !n.deleted)
+    expect(live.filter((n) => n.deck_id === remote.id).map((n) => n.expression).sort()).toEqual(['丁', '丙', '乙', '甲'])
+    const liveCards = (await db.cards.toArray()).filter((c) => !c.deleted)
+    expect(liveCards.every((c) => live.some((n) => n.id === c.note_id && n.deck_id === c.deck_id))).toBe(true)
+    expect(liveCards).toHaveLength(4)
+  })
+
+  it('兩台都從同一份範本開始,第二台合併後每個字只有一份', async () => {
+    const server = makeSpacesServer()
+    const key = 'kkkk-kkkk-kkkk'
+    // A:範本 → 開始同步
+    const a = await createDeck('範本')
+    await words(a.id, ['一', '二', '三'])
+    await adoptSyncSpace(key)
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    // B:同一份範本 → 輸入 A 的金鑰 → 一起帶過去(合併)
+    await db.delete(); await db.open()
+    const b = await createDeck('範本')
+    await words(b.id, ['一', '二', '三', '四'])
+    await adoptSyncSpace(key)
+    const mine = (await db.decks.toArray()).map((d) => d.id)
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    const rekeyed = await readRekeyed()
+    expect(await foldIntoSameNameDecks(new Set(mine.map((id) => rekeyed[id] ?? id)))).toBe(1)
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    expect(server.liveNames(key)).toEqual(['範本'])
+    const liveNotes = server.inSpace('notes', key).filter((n) => !n.deleted)
+    expect(liveNotes.map((n) => n.expression).sort()).toEqual(['一', '三', '二', '四'])
   })
 })

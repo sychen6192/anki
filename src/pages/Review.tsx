@@ -408,7 +408,12 @@ export default function Review() {
       }
       await updateNote(noteId, { ...fields, accent })
       const fresh = await db.notes.get(noteId)
-      if (fresh) setCurrent((c) => (c !== null && c.note.id === noteId ? { ...c, note: fresh } : c))
+      // 另一個分頁或裝置已經把這個字刪了(或換了空間):不要假裝存好了
+      if (fresh === undefined || fresh.deleted) {
+        setEditErr('這個字已經不在了（可能在另一個分頁或裝置刪掉了），沒有存到')
+        return
+      }
+      setCurrent((c) => (c !== null && c.note.id === noteId ? { ...c, note: fresh } : c))
       setEditing(null)
       setEditErr(null)
     } catch (e) {

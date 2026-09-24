@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { errorText } from '../lib/syncText'
 import { db } from '../db/db'
 import { sortDecks } from '../lib/deckOrder'
 import {
@@ -71,7 +72,8 @@ function noteStateBadge(cards: CardLite[] | undefined, now: number) {
   return null
 }
 
-const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+// 連不上網路時講人話(不是瀏覽器的「Failed to fetch」)
+const errText = errorText
 
 export default function DeckDetail() {
   const { deckId } = useParams()
@@ -236,10 +238,11 @@ export default function DeckDetail() {
     })) return
     try {
       const prev = await setNotesSuspendedUndoable(ids, value)
+      // 批次鈕在清掉選取後會停用,焦點會掉到頁首:放到「復原」上
       toast.show(`已把 ${ids.length} 個字標為「${label}」`, {
         label: '復原',
         onClick: () => void restoreCardsSuspended(prev).then(() => requestSync()),
-      })
+      }, { focusAction: true })
       setSelected(new Set())
       setErrMsg(null)
       requestSync()
@@ -531,10 +534,11 @@ export default function DeckDetail() {
     try {
       await softDeleteNote(id)
       closeNote()
+      // 刪掉的那一列不在了,焦點會掉到頁首:放到「復原」上(鍵盤、讀螢幕的人才來得及復原)
       toast.show(`已刪除「${label}」`, {
         label: '復原',
         onClick: () => void restoreNote(id).then(() => requestSync()),
-      })
+      }, { focusAction: true })
       requestSync()
     } catch (e) {
       setErrMsg(`操作失敗：${errText(e)}`)

@@ -242,6 +242,8 @@ export default function DeckList() {
               setNewKey(key)
               await syncNow()
             })}>{enabling ? '開啟中…' : '開啟同步'}</button>
+            {/* 在別台已經有金鑰的人按「開啟同步」會另開一個新空間:給他一條輸入金鑰(帶過去合併)的路 */}
+            <Link className="link" to="/settings?key=1">已經有金鑰</Link>
             <button className="link" onClick={() => {
               localStorage.setItem(KEY_HINT_DISMISSED, '1')
               setKeyHintDismissed(true)

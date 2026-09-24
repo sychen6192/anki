@@ -190,6 +190,45 @@ export async function adoptSyncSpace(key: string): Promise<void> {
   })
 }
 
+/**
+ * 帶著本機資料加入一個已經有東西的空間之後,同名的牌組併成一副 —— 最常見的是兩台都從同一份範本開始,
+ * 不併的話每個字都有兩份、每天的新卡也變兩倍。這台的牌組併進空間裡原本就有的同名牌組:
+ * 那邊沒有的字搬過去,兩邊都有的(單字+讀音相同)刪掉這台那一筆,進度以空間裡的為準(那是別台背過的);
+ * 空掉的牌組刪掉。localDeckIds 是這台帶過去的牌組。回傳併掉幾副。
+ */
+export async function foldIntoSameNameDecks(localDeckIds: Set<string>): Promise<number> {
+  const key = (n: { expression: string; reading: string }) => `${n.expression.trim()}\u0000${n.reading.trim()}`
+  let folded = 0
+  await db.transaction('rw', [db.decks, db.notes, db.cards], async () => {
+    const t = Date.now()
+    const live = (await db.decks.toArray()).filter((d) => !d.deleted)
+      .sort((a, b) => (a.id < b.id ? -1 : 1)) // 同名的不只一副時,每台挑到同一副
+    const existing = new Map<string, string>()
+    for (const d of live) {
+      if (!localDeckIds.has(d.id) && !existing.has(d.name.trim())) existing.set(d.name.trim(), d.id)
+    }
+    for (const local of live.filter((d) => localDeckIds.has(d.id))) {
+      const target = existing.get(local.name.trim())
+      if (target === undefined) continue
+      const keys = new Set((await db.notes.where('deck_id').equals(target).toArray()).filter((n) => !n.deleted).map(key))
+      for (const n of (await db.notes.where('deck_id').equals(local.id).toArray()).filter((x) => !x.deleted)) {
+        const cards = db.cards.where('note_id').equals(n.id)
+        if (keys.has(key(n))) {
+          await db.notes.update(n.id, { deleted: 1, updated_at: t, dirty: 1 })
+          await cards.modify({ deleted: 1, updated_at: t, dirty: 1 })
+        } else {
+          await db.notes.update(n.id, { deck_id: target, updated_at: t, dirty: 1 })
+          await cards.modify({ deck_id: target, updated_at: t, dirty: 1 })
+          keys.add(key(n))
+        }
+      }
+      await db.decks.update(local.id, { deleted: 1, updated_at: t, dirty: 1 })
+      folded++
+    }
+  })
+  return folded
+}
+
 /** 本機有沒有任何牌組或複習紀錄(決定換金鑰時要不要問「帶過去還是捨棄」) */
 export async function hasLocalData(): Promise<boolean> {
   return (await db.decks.count()) + (await db.review_logs.count()) > 0

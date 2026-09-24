@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { Sheet } from './Sheet'
 import { useBusy } from '../lib/useBusy'
 import { countLocalContents, normalizeSyncKey, setSyncSpace } from '../lib/space'
-import { countSpaceDecks, syncNow } from '../lib/sync'
+import { probeSyncKey, syncNow } from '../lib/sync'
 
 type Outcome = { kind: 'empty' } | { kind: 'error'; text: string } | null
 
@@ -32,19 +32,22 @@ export function JoinSpaceSheet({ open, onClose, onJoined }: {
     if (key === '') return
     const mine = ++attempt.current
     setOutcome(null)
+    let target = key
     if (!evenIfEmpty) {
-      const decks = await countSpaceDecks(key)
+      // 舊版自訂的金鑰(大小寫有差)可能要照原樣用,見 probeSyncKey
+      const probe = await probeSyncKey(input, key)
       if (mine !== attempt.current) return
-      if (decks === null) {
+      if (probe === null) {
         setOutcome({ kind: 'error', text: '連不上伺服器，這台什麼都沒改。連上網路後再按一次「連上」' })
         return
       }
-      if (decks === 0) {
+      if (probe.decks === 0) {
         setOutcome({ kind: 'empty' })
         return
       }
+      target = probe.key
     }
-    await setSyncSpace(key)
+    await setSyncSpace(target)
     const r = await syncNow()
     if (!r.ok) {
       // 金鑰已經確認過(空間裡有東西),只是下載沒完成:留著這組,之後的同步會補完

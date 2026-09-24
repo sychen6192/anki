@@ -195,9 +195,10 @@ async function applyPushResponse(chunk: PushChunk, pushRes: SyncPushResponse | n
  */
 const MAX_PUSH_PASSES = 3
 
-async function pushDirty(space: string, fetchFn: typeof fetch): Promise<void> {
+async function pushDirty(space: string, fetchFn: typeof fetch, holdLogsAfter?: number): Promise<void> {
   for (let pass = 0; pass < MAX_PUSH_PASSES; pass++) {
     const dirty = await readDirty()
+    if (holdLogsAfter !== undefined) dirty.review_logs = dirty.review_logs.filter((l) => l.reviewed_at <= holdLogsAfter)
     if (Object.values(dirty).every((rows) => rows.length === 0)) return
     const chunks = buildPushChunks(dirty)
     let rekeyed = false
@@ -254,7 +255,12 @@ async function pullOnce(space: string, fetchFn: typeof fetch): Promise<PullOutco
   return outcome
 }
 
-export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult> {
+/**
+ * holdRecentLogs:最近 RECENT_LOG_HOLD_MS 內的複習紀錄這次先不推(卡片照推)。複習中「一直延後、最多等 60 秒」
+ * 的那一次用:剛按錯、馬上復原的那筆還沒上傳就刪掉了 —— 上傳過的紀錄在伺服器上刪不掉,
+ * 別台會多算一次(今天的新卡、統計、最佳化都會用到)。
+ */
+export async function syncNow(fetchFn: typeof fetch = fetch, opts?: { holdRecentLogs?: boolean }): Promise<SyncResult> {
   // 沒設金鑰 = 純本機模式,一個 request 都不發。空金鑰以前會落在公用的預設空間,
   // 等於每個沒設金鑰的人共寫同一份資料;現在改成資料就留在這台裝置,
   // 使用者在設定頁存下一組金鑰之後才開始同步。
@@ -269,7 +275,7 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
     return { ok: false, skipped: true, reason: 'offline' }
   }
   try {
-    await pushDirty(space, fetchFn)
+    await pushDirty(space, fetchFn, opts?.holdRecentLogs ? Date.now() - RECENT_LOG_HOLD_MS : undefined)
     // 游標被動過就用新的游標再拉一次(還原備份後的整理靠這次拉到的資料,不能少)
     let outcome: PullOutcome = 'moved'
     for (let attempt = 0; attempt < 3 && outcome === 'moved'; attempt++) outcome = await pullOnce(space, fetchFn)
@@ -283,6 +289,23 @@ export async function syncNow(fetchFn: typeof fetch = fetch): Promise<SyncResult
     await db.meta.put({ key: 'sync_error', value: message }).catch(() => {})
     return { ok: false, error: message }
   }
+}
+
+/**
+ * 連上一組金鑰之前的確認:用哪一個金鑰、那個空間有幾副牌組。連不上回 null(什麼都不要改)。
+ * 舊版可以自訂金鑰,大小寫有差、原樣存下來;正規化後剛好像產生器格式的舊金鑰(例如 JapanN3Study)
+ * 會被改寫成另一個空間 —— 正規化後的空間是空的、照原樣打的那個有東西,就用原樣的。
+ */
+export async function probeSyncKey(
+  input: string, normalized: string, fetchFn: typeof fetch = fetch,
+): Promise<{ key: string; decks: number } | null> {
+  const decks = await countSpaceDecks(normalized, fetchFn)
+  if (decks === null) return null
+  const raw = input.trim()
+  if (decks > 0 || raw === '' || raw === normalized) return { key: normalized, decks }
+  const rawDecks = await countSpaceDecks(raw, fetchFn)
+  if (rawDecks !== null && rawDecks > 0) return { key: raw, decks: rawDecks }
+  return { key: normalized, decks }
 }
 
 /**
@@ -309,6 +332,8 @@ let pendingSince = 0
  * 複習時每評一張就延一次:一張接一張背,整段都不會上傳,別台看到的是舊狀態,背景補推也會超過上限。
  */
 export const MAX_SYNC_WAIT_MS = 60_000
+/** 等到上限才推的那一次,最近這麼久的複習紀錄先留著(見 syncNow 的 holdRecentLogs) */
+export const RECENT_LOG_HOLD_MS = 10_000
 
 /**
  * 資料異動後的延遲同步:匯入、編輯、改設定之後呼叫。
@@ -319,9 +344,18 @@ export function requestSync(delayMs = 3000, fetchFn: typeof fetch = fetch): void
   if (pendingSync === undefined) pendingSince = now
   clearTimeout(pendingSync)
   const wait = Math.max(0, Math.min(delayMs, pendingSince + MAX_SYNC_WAIT_MS - now))
+  // 等到上限才推(還在連續操作中):最近的複習紀錄先留著,剛按錯馬上復原的不會已經傳出去
+  const capped = wait < delayMs
   pendingSync = setTimeout(() => {
     pendingSync = undefined
-    void syncNow(fetchFn)
+    if (!capped) { void syncNow(fetchFn); return }
+    void (async () => {
+      await syncNow(fetchFn, { holdRecentLogs: true })
+      // 留下來的那幾筆過一會兒再推(還在評分的話,下一次延遲同步本來就會一起帶走)
+      if (pendingSync === undefined && await db.review_logs.where('dirty').equals(1).count() > 0) {
+        requestSync(RECENT_LOG_HOLD_MS + 1000, fetchFn)
+      }
+    })()
   }, wait)
 }
 

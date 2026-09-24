@@ -546,7 +546,8 @@ kbd {
 .pitch-morae .mora { border-top: 2px solid transparent; line-height: 2; padding: 0 1px; }
 .pitch-morae .mora.high { border-top-color: currentColor; }
 .pitch-morae .mora.drop { border-right: 2px solid currentColor; }
-.pitch-num { font-size: 0.66em; opacity: 0.85; font-variant-numeric: tabular-nums; }
+/* 不再調淡:小字又半透明只剩 3.9:1,看不清楚 */
+.pitch-num { font-size: 0.66em; font-variant-numeric: tabular-nums; }
 
 /* 發音鈕 */
 .speak-btn {

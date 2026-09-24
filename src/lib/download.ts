@@ -21,7 +21,11 @@ export async function download(filename: string, text: string, type = 'text/csv'
   const a = document.createElement('a')
   a.href = url
   a.download = filename
+  // 沒放進頁面的連結,有些瀏覽器(Firefox、部分 Chromium)點了不會下載
+  a.style.display = 'none'
+  document.body.appendChild(a)
   a.click()
+  a.remove()
   // 立刻 revoke 有些瀏覽器會來不及開始下載
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }

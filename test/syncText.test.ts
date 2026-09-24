@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { humanizeSyncError, syncMessage } from '../src/lib/syncText'
+import { errorText, humanizeSyncError, syncMessage } from '../src/lib/syncText'
 import { normalizeSyncKey } from '../src/lib/space'
 
 describe('humanizeSyncError', () => {
@@ -32,5 +32,14 @@ describe('normalizeSyncKey', () => {
     // 含產生器不用的 0/1/o/l/i:多半是抄錯,原樣保留讓畫面提醒
     expect(normalizeSyncKey('bvj0-am4p-ad9q').standard).toBe(false)
     expect(normalizeSyncKey('').key).toBe('')
+  })
+})
+
+describe('errorText(同步以外的錯誤)', () => {
+  it('連不上網路講人話,其他照原本的訊息', () => {
+    expect(errorText(new TypeError('Failed to fetch'))).toBe('連不上伺服器，確認網路後再試一次')
+    expect(errorText(new TypeError('Load failed'))).toBe('連不上伺服器，確認網路後再試一次')
+    expect(errorText(new Error('分享的牌組不存在'))).toBe('分享的牌組不存在')
+    expect(errorText('oops')).toBe('oops')
   })
 })

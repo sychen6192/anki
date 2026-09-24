@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { errorText } from '../lib/syncText'
 import { db } from '../db/db'
 import { sortDecks } from '../lib/deckOrder'
 import { createDeck, createNotes } from '../db/repo'
@@ -53,7 +54,8 @@ const MODE_TITLES: Record<Mode, string> = {
 const CSV_EXAMPLE = ['単語', 'たんご', '單字'].join(',')
 const isMode = (m: string | null): m is Mode => m === 'csv' || m === 'apkg' || m === 'templates' || m === 'share'
 
-const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+// 連不上網路時講人話(不是瀏覽器的「Failed to fetch」)
+const errText = errorText
 
 /** 匯入結果:CSV/apkg/範本顯示在表單下方,分享的顯示在分享卡片裡,共用同一個樣子 */
 function SummaryView({ result }: { result: ImportResult }) {

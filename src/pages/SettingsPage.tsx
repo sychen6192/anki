@@ -1,15 +1,16 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
 import { describeBackup, exportBackup, importBackup, pruneToBackup, type BackupSummary } from '../lib/backup'
 import { download } from '../lib/download'
-import { countSpaceDecks, requestSync, syncNow } from '../lib/sync'
+import { probeSyncKey, requestSync, syncNow } from '../lib/sync'
 import {
-  adoptSyncSpace, clearLocalData, countLocalContents, countUnsynced, generateSyncKey, getSyncSpace, hasLocalData,
-  leaveSyncSpace, normalizeSyncKey, setSyncSpace,
+  adoptSyncSpace, clearLocalData, countLocalContents, countUnsynced, foldIntoSameNameDecks, generateSyncKey, getSyncSpace,
+  hasLocalData, leaveSyncSpace, normalizeSyncKey, readRekeyed, setSyncSpace,
 } from '../lib/space'
-import { humanizeSyncError, syncMessage } from '../lib/syncText'
+import { errorText, humanizeSyncError, syncMessage } from '../lib/syncText'
+import { isTouchDevice } from '../lib/share'
 import { getThemePref, setThemePref, type ThemePref } from '../lib/theme'
 import { applyFsrsSettings } from '../lib/fsrs'
 import { readAutoSpeak, writeAutoSpeak } from '../lib/speak'
@@ -53,12 +54,26 @@ export default function SettingsPage() {
   const [fsrsMsg, setFsrsMsg] = useState('')
   // 結果寫在按下去的那一區:同步區在頁面最上面,還原備份、清空本機在下面,寫到同步區會捲出畫面外看不到
   const [backupMsg, setBackupMsg] = useState('')
+  // 觸控裝置的備份分兩步:iPhone 的分享面板要在點擊的當下叫出來,先等資料庫整理完備份再叫會被擋
+  // (主畫面 App 又沒有一般下載可以退),所以先準備好檔案,再讓人按「儲存備份檔」
+  const [backupFile, setBackupFile] = useState<{ name: string; text: string; kb: number } | null>(null)
   const [resetMsg, setResetMsg] = useState('')
   // 這頁的動作共用一把鎖:清空本機、還原備份、最佳化參數都跑得久,不該在另一個跑到一半時插隊
   const [busy, run] = useBusy()
   const confirm = useConfirm()
 
+  // 首頁提示的「已經有金鑰」帶 ?key=1:直接打開金鑰面板
+  const [searchParams, setSearchParams] = useSearchParams()
+  useEffect(() => {
+    if (searchParams.get('key') !== '1') return
+    setKeyOpen(true)
+    setSearchParams({}, { replace: true })
+  }, [searchParams, setSearchParams])
+
   const localOnly = currentSpace === ''
+  // 打的就是目前這組(照正規化或照原樣比:舊版自訂的金鑰是原樣存的)
+  const isCurrentKey = (input: string) => input.trim() !== ''
+    && (normalizeSyncKey(input).key === currentSpace || input.trim() === currentSpace)
   // 手打的金鑰不像產生器的格式(可能打錯,也可能是舊版自訂的):提醒但不擋
   const keyLooksOff = keyInput.trim() !== '' && !normalizeSyncKey(keyInput).standard
   const closeKeySheet = () => setKeyOpen(false)
@@ -135,24 +150,26 @@ export default function SettingsPage() {
   /**
    * 連上一組金鑰之前先看那個空間:連不上就什麼都不改(不會清掉這台、也不會留下一組沒確認過的金鑰);
    * 是空的多半是打錯一碼(會連進一個全新的空間,看起來像資料全不見),先問。
-   * 回傳那個空間的牌組數;null = 不要繼續。
+   * 回傳要用的金鑰(舊版自訂的金鑰可能照原樣,見 probeSyncKey)與那個空間的牌組數;null = 不要繼續。
    */
-  const checkSpace = async (key: string): Promise<number | null> => {
+  const checkSpace = async (input: string): Promise<{ key: string; decks: number } | null> => {
+    const { key } = normalizeSyncKey(input)
+    if (key === '') return null
     setMsg('確認金鑰…')
-    const decks = await countSpaceDecks(key)
-    if (decks === null) {
+    const probe = await probeSyncKey(input, key)
+    if (probe === null) {
       setMsg('連不上伺服器，這台什麼都沒改；連上網路後再試一次')
       return null
     }
     setMsg('')
-    if (decks > 0) return decks
+    if (probe.decks > 0) return probe
     const ok = await confirm({
       title: '這組金鑰的空間是空的',
-      message: `確定沒打錯嗎？打錯一碼會連到一個全新的空間。\n${key}`,
+      message: `確定沒打錯嗎？打錯一碼會連到一個全新的空間。\n${probe.key}`,
       confirmLabel: '就用這組',
       cancelLabel: '重新輸入',
     })
-    return ok ? 0 : null
+    return ok ? probe : null
   }
 
   /** 換到別的空間之後下載,回報拿到什麼 */
@@ -163,23 +180,32 @@ export default function SettingsPage() {
     setMsg(c.decks > 0 ? `✓ 已連上，下載了 ${c.decks} 副牌組、${c.words} 個字` : '✓ 已連上，之後的牌組會同步到這組金鑰')
   }
 
-  /** 這台的資料帶進那個空間(空間裡原本有的照 updated_at 合併) */
+  /**
+   * 這台的資料帶進那個空間(空間裡原本有的照 updated_at 合併)。同步完之後,同名的牌組併成一副
+   * (兩台都從同一份範本開始的話,不併每個字都會有兩份)。
+   */
   const mergeInto = async (key: string) => {
     setKeyInput('')
     setMsg('同步中…')
     await adoptSyncSpace(key)
+    const mine = (await db.decks.toArray()).map((d) => d.id)
     const r = await syncNow()
-    setMsg(syncMessage(r, '✓ 已把這台的資料合併進這個空間'))
+    if (!r.ok) { setMsg(syncMessage(r, '')); return }
+    // 推上去時撞到別的空間的牌組會換 id(見 rekeyConflicts):照換過的 id 認
+    const rekeyed = await readRekeyed()
+    const folded = await foldIntoSameNameDecks(new Set(mine.map((id) => rekeyed[id] ?? id)))
+    if (folded === 0) { setMsg('✓ 已把這台的資料合併進這個空間'); return }
+    const r2 = await syncNow()
+    setMsg(syncMessage(r2, `✓ 已把這台的資料合併進這個空間；同名的 ${folded} 副牌組併成一副，重複的字只留一份`))
   }
 
   /** 純本機 → 輸入別台的金鑰。本機有資料就先問要帶過去還是捨棄(空的空間就直接帶過去,沒有東西可以改用) */
   const useExistingKey = () => run(async () => {
-    const { key } = normalizeSyncKey(keyInput)
-    if (key === '') return
-    const decks = await checkSpace(key)
-    if (decks === null) return
+    const probe = await checkSpace(keyInput)
+    if (probe === null) return
+    const { key } = probe
     if (await hasLocalData()) {
-      if (decks === 0) await mergeInto(key)
+      if (probe.decks === 0) await mergeInto(key)
       else setAdoptChoice(key)
       return
     }
@@ -205,10 +231,11 @@ export default function SettingsPage() {
 
   /** 已經在同步 → 換到另一個空間:這台清空,再下載新空間(舊空間的資料留在雲端) */
   const switchKey = () => run(async () => {
-    const { key } = normalizeSyncKey(keyInput)
     const previous = currentSpace ?? ''
-    if (key === '' || key === previous) return
-    if (await checkSpace(key) === null) return
+    if (isCurrentKey(keyInput)) return
+    const probe = await checkSpace(keyInput)
+    if (probe === null || probe.key === previous) return
+    const { key } = probe
     if (!await safeToLeaveSpace('換金鑰')) return
     // 換完這台只剩新金鑰:確認框先把目前這組秀出來,沒抄過的人才回得去
     if (!await confirm({
@@ -288,6 +315,23 @@ export default function SettingsPage() {
       }
     } catch (err) {
       setBackupMsg(`還原失敗：${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+
+  const prepareBackup = () => run(async () => {
+    try {
+      setBackupMsg('準備備份…')
+      const text = await exportBackup()
+      const name = `字卡備份-${new Date().toISOString().slice(0, 10)}.json`
+      if (isTouchDevice()) {
+        setBackupFile({ name, text, kb: Math.max(1, Math.round(new Blob([text]).size / 1024)) })
+        setBackupMsg('')
+      } else {
+        await download(name, text, 'application/json')
+        setBackupMsg('✓ 已下載備份檔')
+      }
+    } catch (err) {
+      setBackupMsg(`備份失敗：${errorText(err)}`)
     }
   })
 
@@ -399,11 +443,21 @@ export default function SettingsPage() {
           {backupMsg && <span className="footer-status" role="status" aria-live="polite">{backupMsg}</span>}
         </>
       }>
-        <button type="button" className="row accent" onClick={async () =>
-          download(`字卡備份-${new Date().toISOString().slice(0, 10)}.json`, await exportBackup(), 'application/json')
-        }>
-          <span className="row-icon"><DownloadIcon size={17} /></span>下載完整備份
-        </button>
+        {backupFile === null ? (
+          <button type="button" className="row accent" disabled={busy} onClick={() => void prepareBackup()}>
+            <span className="row-icon"><DownloadIcon size={17} /></span>下載完整備份
+          </button>
+        ) : (
+          // 同一次點擊裡叫出分享面板(存到「檔案」、AirDrop、傳給別的 App)
+          <button type="button" className="row accent"
+            onClick={() => void download(backupFile.name, backupFile.text, 'application/json')}>
+            <span className="row-icon"><DownloadIcon size={17} /></span>
+            <span className="row-main">
+              <span className="row-title">儲存備份檔</span>
+              <span className="row-subtitle">{backupFile.name} · {backupFile.kb} KB</span>
+            </span>
+          </button>
+        )}
         <label className={`row accent${busy ? ' disabled' : ''}`}>
           <span className="row-icon"><UploadIcon size={17} /></span>從備份還原…
           <input type="file" accept="application/json" className="visually-hidden" disabled={busy} onChange={(e) => {
@@ -472,7 +526,7 @@ export default function SettingsPage() {
               </div>
               {keyLooksOff && <div className="row"><span className="row-subtitle">這不像字卡產生的金鑰，確定沒打錯？</span></div>}
               <button type="button" className="row accent"
-                disabled={busy || keyInput.trim() === '' || normalizeSyncKey(keyInput).key === currentSpace}
+                disabled={busy || keyInput.trim() === '' || isCurrentKey(keyInput)}
                 onClick={() => void switchKey()}>換成這組</button>
             </ListSection>
             <ListSection footer="停止後這台的資料留著，只是不再同步；雲端那份也還在。">
