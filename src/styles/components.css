@@ -305,6 +305,8 @@ input.switch:disabled { opacity: .4; cursor: default; }
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
   box-shadow: 0 -0.5px 0 var(--separator);
+  /* 從分頁列開始的拖曳不捲頁面(和原生 App 一樣):手指點下去稍微滑一點,不會變成捲動而把這一下吃掉 */
+  touch-action: none;
 }
 .tabbar a {
   position: relative;
@@ -331,7 +333,8 @@ input.switch:disabled { opacity: .4; cursor: default; }
   background: var(--accent); border-radius: 2px;
   animation: route-slide 0.9s ease-in-out infinite;
 }
-@keyframes route-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
+/* 一開始就看得到一截(從 -100% 滑進來的話,前幾十毫秒什麼都看不到) */
+@keyframes route-slide { 0% { transform: translateX(-40%); } 100% { transform: translateX(350%); } }
 
 @media (min-width: 768px) {
   .tabbar {
