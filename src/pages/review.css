@@ -1,5 +1,5 @@
 /* ---------- 複習(專注模式) ----------
-   頂列(✕ 進度 剩幾張 ↶ ⋯)、中間卡片、底部固定的「顯示答案」/評分鍵(拇指區) */
+   頂列(✕ 進度 三色計數 ↶ ⋯)、中間卡片、底部固定的「顯示答案」/評分鍵(拇指區) */
 /* 選擇器要比 .app.no-tabbar .page 重,不然複習畫面底下多一截可以捲的空白 */
 .app.no-tabbar .page:has(.review-screen), .app.no-tabbar .page:has(.review-done) { padding-bottom: 0; }
 
@@ -7,13 +7,16 @@
   --actions-h: 84px;
   display: flex; flex-direction: column;
   min-height: 100dvh;
+  /* 頂列是 fixed,不佔位置:上面讓出它的高度 */
+  padding-top: calc(52px + var(--safe-top));
   padding-bottom: calc(var(--actions-h) + var(--safe-bottom) + 8px);
 }
 
+/* 頂列固定在畫面頂端(不是 sticky):卡片很長、還在慣性捲動時點 ✕ ↶ ⋯ 才不會被拿去停住捲動 */
 .review-bar {
-  position: sticky; top: 0; z-index: 10;
+  position: fixed; top: 0; left: 0; right: 0; z-index: 10;
   display: flex; align-items: center; gap: 2px;
-  margin: 0 calc(-1 * (var(--page-x) + var(--safe-right))) 0 calc(-1 * (var(--page-x) + var(--safe-left)));
+  margin: 0;
   min-height: calc(52px + var(--safe-top));
   padding: var(--safe-top) calc(6px + var(--safe-right)) 0 calc(6px + var(--safe-left));
   background: var(--bg);
@@ -29,11 +32,14 @@
   background: var(--accent); border-radius: inherit;
   transition: width .3s ease;
 }
-.review-remaining {
-  margin-right: 4px; white-space: nowrap;
-  font-size: var(--fs-footnote); color: var(--text-2); font-variant-numeric: tabular-nums;
-}
-.review-remaining b { font-size: var(--fs-subhead); font-weight: 600; color: var(--text); }
+/* 還有幾張:新卡 / 學習中 / 待複習三色(和首頁同一套 .count),眼前這張的那一類畫底線 */
+.review-counts { display: flex; align-items: center; gap: 10px; margin: 0 6px 0 2px; font-size: var(--fs-subhead); }
+.review-counts .count { gap: 4px; }
+.review-counts .dot { width: 7px; height: 7px; }
+.review-counts .count.current b { text-decoration: underline 2px; text-underline-offset: 4px; }
+/* 窄螢幕(iPhone SE)三個數字都是三位數時,進度條還要看得到 */
+.review-progress { min-width: 40px; }
+@media (max-width: 359px) { .review-counts { gap: 7px; font-size: var(--fs-footnote); } }
 .review-err { margin: 4px 4px 0; }
 
 .flashcard {
@@ -154,8 +160,9 @@
 
 /* 寬螢幕:按鈕接在卡片下面,不必跑到畫面最底 */
 @media (min-width: 768px) {
-  .review-screen, .review-screen.with-hint { min-height: 0; padding-bottom: 32px; }
-  .review-bar { position: static; margin: 0; padding: 12px 0 0; min-height: 0; background: none; }
+  .review-screen, .review-screen.with-hint { min-height: 0; padding-top: 0; padding-bottom: 32px; }
+  /* relative(不是 static):橫放時提示條以頂列為準定位 */
+  .review-bar { position: relative; margin: 0; padding: 12px 0 0; min-height: 0; background: none; }
   .flashcard { flex: none; min-height: 360px; margin-top: 12px; }
   .review-actions { position: static; padding: 16px 0 0; background: none; }
   .review-actions > * { max-width: none; }
@@ -183,9 +190,13 @@
   .review-actions > * { max-width: 688px; }
   .rating, .show-answer { min-height: 52px; }
   .rating-hint { display: none; }
-  /* 橫放時卡片矮,底部的提示條會蓋住答案的最後一行:改疊在頂列上(✕ 和 ⋯ 在兩端,蓋不到) */
+  /* 橫放時卡片矮,底部的提示條會蓋住答案的最後一行:改疊在頂列上,夾在 ✕ 和右邊那一組之間
+     (進度條可以蓋;三色計數、↶、⋯ 不能蓋 —— 每答一張都跳出來,蓋住的話計數一直看不到) */
   .app.no-tabbar .review-screen .review-toast, .app.no-tabbar .review-screen.with-hint .review-toast {
-    top: calc(var(--safe-top) + 2px); bottom: auto;
+    position: absolute; top: calc(var(--safe-top) + 2px); bottom: auto;
+    left: calc(var(--safe-left) + 56px); right: calc(var(--safe-right) + 250px);
+    width: auto; max-width: none; transform: none; justify-content: center;
+    animation-name: toast-in-top;
   }
   .review-done { min-height: 0; }
 }
@@ -195,3 +206,4 @@
     font-size: clamp(var(--fs-title2), calc(100cqi / var(--n, 4) - 1px), 34px);
   }
 }
+@keyframes toast-in-top { from { opacity: 0; transform: translateY(-8px); } }

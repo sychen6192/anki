@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  buildMultiDeckQueue, buildQueue, countTodayNew, deckQueue, newOverLimit, startOfToday, DAY_START_HOUR, SIBLING_GAP_MS,
+  buildMultiDeckQueue, buildQueue, countTodayNew, deckQueue, newOverLimit, splitCounts, startOfToday, todayCards,
+  DAY_START_HOUR, LEARN_AHEAD_MS, SIBLING_GAP_MS,
 } from '../src/lib/queue'
 import { newCardFields, State } from '../src/lib/fsrs'
 import type { CardRecord, ReviewLogRecord } from '../shared/types'
@@ -82,6 +83,48 @@ describe('buildQueue', () => {
 
   it('沒有未到期學習卡時 nextLearningDue 為 null', () => {
     expect(buildQueue([], [], 20, NOW).nextLearningDue).toBeNull()
+  })
+})
+
+describe('learnAhead / todayCards:幾分鐘內會回來的學習中卡片也算「今天還要看的」', () => {
+  it('LEARN_AHEAD_MS 內會到期的學習中/重學卡照 due 排進 learnAhead;更晚的、暫停的、刪除的不算', () => {
+    const soon = card({ state: State.Learning, due: NOW + 10 * 60_000 })
+    const sooner = card({ state: State.Relearning, due: NOW + 60_000 })
+    const edge = card({ state: State.Learning, due: NOW + LEARN_AHEAD_MS })
+    const later = card({ state: State.Learning, due: NOW + LEARN_AHEAD_MS + 1 })
+    const paused = card({ state: State.Learning, due: NOW + 60_000, suspended: 1 })
+    const gone = card({ state: State.Learning, due: NOW + 60_000, deleted: 1 })
+    const futureReview = card({ state: State.Review, due: NOW + 60_000 })
+    const r = buildQueue([soon, sooner, edge, later, paused, gone, futureReview], [], 20, NOW)
+    expect(r.queue).toEqual([])
+    expect(r.learnAhead.map((c) => c.id)).toEqual([sooner.id, soon.id, edge.id])
+    expect(r.nextLearningDue).toBe(NOW + 60_000)
+  })
+
+  it('到期卡、新卡做完只剩學習中的卡時,todayCards 還是算得到它們 —— 首頁不會說「今天完成了」', () => {
+    // 今天學了 3 張新卡(額度 3),都還在學習步驟裡、幾分鐘後回來
+    const learning = [1, 6, 10].map((m) => card({ state: State.Learning, due: NOW + m * 60_000 }))
+    const logs = learning.map((c) => log({ card_id: c.id, state: State.New, reviewed_at: NOW - 60_000 }))
+    const r = deckQueue('d', 3, learning, logs, NOW)
+    expect(r.queue).toEqual([])
+    expect(todayCards(r)).toHaveLength(3)
+    expect(splitCounts(todayCards(r))).toEqual({ news: 0, learn: 3, rev: 0 })
+  })
+
+  it('todayCards = 到期段、新卡段在前,learnAhead 接在後面(複習畫面也是先做完到期的才提前拿)', () => {
+    const due = card({ state: State.Review, due: NOW - 1000 })
+    const fresh = card({ state: State.New })
+    const soon = card({ state: State.Learning, due: NOW + 60_000 })
+    const r = buildQueue([soon, fresh, due], [], 20, NOW)
+    expect(todayCards(r).map((c) => c.id)).toEqual([due.id, fresh.id, soon.id])
+  })
+
+  it('跨牌組:各副的學習中卡片一起照 due 排;不在名單裡的牌組不算', () => {
+    const a = card({ deck_id: 'A', state: State.Learning, due: NOW + 9 * 60_000 })
+    const b = card({ deck_id: 'B', state: State.Relearning, due: NOW + 2 * 60_000 })
+    const other = card({ deck_id: 'Z', state: State.Learning, due: NOW + 60_000 })
+    const r = buildMultiDeckQueue([{ id: 'A', new_per_day: 20 }, { id: 'B', new_per_day: 20 }], [a, b, other], [], NOW)
+    expect(r.learnAhead.map((c) => c.id)).toEqual([b.id, a.id])
   })
 })
 

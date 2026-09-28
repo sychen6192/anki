@@ -1,26 +1,6 @@
 import {
-  useEffect, useLayoutEffect, useRef, type KeyboardEvent, type MouseEvent, type PointerEvent, type SyntheticEvent,
+  useLayoutEffect, useRef, type KeyboardEvent, type MouseEvent, type PointerEvent, type SyntheticEvent,
 } from 'react'
-
-// 好幾層疊在一起(確認框開在面板上)時,各自記「開之前的值」再寫回去會互相蓋掉,
-// 關掉的順序一亂頁面就一直捲不動:用計數器,第一層打開時鎖、最後一層關掉才還原
-let lockCount = 0
-let savedOverflow = ''
-
-/** 開著 sheet 的時候鎖住底下頁面的捲動(iPhone 上拖背景會帶著整頁跑) */
-function useScrollLock(locked: boolean) {
-  useEffect(() => {
-    if (!locked) return
-    const html = document.documentElement
-    if (lockCount++ === 0) {
-      savedOverflow = html.style.overflow
-      html.style.overflow = 'hidden'
-    }
-    return () => {
-      if (--lockCount === 0) html.style.overflow = savedOverflow
-    }
-  }, [locked])
-}
 
 /**
  * 共用:用原生 <dialog> 的 showModal(焦點鎖在裡面、Esc 關閉、背景不能點)。
@@ -28,6 +8,10 @@ function useScrollLock(locked: boolean) {
  * 打開用 layout effect:點按鈕 → setState → React 在同一個點擊事件裡同步 commit,
  * showModal 與 focus 也就還在「使用者手勢」之內 —— iOS 只有這樣才會把鍵盤叫出來。
  * 要一打開就聚焦的欄位標 data-autofocus(React 的 autoFocus 會在 dialog 還沒打開時就 focus,沒用)。
+ *
+ * 不必另外鎖住底下頁面的捲動:文件本身不捲,頁面在 .scroller 裡捲(見 lib/scroller.ts),
+ * 而 dialog 在最上層、不在 .scroller 裡 —— 拖背景、捲到面板盡頭都傳不到頁面。
+ * (以前把 .scroller 設成 overflow: hidden 來鎖,iPhone 上每開關一次面板就要重建一次整頁的捲動層)
  */
 export function useModalDialog(open: boolean, onClose: () => void) {
   const ref = useRef<HTMLDialogElement>(null)
@@ -43,7 +27,6 @@ export function useModalDialog(open: boolean, onClose: () => void) {
       d.close()
     }
   }, [open])
-  useScrollLock(open)
   // 按下去也在背景上才算「點背景」:在輸入框裡拖選文字、放開時滑到面板外,
   // click 會落在兩者共同的祖先(dialog 本身),不能因此把面板關掉
   const downOnBackdrop = useRef(false)

@@ -1,8 +1,5 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import {
-  Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
-} from 'recharts'
 import { db } from '../db/db'
 import { sortDecks } from '../lib/deckOrder'
 import { State } from '../lib/fsrs'
@@ -12,6 +9,7 @@ import { lastNDays, streakDays, trueRetention } from '../lib/stats'
 import { getFsrsSettings } from '../lib/fsrsSettings'
 import { MIN_REVIEWS_TO_OPTIMIZE } from '../lib/fsrsOptimizer'
 import { Loading } from '../components/Loading'
+import { DayBars, Donut } from '../components/Charts'
 import { PageHeader } from '../components/PageHeader'
 import { Link } from 'react-router-dom'
 import './stats.css'
@@ -28,7 +26,7 @@ function heatColor(count: number): string {
 const HEAT_WEEKS = 17
 
 const DAY = 86400_000
-// 圖表顏色走設計 token,深色模式才有對應的變體(SVG 的 fill 支援 var())
+// 圖表顏色走設計 token,深色模式才有對應的變體
 const C_REVIEWS = 'var(--chart-reviews)'
 const C_DUE = 'var(--chart-due)'
 const DIST_COLORS = ['var(--c-new)', 'var(--c-learn)', 'var(--c-due-count)']
@@ -228,14 +226,7 @@ export default function StatsPage() {
           <>
           <p className="chart-summary">共 {pastTotal} 次，平均每天 {Math.round(pastTotal / 30)} 次
             {pastMax > 0 && pastMaxDay !== undefined && `，最多是 ${pastMaxDay} 的 ${pastMax} 次`}</p>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={past} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-              <XAxis dataKey="day" interval={6} tickLine={false} axisLine={false} />
-              <YAxis allowDecimals={false} width={36} tickLine={false} axisLine={false} />
-              <Tooltip />
-              <Bar dataKey="count" name="複習次數" fill={C_REVIEWS} radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <DayBars data={past} color={C_REVIEWS} unit="次" label="過去 30 天每天的複習次數" />
           </>
         )}
       </section>
@@ -248,14 +239,7 @@ export default function StatsPage() {
           <>
           <p className="chart-summary">未來 7 天有 {week} 張到期
             {forecastMax > 0 && forecastMaxDay !== undefined && `，最多是 ${forecastMaxDay} 的 ${forecastMax} 張`}</p>
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={forecast} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-              <XAxis dataKey="day" interval={6} tickLine={false} axisLine={false} />
-              <YAxis allowDecimals={false} width={36} tickLine={false} axisLine={false} />
-              <Tooltip />
-              <Bar dataKey="count" name="到期張數" fill={C_DUE} radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <DayBars data={forecast} color={C_DUE} unit="張" label="未來 30 天每天到期的張數" />
           </>
         )}
       </section>
@@ -268,14 +252,7 @@ export default function StatsPage() {
           <p className="stat-empty">每張卡都標成已經會了或先不學了</p>
         ) : (
           <div className="state-dist">
-            <ResponsiveContainer width={150} height={150}>
-              <PieChart>
-                <Pie data={dist} dataKey="value" nameKey="name" innerRadius={44} outerRadius={70} strokeWidth={0}>
-                  {dist.map((d) => <Cell key={d.name} fill={d.color} />)}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
+            <Donut parts={dist} />
             <ul className="dist-legend">
               {dist.map((d) => (
                 <li key={d.name}><span className="dot" style={{ background: d.color }} />{d.name}<b>{d.value}</b></li>

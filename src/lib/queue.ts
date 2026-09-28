@@ -3,8 +3,25 @@ import type { CardRecord, DeckRecord, ReviewLogRecord } from '../../shared/types
 
 export interface QueueResult {
   queue: CardRecord[]
+  /**
+   * 還沒到期、但 LEARN_AHEAD_MS 內會到期的學習中卡片(依 due 排)。到期的與新卡都做完後,
+   * 複習畫面直接提前拿這些來複習;所以首頁、牌組頁、複習畫面的「還有幾張」都要把它們算進去。
+   */
+  learnAhead: CardRecord[]
   nextLearningDue: number | null
   newRemaining: number
+}
+
+/**
+ * 到期卡與新卡都做完了,這段時間內會到期的學習中卡片直接提前拿來複習(Anki 預設同樣是 20 分鐘),
+ * 不必停在完成畫面乾等。學習步驟(1 分、10 分;重學 10 分)都在這段時間內,
+ * 所以今天剛學、還沒畢業的卡一直都在「今天還要看的」裡面。
+ */
+export const LEARN_AHEAD_MS = 20 * 60_000
+
+/** 今天這一輪還要看的卡:到期的、今天的新卡,加上幾分鐘內會回來的學習中卡片 */
+export function todayCards(r: QueueResult): CardRecord[] {
+  return r.learnAhead.length === 0 ? r.queue : [...r.queue, ...r.learnAhead]
 }
 
 /**
@@ -159,6 +176,7 @@ function assembleQueue(groups: QueueGroup[], now: number, extraNew = 0): QueueRe
   return {
     // 額度先切再排開:排開只動順序,不改今天學哪幾張
     queue: [...due, ...deferSiblings(news, recent)],
+    learnAhead: futureLearning.filter((c) => c.due <= now + LEARN_AHEAD_MS).sort((a, b) => a.due - b.due),
     nextLearningDue: futureLearning.length ? Math.min(...futureLearning.map((c) => c.due)) : null,
     newRemaining,
   }

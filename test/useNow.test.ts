@@ -25,6 +25,15 @@ describe('nextLearningDue', () => {
   })
 })
 
+describe('nextLearningDue(ahead):首頁在學習中的卡進入「提前複習」範圍的那一刻重算', () => {
+  it('回傳 due - ahead;已經在範圍裡的(due - ahead <= now)不算', () => {
+    const now = 100_000
+    const cards = [card({ due: now + 5_000 }), card({ due: now + 50_000 }), card({ due: now + 30_000 })]
+    expect(nextLearningDue(cards, now, 20_000)).toBe(now + 10_000)
+    expect(nextLearningDue(cards, now, 60_000)).toBeNull()
+  })
+})
+
 describe('sortDecks', () => {
   it('依名稱排,數字照數值(第 2 課在第 10 課前面)', () => {
     const names = sortDecks([{ name: '第 10 課' }, { name: '大家的日本語' }, { name: 'N3 單字' }, { name: '第 2 課' }]).map((d) => d.name)

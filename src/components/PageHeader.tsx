@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronLeftIcon } from './icons'
+import { onPageScroll, pageScrollTop, scrollPageTo } from '../lib/scroller'
 
 interface Props {
   title: ReactNode
@@ -23,10 +24,9 @@ interface Props {
 export function PageHeader({ title, shortTitle, back, leading, actions, subtitle }: Props) {
   const [scrolled, setScrolled] = useState(false)
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 34)
+    const onScroll = () => setScrolled(pageScrollTop() > 34)
     onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
+    return onPageScroll(onScroll)
   }, [])
 
   return (
@@ -37,7 +37,10 @@ export function PageHeader({ title, shortTitle, back, leading, actions, subtitle
             <Link to={back.to} className="back-btn"><ChevronLeftIcon size={24} />{back.label}</Link>
           ) : leading}
         </div>
-        <div className="nav-bar-title" aria-hidden="true">{shortTitle ?? (typeof title === 'string' ? title : '')}</div>
+        {/* 捲下去才出現的小標題:點它捲回頂端(頁面在內層捲,iPhone 點狀態列捲回頂端不管用) */}
+        <div className="nav-bar-title" aria-hidden="true" onClick={() => { if (scrolled) scrollPageTo(0, true) }}>
+          {shortTitle ?? (typeof title === 'string' ? title : '')}
+        </div>
         <div className="nav-bar-side end">{actions}</div>
       </div>
       <h1 className="large-title">{title}</h1>

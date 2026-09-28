@@ -87,14 +87,15 @@ function stripDirty<T>(rows: Local<T>[]): T[] {
 async function clearPushedDirty<T extends { id: string; updated_at: number }>(
   table: Table<Local<T>, string>, pushed: Local<T>[], skipped: Set<string>,
 ): Promise<void> {
-  for (const row of pushed) {
-    if (skipped.has(row.id)) continue // 伺服器沒存下這列,保留 dirty 等下次再試
-    const cur = await table.get(row.id)
-    // push 期間又被改過(updated_at 變了)就保留 dirty,下次再推
-    if (cur && cur.updated_at === row.updated_at) {
-      await table.update(row.id, { dirty: 0 } as unknown as UpdateSpec<Local<T>>)
-    }
-  }
+  // 伺服器沒存下的列保留 dirty 等下次再試
+  const rows = pushed.filter((r) => !skipped.has(r.id))
+  if (rows.length === 0) return
+  const cur = await table.bulkGet(rows.map((r) => r.id))
+  // push 期間又被改過(updated_at 變了)就保留 dirty,下次再推
+  const changes = rows
+    .filter((r, i) => cur[i] !== undefined && cur[i]!.updated_at === r.updated_at)
+    .map((r) => ({ key: r.id, changes: { dirty: 0 } as unknown as UpdateSpec<Local<T>> }))
+  if (changes.length > 0) await table.bulkUpdate(changes)
 }
 
 async function mergeTable<T extends { id: string; updated_at: number }>(
@@ -185,13 +186,16 @@ async function applyPushResponse(chunk: PushChunk, pushRes: SyncPushResponse | n
   const conflicts = pushRes?.conflicts
   const conflictCount = conflicts ? Object.values(conflicts).reduce((n, ids) => n + (ids?.length ?? 0), 0) : 0
   if (skipped.size > conflictCount) console.warn('伺服器跳過了無法存下的資料列', [...skipped])
-  await clearPushedDirty(db.decks, chunk.decks, skipped)
-  await clearPushedDirty(db.notes, chunk.notes, skipped)
-  await clearPushedDirty(db.cards, chunk.cards, skipped)
-  await clearPushedDirty(db.settings, chunk.settings, skipped)
-  for (const log of chunk.review_logs) {
-    if (!skipped.has(log.id)) await db.review_logs.update(log.id, { dirty: 0 })
-  }
+  // 包成一個交易:一列一列各自寫的話,每寫一列畫面上的 liveQuery 就重查、整頁重畫一次 ——
+  // 複習完推幾百列時主執行緒被佔住好幾秒(在統計頁實測 600 列 25 秒),點分頁都要等
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings], async () => {
+    await clearPushedDirty(db.decks, chunk.decks, skipped)
+    await clearPushedDirty(db.notes, chunk.notes, skipped)
+    await clearPushedDirty(db.cards, chunk.cards, skipped)
+    await clearPushedDirty(db.settings, chunk.settings, skipped)
+    const logIds = chunk.review_logs.filter((l) => !skipped.has(l.id)).map((l) => l.id)
+    if (logIds.length > 0) await db.review_logs.where(':id').anyOf(logIds).modify({ dirty: 0 })
+  })
   return conflictCount > 0 && await rekeyConflicts(conflicts!, space) > 0
 }
 

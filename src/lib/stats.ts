@@ -66,3 +66,18 @@ export function trueRetention(logs: ReviewLogRecord[], since = -Infinity): Reten
   }
   return { passed, total }
 }
+
+/**
+ * 長條圖的縱軸刻度:從 0 開始、間距是 1、2、5 乘上 10 的次方,大約分 target 格,
+ * 最上面一格剛好蓋過最大值。次數都是整數,間距至少 1。
+ */
+export function niceTicks(max: number, target = 4): number[] {
+  if (!(max > 0)) return [0, 1]
+  const raw = max / target
+  const mag = 10 ** Math.floor(Math.log10(raw))
+  const step = Math.max(1, [1, 2, 5, 10].map((m) => m * mag).find((s) => s >= raw) ?? 10 * mag)
+  const top = Math.ceil(max / step) * step
+  const ticks: number[] = []
+  for (let v = 0; v <= top; v += step) ticks.push(v)
+  return ticks
+}

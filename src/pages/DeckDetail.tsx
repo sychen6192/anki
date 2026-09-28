@@ -16,8 +16,9 @@ import { isSpeechSupported, speak } from '../lib/speak'
 import { requestSync } from '../lib/sync'
 import { createShare, isTouchDevice, shareUrlFor } from '../lib/share'
 import { State } from '../lib/fsrs'
-import { deckQueue, startOfToday } from '../lib/queue'
+import { deckQueue, LEARN_AHEAD_MS, startOfToday, todayCards } from '../lib/queue'
 import { nextLearningDue, useNow } from '../lib/useNow'
+import { pageScroller } from '../lib/scroller'
 import { useBusy } from '../lib/useBusy'
 import { Loading } from '../components/Loading'
 import { SpeakerIcon } from '../components/SpeakerIcon'
@@ -92,7 +93,7 @@ export default function DeckDetail() {
   const [wakeAt, setWakeAt] = useState<number | null>(null)
   const now = useNow(wakeAt)
   const dayStart = startOfToday(now)
-  useEffect(() => { setWakeAt(nextLearningDue(deckCards, now)) }, [deckCards, now])
+  useEffect(() => { setWakeAt(nextLearningDue(deckCards, now, LEARN_AHEAD_MS)) }, [deckCards, now])
   const todayLogs = useLiveQuery(
     () => db.review_logs.where('reviewed_at').aboveOrEqual(dayStart).toArray(), [dayStart],
   )
@@ -113,7 +114,7 @@ export default function DeckDetail() {
   const [settingsNote, setSettingsNote] = useState<string | null>(null)
   const [busy, run] = useBusy()
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
-  const sentinel = useRef<HTMLDivElement | null>(null)
+  const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null)
   const firstField = useRef<HTMLInputElement | null>(null)
   const readingField = useRef<HTMLInputElement | null>(null)
   const meaningField = useRef<HTMLInputElement | null>(null)
@@ -150,16 +151,18 @@ export default function DeckDetail() {
     return arr
   }, [notes, sort])
 
-  // 捲到列表底部就再多顯示一批
+  // 捲到列表底部就再多顯示一批。sentinel 用 state 記:它等資料都讀到(載入畫面換成列表)才出現,
+  // 用 ref 的話 effect 可能在它出現之前就跑過了,之後捲到底也不會再載入。
+  // root 是頁面的捲動區:以畫面為準的話,sentinel 先被捲動區裁掉,400px 的提前量就沒作用了
   useEffect(() => {
-    const el = sentinel.current
+    const el = sentinel
     if (el === null || typeof IntersectionObserver !== 'function') return
     const io = new IntersectionObserver((entries) => {
       if (entries.some((e) => e.isIntersecting)) setVisibleCount((n) => n + PAGE_SIZE)
-    }, { rootMargin: '400px' })
+    }, { root: pageScroller(), rootMargin: '400px' })
     io.observe(el)
     return () => io.disconnect()
-  }, [notes, search])
+  }, [sentinel, notes, search])
 
   // 選取模式底部的動作列會依寬度與已選的數字換行,高度不固定:量出來給提示條讓位(deck.css 的 --batch-h)
   useEffect(() => {
@@ -190,7 +193,8 @@ export default function DeckDetail() {
   const [progressMsg, setProgressMsg] = useState<string | null>(null)
   const [shareMsg, setShareMsg] = useState<string | null>(null)
 
-  if (deck === undefined || !notes || !todayLogs) return <Loading />
+  // 卡片也要等:還沒讀到時算出來是 0 張,按鈕會先閃一下「今天完成了」
+  if (deck === undefined || !notes || !todayLogs || !deckCards) return <Loading />
   if (deck === null || deck.deleted) {
     // 這台根本沒有這副(換過金鑰後按上一頁、清空重新下載還沒下載完、從別台複製的網址)不等於被刪了
     const missing = deck === null
@@ -216,8 +220,8 @@ export default function DeckDetail() {
     if (st !== 'active') statusCounts[st] += 1
   }
   const hasParked = statusCounts.known + statusCounts.paused > 0
-  const queueCount = deckQueue(deck.id, deck.new_per_day, deckCards ?? [], todayLogs, now).queue.length
-  const hasNewLeft = (deckCards ?? []).some((c) => !c.deleted && !c.suspended && c.state === State.New)
+  const queueCount = todayCards(deckQueue(deck.id, deck.new_per_day, deckCards, todayLogs, now)).length
+  const hasNewLeft = deckCards.some((c) => !c.deleted && !c.suspended && c.state === State.New)
 
   const toggleSelected = (id: string) => setSelected((prev) => {
     const next = new Set(prev)
@@ -527,7 +531,9 @@ export default function DeckDetail() {
       await softDeleteDeck(deck.id)
       setErrMsg(null)
       requestSync()
-      navigate('/')
+      // 大牌組刪得久,這段時間點了別的分頁就別再把人拉回牌組(網址在換頁當下就變了);
+      // 用 replace:上一頁不會回到已經刪掉的牌組
+      if (window.location.pathname === `/deck/${deck.id}`) navigate('/', { replace: true })
     } catch (e) {
       setErrMsg(`操作失敗：${errText(e)}`)
     }
@@ -699,7 +705,7 @@ export default function DeckDetail() {
               </button>
             </div>
           )}
-          <div ref={sentinel} />
+          <div ref={setSentinel} />
           <p className="list-count">
             顯示 {shown.length} / {filtered.length} 個字
             {shown.length < filtered.length && (

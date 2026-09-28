@@ -14,33 +14,31 @@ import { sortDecks } from '../lib/deckOrder'
 import {
   applyReview, restoreCardsSuspended, setNoteSuspended, StaleCardError, undoReview, updateNote, type SuspendedSnapshot,
 } from '../db/repo'
-import { applyFsrsSettings, formatInterval, previewIntervals, rate, State, type RatingValue } from '../lib/fsrs'
+import { answersLeft, applyFsrsSettings, formatInterval, previewIntervals, rate, State, type RatingValue } from '../lib/fsrs'
 import { getFsrsSettings } from '../lib/fsrsSettings'
 import { isValidAccent, normalizeAccent } from '../lib/accent'
 import {
-  buildMultiDeckQueue, countKind, deckQueue, newOverLimit, splitCounts, startOfToday, type QueueCounts,
+  buildMultiDeckQueue, countKind, deckQueue, newOverLimit, splitCounts, startOfToday, todayCards, type QueueCounts,
 } from '../lib/queue'
 import { reviewKeyAction, type KeyTarget } from '../lib/reviewKeys'
 import { requestSync } from '../lib/sync'
+import { pageScrollTop, scrollPageTo } from '../lib/scroller'
 import type { CardRecord, DeckRecord, NoteRecord } from '../../shared/types'
 import './review.css'
 
 const RATING_LABELS: Record<RatingValue, string> = { 1: '重來', 2: '困難', 3: '普通', 4: '簡單' }
 
 /** 可以復原的動作:評分(刪 log、還原排程)、已經會了/先不學(把卡片狀態寫回去)、跳過(放回佇列) */
-type UndoEntry =
+type UndoAction =
   | { kind: 'rate'; card: CardRecord; logId: string }
   | { kind: 'suspend'; cardId: string; prev: SuspendedSnapshot[] }
   | { kind: 'skip'; cardId: string }
+/** 動作之前的進度條(復原時原封不動放回去);換了一輪複習(deck)就不放 */
+type UndoEntry = UndoAction & { before: { answered: number; progress: number; deck: string | undefined } }
 /** 這次複習能連續復原幾步 */
 const UNDO_LIMIT = 20
 /** 學習中的卡片若在這段時間內到期,停在完成畫面等它,時間到自動接回去複習 */
 const AUTO_RESUME_WINDOW = 10 * 60 * 1000
-/**
- * 到期卡與新卡都做完了,20 分鐘內會到期的學習中卡片直接提前拿來複習(Anki 預設同樣是 20 分鐘),
- * 不必停在完成畫面乾等。
- */
-const LEARN_AHEAD = 20 * 60 * 1000
 /** 複習中評分後多久同步一次(期間再評分就重新計時) */
 const SYNC_DELAY_MS = 15_000
 
@@ -92,7 +90,7 @@ export default function Review() {
   const [current, setCurrent] = useState<{ card: CardRecord; note: NoteRecord; deckName: string | null } | null>(null)
   const [sessionName, setSessionName] = useState<string | null>(null)
   const [showBack, setShowBack] = useState(false)
-  // 剩下幾張,分新卡/學習中/待複習(和首頁的三色計數同一個算法)
+  // 還有幾張,分新卡/學習中/待複習(和首頁的三色計數同一個算法:到期的、今天的新卡、幾分鐘內回來的學習中卡片)
   const [counts, setCounts] = useState<QueueCounts>({ news: 0, learn: 0, rev: 0 })
   const remaining = counts.news + counts.learn + counts.rev
   const [done, setDone] = useState(false)
@@ -124,9 +122,14 @@ export default function Review() {
   // 這次 session 裡跳過的卡片。只存在記憶體,離開複習畫面就重來 —— 跳過是
   // 「現在不想看」,不是 Anki 的 bury,不該寫進資料庫影響排程。
   const skipped = useRef(new Set<string>())
-  // 進度條用:記住這次 session 見過的最大待複習數。按「重來」會讓待複習數
-  // 回升,取最大值當分母,進度條就不會倒退。
-  const [sessionMax, setSessionMax] = useState(0)
+  // 進度條:這次答了幾次 /(答了幾次 + 照「普通」答完還要幾次)。學習中的卡答完一步還會回來,
+  // 只數張數的話會停住;數答題次數,每答一次都往前。0~1
+  const answeredCount = useRef(0)
+  // 這一輪複習是哪一副(完成後「繼續複習其他牌組」會在同一個畫面換網址,見下面換輪的 effect)
+  const sessionDeck = useRef(deckId)
+  const [progress, setProgress] = useState(0)
+  const progressRef = useRef(0)
+  const showProgress = useCallback((v: number) => { progressRef.current = v; setProgress(v) }, [])
   // 「再學 N 張新卡」:今日額度用完後自願加碼。只存在記憶體,離開頁面歸零,
   // 不動牌組設定 —— 明天的額度照舊。
   const bonusNew = useRef(0)
@@ -168,12 +171,16 @@ export default function Review() {
     }
   }, [])
 
-  const pushUndo = useCallback((entry: UndoEntry) => {
-    setUndoStack((s) => [...s.slice(-(UNDO_LIMIT - 1)), entry])
+  const pushUndo = useCallback((action: UndoAction) => {
+    const before = { answered: answeredCount.current, progress: progressRef.current, deck: sessionDeck.current }
+    setUndoStack((s) => [...s.slice(-(UNDO_LIMIT - 1)), { ...action, before }])
   }, [])
 
-  /** preferCardId:復原時用,讓剛還原的那張卡直接回到眼前,而不是排到佇列尾端 */
-  const loadNext = useCallback(async (preferCardId?: string) => {
+  /**
+   * preferCardId:復原時用,讓剛還原的那張卡直接回到眼前,而不是排到佇列尾端。
+   * keepProgress:復原已經把進度條放回動作之前的值,這裡不要再算
+   */
+  const loadNext = useCallback(async (preferCardId?: string, keepProgress = false) => {
     let decks: DeckRecord[]
     if (allMode) {
       // 依名稱排:跨牌組時新卡照這個順序一副一副出,不是照隨機 id
@@ -194,8 +201,12 @@ export default function Review() {
     const logs = await db.review_logs.where('reviewed_at').aboveOrEqual(startOfToday()).toArray()
     // 「再學 N 張」的單位:單副是它的每日上限;全部時取最大的那副
     newPerDayRef.current = Math.max(...decks.map((d) => d.new_per_day))
+    // 加碼一輪新卡:進度條當成新的一輪從頭算(不然加進來的份讓比例掉到上一輪的進度以下,
+    // 進度條會停在原地好幾十張)
+    let newRound = false
     if (wantMore.current) {
       wantMore.current = false
+      newRound = true
       // 從今天已經超出上限的量往上加:今天之前加碼學過的,不能把這次的份抵掉
       const unit = newPerDayRef.current > 0 ? newPerDayRef.current : 20
       bonusNew.current = Math.max(bonusNew.current, newOverLimit(decks, cards, logs)) + unit
@@ -205,19 +216,14 @@ export default function Review() {
       ? buildMultiDeckQueue(decks, cards, logs, Date.now(), bonusNew.current)
       : deckQueue(deckId!, decks[0].new_per_day + bonusNew.current, cards, logs)
     const nextLearningDue = built.nextLearningDue
-    let queue = built.queue.filter((c) => !skipped.current.has(c.id))
+    // 「今天這一輪還要看的」(和計數同一組):到期的、新卡在前,幾分鐘內會到期的學習中卡片接在後面
+    // (提前拿來複習,不讓人在完成畫面乾等)
+    const today = todayCards(built)
+    let queue = today.filter((c) => !skipped.current.has(c.id))
     // 「跳過,等一下再看」:其他的都做完了,跳過的還沒做的就回來(排在最後)
-    if (queue.length === 0 && built.queue.length > 0) {
+    if (queue.length === 0 && today.length > 0) {
       skipped.current.clear()
-      queue = built.queue
-    }
-    // 該做的都做完了:20 分鐘內會到期的學習中卡片提前拿來,不讓人在完成畫面乾等
-    if (queue.length === 0) {
-      const horizon = Date.now() + LEARN_AHEAD
-      queue = cards
-        .filter((c) => !c.deleted && !c.suspended && !skipped.current.has(c.id)
-          && (c.state === State.Learning || c.state === State.Relearning) && c.due <= horizon)
-        .sort((a, b) => a.due - b.due)
+      queue = today
     }
     // 復原時優先回到那張卡。它可能已不在佇列裡 —— undoReview 會推進 updated_at
     // (LWW 傳播用),新卡按 updated_at 排序就會把它擠出每日上限的切片 ——
@@ -241,7 +247,7 @@ export default function Review() {
         if (others.length > 0) {
           const otherIds = new Set(others.map((d) => d.id))
           const otherCards = (await db.cards.toArray()).filter((c) => otherIds.has(c.deck_id))
-          setOthersDue(buildMultiDeckQueue(others, otherCards, logs).queue.length)
+          setOthersDue(todayCards(buildMultiDeckQueue(others, otherCards, logs)).length)
         } else setOthersDue(0)
       }
       setCurrent(null)
@@ -253,7 +259,6 @@ export default function Review() {
       return
     }
     const card = preferred ?? queue[0]
-    const inQueue = queue.some((c) => c.id === card.id)
     const note = await db.notes.get(card.note_id)
     if (!note) {
       setErrMsg('卡片資料缺失')
@@ -262,25 +267,34 @@ export default function Review() {
       return
     }
     setCurrent({ card, note, deckName: allMode ? decks.find((d) => d.id === card.deck_id)?.name ?? null : null })
-    const pending = inQueue ? queue : [card, ...queue]
+    // 計數算「今天這一輪還要看的」全部,跳過的也算(等一下還會回來)。只算眼前這段佇列的話,
+    // 到期的做完、換成提前拿的學習中卡片時,數字會從 1 跳回二三十、之後一直停在那裡 ——
+    // 首頁卻因為沒算它們而說「今天完成了」
+    const pending = today.some((c) => c.id === card.id) ? today : [card, ...today]
     setCounts(splitCounts(pending))
-    setSessionMax((m) => Math.max(m, pending.length))
+    if (newRound) answeredCount.current = 0
+    if (!keepProgress) {
+      const left = pending.reduce((n, c) => n + answersLeft(c), 0)
+      const ratio = answeredCount.current / (answeredCount.current + left)
+      // 按「重來」讓剩下的步數變多時停在原地,不倒退;只有復原會往回走
+      showProgress(newRound ? ratio : Math.max(progressRef.current, ratio))
+    }
     setShowBack(false)
     setDone(false)
     setNextDue(null)
     shownAt.current = performance.now()
-    window.scrollTo(0, 0)
-  }, [deckId, allMode])
+    scrollPageTo(0, false, true)
+  }, [deckId, allMode, showProgress])
 
   // 換到另一個複習(例如完成後按「繼續複習其他牌組」,同一個畫面換網址):這一輪的進度、
   // 加碼、跳過都從頭算,不然進度條一開始就是 80%、上一副的加碼也會帶過來。復原紀錄保留。
-  const sessionDeck = useRef(deckId)
   useEffect(() => {
     if (sessionDeck.current === deckId) return
     sessionDeck.current = deckId
     bonusNew.current = 0
     skipped.current.clear()
-    setSessionMax(0)
+    answeredCount.current = 0
+    showProgress(0)
     setDoneStats(null)
   }, [deckId])
 
@@ -335,6 +349,7 @@ export default function Review() {
       // 評分已儲存成功,先清掉舊錯誤——loadNext 若失敗是另一回事,不代表評分沒存到。
       setErrMsg(null)
       pushUndo({ kind: 'rate', card: answered, logId })
+      answeredCount.current += 1
       // 每評一張就排一次同步(15 秒內連續評分會合併成一次):中途被打斷、改到另一台接著背,
       // 才不會又看到同一批卡,兩邊的排程也不會互相蓋掉。不立刻推:評完馬上按「復原」時,
       // 那筆紀錄多半還沒上傳 —— 上傳後就收不回來,別台會多算一次。切到背景時會補推(sync.ts)
@@ -388,6 +403,7 @@ export default function Review() {
       const prev = await setNoteSuspended(current.note.id, value)
       setErrMsg(null)
       pushUndo({ kind: 'suspend', cardId: current.card.id, prev })
+      answeredCount.current += 1
       requestSync(SYNC_DELAY_MS)
       showToast(value === 2 ? `「${word}」已標為會了，不會再出現` : `「${word}」先不學了，牌組頁的「先不學」可以恢復`)
       await loadNext()
@@ -445,16 +461,22 @@ export default function Review() {
       else if (entry.kind === 'suspend') await restoreCardsSuspended(entry.prev)
       else skipped.current.delete(entry.cardId)
       if (entry.kind !== 'skip') requestSync(SYNC_DELAY_MS)
+      // 進度條放回這個動作之前的樣子(同一輪複習才放:換過牌組的那一輪從頭算過了)
+      const restore = entry.before.deck === sessionDeck.current
+      if (restore) {
+        answeredCount.current = entry.before.answered
+        showProgress(entry.before.progress)
+      }
       setUndoStack((s) => s.slice(0, -1))
       setToast(null)
       setErrMsg(null)
-      await loadNext(entry.kind === 'rate' ? entry.card.id : entry.cardId)
+      await loadNext(entry.kind === 'rate' ? entry.card.id : entry.cardId, restore)
     } catch (e) {
       setErrMsg(`復原失敗：${e instanceof Error ? e.message : String(e)}`)
     } finally {
       answering.current = false
     }
-  }, [undoStack, loadNext])
+  }, [undoStack, loadNext, showProgress])
 
   /** 離開複習:從 App 裡點進來的就回上一頁(保留捲動與分頁),直接開網址的回牌組 */
   const exit = useCallback(() => {
@@ -594,7 +616,8 @@ export default function Review() {
   const { card, note } = current
   const reverse = card.direction === 'reverse'
   const preview = previewIntervals(card)
-  const progress = sessionMax > 0 ? Math.round(((sessionMax - remaining) / sessionMax) * 100) : 0
+  const pct = Math.round(progress * 100)
+  const kind = countKind(card)
 
   // 正向卡:單字從頭到尾固定在同一個位置,答案先佔好位置(看不見),翻面時只淡入答案
   // 讀音和單字一樣(ビザ、どうぞ這類假名的字)又沒有重音可畫,就不再印一次
@@ -624,18 +647,33 @@ export default function Review() {
       <p className="visually-hidden" aria-live="polite">{announcement}</p>
       <header className="review-bar">
         <button className="icon-btn" aria-label="結束複習" title="結束複習（Esc）" onClick={exit}><CloseIcon /></button>
+        {/* 點進度條捲回頂端(卡片很長時;iPhone 點狀態列在內層捲動不管用) */}
         <div className="review-progress" role="progressbar" aria-label="這次的進度"
-          aria-valuemin={0} aria-valuemax={sessionMax} aria-valuenow={sessionMax - remaining}>
-          <span style={{ width: `${progress}%` }} />
+          aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}
+          onClick={() => { if (pageScrollTop() > 0) scrollPageTo(0, true) }}>
+          <span style={{ width: `${pct}%` }} />
         </div>
-        <span className="review-remaining" role="img"
-          aria-label={`剩 ${remaining} 張：新卡 ${counts.news}、學習中 ${counts.learn}、待複習 ${counts.rev}`}>
-          剩 <b>{remaining}</b>
+        {/* 和首頁同一套三色:新卡 → 學習中 → 待複習;眼前這張屬於哪一類就畫底線 */}
+        <span className="review-counts" role="img"
+          aria-label={`還有 ${remaining} 張：新卡 ${counts.news}、學習中 ${counts.learn}、待複習 ${counts.rev}`}>
+          {([['news', 'new'], ['learn', 'learn'], ['rev', 'due']] as const).map(([k, dot]) => (
+            <span key={k} className={`count${counts[k] === 0 ? ' zero' : ''}${k === kind ? ' current' : ''}`}>
+              <span className={`dot ${dot}`} /><b>{counts[k]}</b>
+            </span>
+          ))}
         </span>
         <button className="icon-btn" aria-label="復原上一步" disabled={lastAction === null}
           onClick={() => void undo()} title="復原上一步（U）"><UndoIcon size={21} /></button>
         <button className="icon-btn" aria-label="更多動作" aria-haspopup="dialog"
           onClick={() => setMenuOpen(true)}><MoreIcon /></button>
+        {toast !== null && (!toast.undoable || lastAction !== null) && (
+          // 放在頂列裡:直向時照樣固定在底部;橫放時疊在頂列上,位置照頂列(寬螢幕時頂列比畫面窄)算。
+          // 不當 live region:同一句已經寫進上面常駐的 aria-live,兩邊都唸會唸兩次
+          <div className="toast review-toast">
+            <span>{toast.text}</span>
+            {toast.undoable && <button className="link" onClick={() => void undo()}>復原</button>}
+          </div>
+        )}
       </header>
 
       {errMsg && <p className="err review-err" role="alert">{errMsg}</p>}
@@ -643,7 +681,7 @@ export default function Review() {
       <div className={`flashcard${showBack ? ' flipped' : ''}`} onClick={() => flip(true)}>
         {current.deckName !== null && <span className="card-deck">{current.deckName}</span>}
         {/* 第一次見到的字標出來:想不起來是正常的,別被嚇到 */}
-        {countKind(card) === 'news' && <span className="card-tag">新卡</span>}
+        {kind === 'news' && <span className="card-tag">新卡</span>}
         {reverse && !showBack ? (
           // 反向卡的正面是中文意思:提示要想的是日文
           <div className="card-face" key={`${card.id}-front`}>
@@ -684,14 +722,6 @@ export default function Review() {
           </>
         )}
       </div>
-
-      {toast !== null && (!toast.undoable || lastAction !== null) && (
-        // 不當 live region:同一句已經寫進上面常駐的 aria-live,兩邊都唸會唸兩次
-        <div className="toast review-toast">
-          <span>{toast.text}</span>
-          {toast.undoable && <button className="link" onClick={() => void undo()}>復原</button>}
-        </div>
-      )}
 
       <ActionSheet open={menuOpen} onClose={() => setMenuOpen(false)} actions={[
         { label: '編輯這張', icon: <PencilIcon size={20} />, onSelect: openEdit },

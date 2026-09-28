@@ -31,16 +31,33 @@ b, strong { font-weight: 600; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ---------- 版面 ---------- */
+/* App 殼層:文件本身不捲,頁面在 .scroller 裡捲;分頁列是 .app 裡另一列,不疊在捲動區上。
+   iPhone 上頁面還在慣性捲動時,落在那個捲動區上的點擊會被 WebKit 拿去停住捲動、不送給網頁 ——
+   分頁列以前疊在捲動的整頁上,點了常常沒反應(見 lib/scroller.ts) */
+html, body, #root { height: 100%; }
+html, body { overflow: hidden; overscroll-behavior: none; }
+.app { height: 100%; display: flex; flex-direction: column; }
+/* position: relative:沒有定位祖先的 absolute 元素(例如 .visually-hidden)以它為準、跟著一起捲、被它裁掉;
+   不然會以整個文件為準,把文件撐得比畫面高 —— 文件又可以捲了 */
+.scroller { position: relative; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+/* 鍵盤捲動時焦點會交給它(App.tsx),不畫焦點框 */
+.scroller:focus, .scroller:focus-visible { outline: none; }
+/* 注意:.scroller 不能加 transform、filter、contain、z-index —— 它一變成 fixed 元素的容器或堆疊層,
+   裡面 fixed 的導覽列、評分鍵、批次列就又算在捲動區上,iPhone 慣性捲動時點了又會被吃掉 */
+/* 不設 overscroll-behavior: contain:放大(雙指縮放)或鍵盤跳出來時,捲到底要能接著移動整個畫面,
+   才看得到分頁列與頁面底部;平常整個文件沒有可以捲的範圍,傳上去也沒有作用 */
+
+/* --kb-inset:鍵盤蓋住捲動區底部的高度(App.tsx 依 visualViewport 算的)。
+   頁面在內層捲,鍵盤不會替它讓位 —— 底部多留這麼多,最後幾行才捲得到鍵盤上面 */
 .page {
   max-width: 720px;
   margin: 0 auto;
-  padding: 0 calc(var(--page-x) + var(--safe-right)) calc(var(--tabbar-h) + var(--safe-bottom) + 40px) calc(var(--page-x) + var(--safe-left));
+  padding: 0 calc(var(--page-x) + var(--safe-right)) calc(40px + var(--kb-inset, 0px)) calc(var(--page-x) + var(--safe-left));
 }
-/* 沒有分頁列的頁面(複習、分享連結專用頁)底部不必讓出分頁列的高度 */
-.app.no-tabbar .page { padding-bottom: calc(var(--safe-bottom) + 32px); }
+/* 沒有分頁列的頁面(複習、分享連結專用頁):底部讓出 Home 橫條 */
+.app.no-tabbar .page { padding-bottom: calc(var(--safe-bottom) + 32px + var(--kb-inset, 0px)); }
 
 /* 頁首:上面一條導覽列(返回 / 動作),下面大標題。
-   導覽列要是 .page 的直接子元素:sticky 只在父層的範圍內黏得住,包一層就會跟著捲走。
    左右用負 margin 撐滿整個寬度,捲動時底下的內容才不會從兩側露出來 */
 .nav-bar {
   z-index: 20;
@@ -50,14 +67,18 @@ b, strong { font-weight: 600; }
   padding: var(--safe-top) calc(6px + var(--safe-right)) 0 calc(6px + var(--safe-left));
   transition: box-shadow .15s ease;
 }
-/* 手機:黏在頂端的半透明導覽列(寬螢幕的分頁列已經在頂端,這條就跟著內容捲走) */
+/* 手機:固定在頂端的半透明導覽列(寬螢幕的分頁列已經在頂端,這條就跟著內容捲走)。
+   用 fixed 不用 sticky:sticky 還是捲動區的一部分,頁面在慣性捲動時點「返回」「⋯」「＋」,
+   iPhone 會把那一下拿去停住捲動(和以前的分頁列一樣);fixed 的不算在捲動區上 */
 @media (max-width: 767px) {
   .nav-bar {
-    position: sticky; top: 0;
+    position: fixed; top: 0; left: 0; right: 0; margin: 0;
     background: color-mix(in srgb, var(--bg) 84%, transparent);
     -webkit-backdrop-filter: saturate(180%) blur(16px);
     backdrop-filter: saturate(180%) blur(16px);
   }
+  /* 導覽列不佔位置了:頁面上面讓出它的高度 */
+  .page:has(> .nav-bar) { padding-top: calc(var(--header-h) + var(--safe-top)); }
 }
 .nav-bar-side { display: flex; align-items: center; gap: 2px; min-width: 44px; }
 .nav-bar-side.end { justify-content: flex-end; }
@@ -97,7 +118,7 @@ b, strong { font-weight: 600; }
 
 /* 寬螢幕:分頁列移到頂端,底部不用再讓位 */
 @media (min-width: 768px) {
-  .page { padding-bottom: 48px; }
+  .page { padding-bottom: calc(48px + var(--kb-inset, 0px)); }
   .nav-bar { padding-top: 8px; min-height: var(--header-h); }
   .nav-bar.scrolled { box-shadow: none; }
   .nav-bar-title { display: none; }
@@ -112,4 +133,14 @@ b, strong { font-weight: 600; }
   /* 無限轉圈的動畫壓成 0.01ms 會變成亂閃:改成靜止的樣子 */
   .spinner { animation: none !important; border-top-color: var(--fill); border-right-color: var(--accent); }
   .route-progress.active::after { animation: none !important; width: 100%; opacity: .5; }
+}
+
+/* 列印:殼層把頁面關在一個畫面高的捲動區裡,印出來只有第一頁。印的時候放開,分頁列與浮動的列不印 */
+@media print {
+  html, body, #root, .app { height: auto; overflow: visible; }
+  .app { display: block; }
+  .scroller { overflow: visible; }
+  .tabbar, .batch-bar, .review-actions, .update-banner, .toast { display: none !important; }
+  .nav-bar { position: static !important; }
+  .page:has(> .nav-bar) { padding-top: 0; }
 }

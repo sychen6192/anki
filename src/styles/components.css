@@ -293,27 +293,36 @@ input.switch:disabled { opacity: .4; cursor: default; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---------- 分頁列 ----------
-   手機:固定在底部(拇指區),含 Home indicator 的安全區
-   寬螢幕:移到頂端,變成一條橫列 */
+   手機:在底部(拇指區),含 Home indicator 的安全區
+   寬螢幕:移到頂端,變成一條橫列
+   和捲動區(.scroller)是 .app 裡上下兩列,不疊在捲動的內容上(見 base.css 的 App 殼層) */
 .tabbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  position: relative; z-index: 30; order: 1; flex: none;
   display: flex; justify-content: space-around;
-  padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
-  background: color-mix(in srgb, var(--surface) 86%, transparent);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
+  /* 底部安全區(Home 橫條那一截)不放在 nav 上,放進每個分頁裡:看得到的分頁列一路到螢幕底都按得到。
+     放在 nav 上時,Face ID 的 iPhone 底下 34px 不屬於任何分頁,按下去什麼都不會發生 */
+  padding: 0 var(--safe-right) 0 var(--safe-left);
+  /* 內容不會捲到底下,不必毛玻璃:直接用原本半透明疊在背景上的那個顏色 */
+  background: color-mix(in srgb, var(--surface) 86%, var(--bg));
   box-shadow: 0 -0.5px 0 var(--separator);
+  /* 從分頁列開始的拖曳不捲頁面(和原生 App 一樣):手指點下去稍微滑一點,不會變成捲動而把這一下吃掉。
+     雙指縮放照樣可以(base.css:保留雙指縮放);不支援 pinch-zoom 的瀏覽器退回 none */
+  touch-action: none;
+  touch-action: pinch-zoom;
 }
 .tabbar a {
   position: relative;
-  flex: 1; max-width: 160px;
+  /* 三個一樣寬、填滿整條:不設 max-width,手機橫放時分頁之間才不會留下點不到的空隙(圖示位置和 space-around 一樣) */
+  flex: 1;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  height: var(--tabbar-h);
+  height: calc(var(--tabbar-h) + var(--safe-bottom)); padding-bottom: var(--safe-bottom);
   color: var(--text-2); text-decoration: none;
   font-size: var(--fs-caption2); font-weight: 600; letter-spacing: .02em;
 }
 .tabbar a.active { color: var(--accent); }
 .tabbar a:active { opacity: .6; }
+/* 分頁一路延伸到螢幕底:焦點框往內縮,不然下緣被螢幕切掉 */
+.tabbar a:focus-visible { outline-offset: -2px; }
 .tabbar .tab-dot {
   position: absolute; top: 8px; left: calc(50% + 10px);
   width: 8px; height: 8px; border-radius: 50%;
@@ -324,13 +333,14 @@ input.switch:disabled { opacity: .4; cursor: default; }
 .route-progress.active::after {
   content: ''; display: block; height: 100%; width: 40%;
   background: var(--accent); border-radius: 2px;
-  animation: route-slide 0.9s ease-in-out infinite;
+  /* 負的 delay:第一圈從中途開始,一點下去就看得到一截;之後每圈照樣從左邊外面滑進來 */
+  animation: route-slide 0.9s ease-in-out -0.3s infinite;
 }
 @keyframes route-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
 
 @media (min-width: 768px) {
   .tabbar {
-    position: sticky; top: 0; bottom: auto;
+    order: 0;
     justify-content: flex-start; gap: 4px;
     padding: 8px calc(24px + var(--safe-right)) 8px calc(24px + var(--safe-left));
     box-shadow: 0 0.5px 0 var(--separator);
@@ -340,6 +350,8 @@ input.switch:disabled { opacity: .4; cursor: default; }
     border-radius: 10px; font-size: var(--fs-subhead); letter-spacing: 0; color: var(--text-2);
   }
   .tabbar a svg { width: 18px; height: 18px; }
+  /* 看得見的是 40px 的膠囊,可點範圍撐滿整條列(上下 8px 的留白、膠囊之間 4px 的縫) */
+  .tabbar a::before { content: ''; position: absolute; inset: -8px -2px; }
   .tabbar a.active { background: var(--accent-tint); color: var(--accent-text); }
   @media (hover: hover) { .tabbar a:hover:not(.active) { background: var(--fill-2); color: var(--text); } }
   .tabbar .tab-dot { top: 8px; left: auto; right: 6px; }
