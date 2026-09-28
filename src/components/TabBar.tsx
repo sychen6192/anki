@@ -1,4 +1,4 @@
-import { useOptimistic, useRef, useTransition, type ReactNode } from 'react'
+import { useEffect, useOptimistic, useRef, useTransition, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
@@ -44,6 +44,19 @@ export function TabBar({ tabs }: { tabs: Tab[] }) {
   const press = useRef<{ id: number; to: string; x: number; y: number } | null>(null)
   const fallback = useRef<number | undefined>(undefined)
   const filledIn = useRef<{ to: string; at: number } | null>(null)
+  const cancelPress = () => {
+    press.current = null
+    clearTimeout(fallback.current)
+  }
+  // 第二根手指放下去(不管落在哪裡)就不是點分頁:雙指縮放時一根手指剛好在分頁列上,放開不能換頁
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => { if (!e.isPrimary) cancelPress() }
+    window.addEventListener('pointerdown', onDown, true)
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true)
+      clearTimeout(fallback.current)
+    }
+  }, [])
 
   const go = (to: string) => {
     // 看 window.location 不看 useLocation:別的換頁還在畫的時候,網址已經換過去了
@@ -71,18 +84,21 @@ export function TabBar({ tabs }: { tabs: Tab[] }) {
               void prefetch?.().catch(() => {})
               clearTimeout(fallback.current)
               filledIn.current = null
-              press.current = e.pointerType !== 'mouse' && e.isPrimary
+              // 只有手指或筆的主要按鍵;筆的側鍵(右鍵)、中鍵有瀏覽器自己的動作
+              press.current = e.pointerType !== 'mouse' && e.isPrimary && e.button === 0
                 ? { id: e.pointerId, to, x: e.clientX, y: e.clientY }
                 : null
             }}
-            onPointerCancel={() => { press.current = null }}
+            onPointerCancel={cancelPress}
+            // 長按跳出連結選單(或筆的側鍵)之後不能再自己補一次換頁
+            onContextMenu={cancelPress}
             onPointerUp={(e) => {
               const p = press.current
               press.current = null
               if (p === null || p.id !== e.pointerId || p.to !== to) return
               if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > TAP_SLOP) return
-              const r = e.currentTarget.getBoundingClientRect()
-              if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return
+              // 放開的地方還在這個分頁上(寬螢幕的膠囊用 ::before 撐大了可點範圍,看實際點到誰)
+              if (document.elementFromPoint(e.clientX, e.clientY)?.closest('a') !== e.currentTarget) return
               clearTimeout(fallback.current)
               fallback.current = window.setTimeout(() => {
                 filledIn.current = { to, at: performance.now() }

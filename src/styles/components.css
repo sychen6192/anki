@@ -305,8 +305,10 @@ input.switch:disabled { opacity: .4; cursor: default; }
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
   box-shadow: 0 -0.5px 0 var(--separator);
-  /* 從分頁列開始的拖曳不捲頁面(和原生 App 一樣):手指點下去稍微滑一點,不會變成捲動而把這一下吃掉 */
+  /* 從分頁列開始的拖曳不捲頁面(和原生 App 一樣):手指點下去稍微滑一點,不會變成捲動而把這一下吃掉。
+     雙指縮放照樣可以(base.css:保留雙指縮放);不支援 pinch-zoom 的瀏覽器退回 none */
   touch-action: none;
+  touch-action: pinch-zoom;
 }
 .tabbar a {
   position: relative;
@@ -331,10 +333,10 @@ input.switch:disabled { opacity: .4; cursor: default; }
 .route-progress.active::after {
   content: ''; display: block; height: 100%; width: 40%;
   background: var(--accent); border-radius: 2px;
-  animation: route-slide 0.9s ease-in-out infinite;
+  /* 負的 delay:第一圈從中途開始,一點下去就看得到一截;之後每圈照樣從左邊外面滑進來 */
+  animation: route-slide 0.9s ease-in-out -0.3s infinite;
 }
-/* 一開始就看得到一截(從 -100% 滑進來的話,前幾十毫秒什麼都看不到) */
-@keyframes route-slide { 0% { transform: translateX(-40%); } 100% { transform: translateX(350%); } }
+@keyframes route-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
 
 @media (min-width: 768px) {
   .tabbar {
