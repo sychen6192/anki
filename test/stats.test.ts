@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, it, expect } from 'vitest'
-import { DAY, dayStart, lastNDays, prevDayStart, streakDays, trueRetention } from '../src/lib/stats'
+import { DAY, dayStart, lastNDays, niceTicks, prevDayStart, streakDays, trueRetention } from '../src/lib/stats'
 import { State } from '../src/lib/fsrs'
 import { startOfToday } from '../src/lib/queue'
 
@@ -82,5 +82,19 @@ describe('日光節約那天(streak 與 startOfToday 同一套換日)', () => {
     const stamps = [new Date('2026-03-07T20:00:00').getTime(), new Date('2026-03-08T09:00:00').getTime()]
     expect(streakDays(stamps, today)).toBe(2)
     expect(dayStart(stamps[1])).toBe(today)
+  })
+})
+
+describe('niceTicks(長條圖縱軸)', () => {
+  it('從 0 開始,間距 1/2/5 × 10ⁿ,最上面剛好蓋過最大值', () => {
+    expect(niceTicks(255)).toEqual([0, 100, 200, 300])
+    expect(niceTicks(33)).toEqual([0, 10, 20, 30, 40])
+    expect(niceTicks(40)).toEqual([0, 10, 20, 30, 40])
+    expect(niceTicks(12)).toEqual([0, 5, 10, 15])
+  })
+  it('次數少時間距至少 1(不會出現 0.5 次);沒有資料時是 0 到 1', () => {
+    expect(niceTicks(3)).toEqual([0, 1, 2, 3])
+    expect(niceTicks(1)).toEqual([0, 1])
+    expect(niceTicks(0)).toEqual([0, 1])
   })
 })

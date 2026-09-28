@@ -39,17 +39,33 @@
 .dist-legend li b { margin-left: auto; font-variant-numeric: tabular-nums; }
 .dist-legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 
-/* recharts 的 tooltip 是行內樣式寫死的白底灰框,深色模式下很刺眼;用 !important 蓋過行內樣式 */
-.recharts-default-tooltip {
-  background: var(--elevated) !important;
-  border: none !important;
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-md);
+/* 30 天長條圖(components/Charts.tsx):左邊縱軸刻度、中間一格一天、底下一週標一次日期 */
+.bars {
+  display: grid; grid-template-columns: 36px 1fr; grid-template-rows: 150px auto;
+  column-gap: 4px; margin-top: 10px;
+  font-size: var(--fs-caption2); color: var(--text-2); font-variant-numeric: tabular-nums;
+  -webkit-user-select: none; user-select: none;
 }
-.recharts-tooltip-label { color: var(--text-2) !important; }
-.recharts-default-tooltip .recharts-tooltip-item { color: var(--text) !important; }
-/* hover 時蓋在長條上的游標矩形,預設 #ccc 在深色下是一塊亮斑 */
-.recharts-tooltip-cursor { fill: color-mix(in srgb, var(--text) 8%, transparent); }
-.recharts-cartesian-axis-tick text { fill: var(--text-2); font-size: var(--fs-caption2); }
+.bars-y { position: relative; }
+.bars-y span { position: absolute; right: 2px; transform: translateY(50%); line-height: 1; }
+.bars-plot { position: relative; display: grid; grid-template-rows: 100%; }
+.bar-slot { height: 100%; display: flex; align-items: flex-end; justify-content: center; padding: 0 12%; border-radius: 4px; }
+.bar-slot.selected { background: color-mix(in srgb, var(--text) 8%, transparent); }
+.bar {
+  display: block; width: 100%; min-height: 2px; border-radius: 4px 4px 0 0;
+  transform-origin: bottom; animation: bar-grow .45s cubic-bezier(.2, .8, .2, 1);
+}
+@keyframes bar-grow { from { transform: scaleY(0); } }
+/* 點一根(滑鼠移過去)浮出那天的數字 */
+.bar-tip {
+  position: absolute; top: -6px; transform: translate(-50%, -100%); z-index: 1;
+  padding: 4px 8px; border-radius: var(--radius-sm); white-space: nowrap; pointer-events: none;
+  background: var(--elevated); color: var(--text-2); box-shadow: var(--shadow-md); font-size: var(--fs-caption);
+}
+.bar-tip b { color: var(--text); font-weight: 600; }
+.bars-x { grid-column: 2; display: grid; padding-top: 6px; }
+/* 日期字比一格寬:寬度 0、置中在那一格上,往兩邊溢出 */
+.bars-x span { display: flex; justify-content: center; width: 0; justify-self: center; white-space: nowrap; }
+.donut { flex-shrink: 0; }
 .retention b small { margin-left: 4px; font-size: var(--fs-caption); font-weight: 600; }
 .chart-summary { font-size: var(--fs-footnote); color: var(--text-2); margin-bottom: 6px; }

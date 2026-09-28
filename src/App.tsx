@@ -12,8 +12,8 @@ import DeckList from './pages/DeckList'
 import Review from './pages/Review'
 
 // 牌組列表與複習是每天都會用到的,直接打包進主 chunk。
-// 其餘頁面(統計頁帶著 recharts、匯入頁帶著 apkg 解析)按需載入,
-// 免得每天開 app 都得先下載一份用不到的圖表函式庫。
+// 其餘頁面(統計、匯入頁帶著 apkg 解析)按需載入,
+// 免得每天開 app 都得先下載一份用不到的東西。
 const loadDeckDetail = () => import('./pages/DeckDetail')
 const loadImportPage = () => import('./pages/ImportPage')
 const loadStatsPage = () => import('./pages/StatsPage')
