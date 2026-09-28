@@ -33,6 +33,10 @@ npm run dev:worker    # Cloudflare Worker 開發伺服器(另開一個終端機)
 
 `npm run dev` 啟動的前端會直接操作瀏覽器 IndexedDB;`npm run dev:worker` 則是本機的 Worker + D1,供同步 API(`/api/sync`、`/api/sync/summary`、`/api/health`)測試使用。
 
+App 圖示的來源是 `scripts/icon-source.webp`(白底、中間一個圓角方塊的圖)。換圖示就換掉這張、跑 `npm run icons`,
+會重新產生 `public/` 裡的各種尺寸:iPhone 主畫面用的滿版方塊(iOS 自己裁圓角)、Android 的 maskable(圖案縮進安全區)、
+PWA 與網頁小圖示(四角透明)。
+
 ## 測試
 
 ```bash
@@ -151,6 +155,9 @@ wasm 約 340KB,不進 precache,第一次最佳化時才下載,之後離線也能
 按「更新」才會切換並重載,按「稍後」先收起(下次重開或再有更新時會再出現)。複習中不顯示,離開複習才出現,
 免得蓋住評分鍵、一按就重載掉這一輪的復原紀錄。
 沒有動作的話,下次完全關閉再打開 App 就會自動用到新版。
+
+換了 App 圖示的話,Android 與電腦上裝好的 App 過幾天會自己換;iPhone 主畫面上的圖示不會跟著換,要刪掉再重新加入主畫面
+(刪掉前先在設定頁按「立即同步」,重新加入後用「在別台用過字卡？輸入同步金鑰」把資料拿回來)。
 
 ## 匯入 Anki 牌組(.apkg)
 
