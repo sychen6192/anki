@@ -22,7 +22,7 @@ import {
 } from '../lib/queue'
 import { reviewKeyAction, type KeyTarget } from '../lib/reviewKeys'
 import { requestSync } from '../lib/sync'
-import { scrollPageTo } from '../lib/scroller'
+import { pageScrollTop, scrollPageTo } from '../lib/scroller'
 import type { CardRecord, DeckRecord, NoteRecord } from '../../shared/types'
 import './review.css'
 
@@ -283,7 +283,7 @@ export default function Review() {
     setDone(false)
     setNextDue(null)
     shownAt.current = performance.now()
-    scrollPageTo(0)
+    scrollPageTo(0, false, true)
   }, [deckId, allMode, showProgress])
 
   // 換到另一個複習(例如完成後按「繼續複習其他牌組」,同一個畫面換網址):這一輪的進度、
@@ -647,8 +647,10 @@ export default function Review() {
       <p className="visually-hidden" aria-live="polite">{announcement}</p>
       <header className="review-bar">
         <button className="icon-btn" aria-label="結束複習" title="結束複習（Esc）" onClick={exit}><CloseIcon /></button>
+        {/* 點進度條捲回頂端(卡片很長時;iPhone 點狀態列在內層捲動不管用) */}
         <div className="review-progress" role="progressbar" aria-label="這次的進度"
-          aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+          aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}
+          onClick={() => { if (pageScrollTop() > 0) scrollPageTo(0, true) }}>
           <span style={{ width: `${pct}%` }} />
         </div>
         {/* 和首頁同一套三色:新卡 → 學習中 → 待複習;眼前這張屬於哪一類就畫底線 */}

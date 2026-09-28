@@ -53,7 +53,8 @@ function NotFound() {
 /** 換頁時回到頂端(BrowserRouter 不會自己做,新頁面會停在上一頁的捲動位置) */
 function ScrollToTop() {
   const { pathname } = useLocation()
-  useEffect(() => { scrollPageTo(0) }, [pathname])
+  // 換頁一定先停住慣性(iOS 27 的 scrollTo 不會停),新頁面才不會接著往下滑
+  useEffect(() => { scrollPageTo(0, false, true) }, [pathname])
   return null
 }
 
@@ -85,9 +86,32 @@ function useKeyboardInset() {
   }, [])
 }
 
+/**
+ * 鍵盤捲頁面(PageDown、空白鍵、方向鍵、Home/End):文件本身不捲,焦點不在頁面裡(剛打開、剛點過分頁列)時
+ * 瀏覽器找不到要捲誰。按下去的當下把焦點交給捲動區、不擋預設動作 —— 瀏覽器用自己的方式捲:
+ * 按住會加速、連按照樣累加、照「減少動態效果」。只接焦點在 body 或分頁列上的情況,
+ * 別的按鈕(例如更新提示)上的空白鍵照舊是按下去。複習畫面的空白鍵是翻面,不插手。
+ */
+function useKeyboardScrollHandoff(active: boolean) {
+  useEffect(() => {
+    if (!active) return
+    const keys = new Set([' ', 'PageDown', 'PageUp', 'ArrowDown', 'ArrowUp', 'Home', 'End'])
+    const onKey = (e: KeyboardEvent) => {
+      if (!keys.has(e.key) || e.altKey || e.ctrlKey || e.metaKey) return
+      const t = e.target
+      const outside = t === document.body || t === document.documentElement
+        || (t instanceof Element && t.closest('.tabbar') !== null)
+      if (outside) pageScroller()?.focus({ preventScroll: true })
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [active])
+}
+
 function Shell() {
   const { pathname, search } = useLocation()
   useKeyboardInset()
+  useKeyboardScrollHandoff(!pathname.startsWith('/review/'))
   // 複習是專注模式;朋友從分享連結打開的是專用頁 —— 這兩種不放分頁列
   const hideTabbar = pathname.startsWith('/review/')
     || (pathname === '/import' && new URLSearchParams(search).has('share'))
@@ -98,7 +122,8 @@ function Shell() {
           頁面在 .scroller 裡捲,文件本身不捲:分頁列不疊在捲動區上,iPhone 上頁面還在慣性捲動時
           點分頁才不會被拿去停住捲動(見 lib/scroller.ts) */}
       {!hideTabbar && <TabBar tabs={TABS} />}
-      <div className="scroller">
+      {/* tabIndex -1:鍵盤捲動時把焦點交給它(見 useKeyboardScrollHandoff),不在 Tab 順序裡 */}
+      <div className="scroller" tabIndex={-1}>
         <main className="page">
           {/* 換網址就收掉錯誤畫面:出錯後點分頁列換頁就重新來過(不然錯誤畫面會一直留著,設定頁的修復工具也到不了)。
               不當 key 用:複習完一副按「繼續複習其他牌組」只是換網址,復原紀錄要留著 */}

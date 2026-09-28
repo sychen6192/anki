@@ -31,13 +31,20 @@ export function pageScrollTop(): number {
  * iOS 27 起,scrollTo 不再打斷使用者的慣性捲動(Safari 27 release notes 41949531):
  * 在慣性捲動時換頁,新頁面會接著往下滑。所以剛捲過的話,先讓捲動區暫時不能捲 ——
  * WebKit 會拆掉它的捲動層,慣性跟著停 —— 過兩個 frame 再放開、捲過去。
+ * stopMomentum:不管剛才有沒有收到捲動事件都先停(換頁用:主執行緒忙的時候捲動事件會晚到,光看時間會漏)。
+ * 只在觸控裝置上這樣做:桌機沒有慣性問題,切 overflow 反而讓捲軸閃一下、版面跳動。
+ *
+ * 另外,頁面在內層捲之後 iPhone 點狀態列捲回頂端不管用了(WebKit 把內層捲動區的 scrollsToTop 關掉):
+ * 改成點所在的分頁、點導覽列的小標題、複習時點進度條捲回頂端。
  */
-export function scrollPageTo(top: number, smooth = false): void {
+export function scrollPageTo(top: number, smooth = false, stopMomentum = false): void {
   const behavior: ScrollBehavior = smooth ? scrollBehavior() : 'auto'
   const el = pageScroller()
   if (el === null) { window.scrollTo({ top, behavior }); return }
+  const touch = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
   const moving = performance.now() - (lastScrollAt.get(el) ?? 0) < 150
-  if (!moving || el.style.overflowY === 'hidden') { el.scrollTo({ top, behavior }); return }
+    || (stopMomentum && Math.abs(el.scrollTop - top) > 1)
+  if (!touch || !moving || el.style.overflowY === 'hidden') { el.scrollTo({ top, behavior }); return }
   el.style.overflowY = 'hidden'
   if (behavior === 'auto') el.scrollTop = top
   requestAnimationFrame(() => requestAnimationFrame(() => {

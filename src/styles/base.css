@@ -40,6 +40,10 @@ html, body { overflow: hidden; overscroll-behavior: none; }
 /* position: relative:沒有定位祖先的 absolute 元素(例如 .visually-hidden)以它為準、跟著一起捲、被它裁掉;
    不然會以整個文件為準,把文件撐得比畫面高 —— 文件又可以捲了 */
 .scroller { position: relative; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+/* 鍵盤捲動時焦點會交給它(App.tsx),不畫焦點框 */
+.scroller:focus, .scroller:focus-visible { outline: none; }
+/* 注意:.scroller 不能加 transform、filter、contain、z-index —— 它一變成 fixed 元素的容器或堆疊層,
+   裡面 fixed 的導覽列、評分鍵、批次列就又算在捲動區上,iPhone 慣性捲動時點了又會被吃掉 */
 /* 不設 overscroll-behavior: contain:放大(雙指縮放)或鍵盤跳出來時,捲到底要能接著移動整個畫面,
    才看得到分頁列與頁面底部;平常整個文件沒有可以捲的範圍,傳上去也沒有作用 */
 

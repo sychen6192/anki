@@ -2,8 +2,7 @@ import { useEffect, useOptimistic, useRef, useTransition, type ReactNode } from 
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
-import { scrollBehavior } from '../lib/motion'
-import { pageScroller, pageScrollTop, scrollPageTo } from '../lib/scroller'
+import { pageScrollTop, scrollPageTo } from '../lib/scroller'
 
 export interface Tab {
   to: string
@@ -57,29 +56,6 @@ export function TabBar({ tabs }: { tabs: Tab[] }) {
       window.removeEventListener('pointerdown', onDown, true)
       clearTimeout(fallback.current)
     }
-  }, [])
-
-  // 鍵盤捲頁面(PageDown、空白鍵、方向鍵、Home/End):文件本身不捲,焦點在頁面外(剛打開、剛點過分頁)時
-  // 瀏覽器找不到要捲誰,轉給頁面的捲動區。焦點在頁面裡的時候照瀏覽器自己的。複習畫面沒有分頁列,不受影響
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return
-      const t = e.target
-      if (!(t === document.body || t === document.documentElement || (t instanceof Element && t.closest('.tabbar') !== null))) return
-      const el = pageScroller()
-      if (el === null) return
-      const pageStep = el.clientHeight * 0.9
-      const by = e.key === 'PageDown' || (e.key === ' ' && !e.shiftKey) ? pageStep
-        : e.key === 'PageUp' || (e.key === ' ' && e.shiftKey) ? -pageStep
-          : e.key === 'ArrowDown' ? 40 : e.key === 'ArrowUp' ? -40 : null
-      const to = e.key === 'Home' ? 0 : e.key === 'End' ? el.scrollHeight : null
-      if (by === null && to === null) return
-      e.preventDefault()
-      if (to !== null) el.scrollTo({ top: to, behavior: scrollBehavior() })
-      else el.scrollBy({ top: by!, behavior: scrollBehavior() })
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
   }, [])
 
   const go = (to: string, match: Tab['match']) => {
