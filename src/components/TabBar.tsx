@@ -2,7 +2,8 @@ import { useEffect, useOptimistic, useRef, useTransition, type ReactNode } from 
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
-import { scrollPageTo } from '../lib/scroller'
+import { scrollBehavior } from '../lib/motion'
+import { pageScroller, pageScrollTop, scrollPageTo } from '../lib/scroller'
 
 export interface Tab {
   to: string
@@ -31,8 +32,8 @@ const LATE_CLICK_MS = 1000
  * (pointerdown / pointerup 照送)。手指在同一個分頁上按下又放開、沒有滑動,
  * 等一下還沒等到 click 就自己補做。iPhone 那種情況連 pointer 事件都不給網頁,這裡救不到。
  *
- * 在子頁面(例如牌組詳情)再點一次所在的分頁,會回到分頁的第一層,跟 iOS 一樣;
- * 已經在第一層就捲回頂端。
+ * 再點一次所在的分頁:捲下去了就先捲回頂端(頁面在內層捲,iPhone 點狀態列捲回頂端不管用);
+ * 已經在頂端、又是子頁面(例如牌組詳情),就回到分頁的第一層,跟 iOS 一樣。
  */
 export function TabBar({ tabs }: { tabs: Tab[] }) {
   const navigate = useNavigate()
@@ -58,9 +59,34 @@ export function TabBar({ tabs }: { tabs: Tab[] }) {
     }
   }, [])
 
-  const go = (to: string) => {
+  // 鍵盤捲頁面(PageDown、空白鍵、方向鍵、Home/End):文件本身不捲,焦點在頁面外(剛打開、剛點過分頁)時
+  // 瀏覽器找不到要捲誰,轉給頁面的捲動區。焦點在頁面裡的時候照瀏覽器自己的。複習畫面沒有分頁列,不受影響
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return
+      const t = e.target
+      if (!(t === document.body || t === document.documentElement || (t instanceof Element && t.closest('.tabbar') !== null))) return
+      const el = pageScroller()
+      if (el === null) return
+      const pageStep = el.clientHeight * 0.9
+      const by = e.key === 'PageDown' || (e.key === ' ' && !e.shiftKey) ? pageStep
+        : e.key === 'PageUp' || (e.key === ' ' && e.shiftKey) ? -pageStep
+          : e.key === 'ArrowDown' ? 40 : e.key === 'ArrowUp' ? -40 : null
+      const to = e.key === 'Home' ? 0 : e.key === 'End' ? el.scrollHeight : null
+      if (by === null && to === null) return
+      e.preventDefault()
+      if (to !== null) el.scrollTo({ top: to, behavior: scrollBehavior() })
+      else el.scrollBy({ top: by!, behavior: scrollBehavior() })
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+
+  const go = (to: string, match: Tab['match']) => {
     // 看 window.location 不看 useLocation:別的換頁還在畫的時候,網址已經換過去了
-    if (window.location.pathname === to && window.location.search === '') {
+    const here = window.location
+    const atRoot = here.pathname === to && here.search === ''
+    if (atRoot || (match(here.pathname) && pageScrollTop() > 4)) {
       scrollPageTo(0, true)
       return
     }
@@ -102,7 +128,7 @@ export function TabBar({ tabs }: { tabs: Tab[] }) {
               clearTimeout(fallback.current)
               fallback.current = window.setTimeout(() => {
                 filledIn.current = { to, at: performance.now() }
-                go(to)
+                go(to, match)
               }, CLICK_WAIT_MS)
             }}
             onClick={(e) => {
@@ -112,7 +138,7 @@ export function TabBar({ tabs }: { tabs: Tab[] }) {
               const f = filledIn.current
               filledIn.current = null
               if (f !== null && f.to === to && performance.now() - f.at < LATE_CLICK_MS) return
-              go(to)
+              go(to, match)
             }}
           >
             {icon}

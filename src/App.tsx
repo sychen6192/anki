@@ -8,7 +8,7 @@ import { UpdateBanner } from './components/UpdateBanner'
 import { ConfirmProvider } from './components/Confirm'
 import { ChartIcon, DecksIcon, GearIcon } from './components/icons'
 import { lazyRoute, prefetchRoutes } from './lib/lazyRoute'
-import { scrollPageTo } from './lib/scroller'
+import { pageScroller, scrollPageTo } from './lib/scroller'
 import DeckList from './pages/DeckList'
 import Review from './pages/Review'
 
@@ -57,8 +57,37 @@ function ScrollToTop() {
   return null
 }
 
+/**
+ * 鍵盤蓋住捲動區底部多少,寫進 --kb-inset(base.css 的 .page 底部多留這麼多)。
+ * 頁面在內層捲,iPhone 跳出鍵盤時只替整個文件讓位、不替內層的捲動區讓位:
+ * 不補的話,搜尋結果的最後幾行、匯入頁欄位下面的按鈕都捲不到鍵盤上面。
+ * 放大(雙指縮放)時看得見的範圍也會變小,那不是鍵盤,不算。
+ */
+function useKeyboardInset() {
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const root = document.documentElement
+    const update = () => {
+      const sc = pageScroller()
+      const hidden = sc === null || Math.abs(vv.scale - 1) > 0.01 ? 0
+        : Math.round(sc.getBoundingClientRect().bottom - (vv.offsetTop + vv.height))
+      root.style.setProperty('--kb-inset', `${hidden > 80 ? hidden : 0}px`)
+    }
+    update()
+    vv.addEventListener('resize', update)
+    vv.addEventListener('scroll', update)
+    return () => {
+      vv.removeEventListener('resize', update)
+      vv.removeEventListener('scroll', update)
+      root.style.removeProperty('--kb-inset')
+    }
+  }, [])
+}
+
 function Shell() {
   const { pathname, search } = useLocation()
+  useKeyboardInset()
   // 複習是專注模式;朋友從分享連結打開的是專用頁 —— 這兩種不放分頁列
   const hideTabbar = pathname.startsWith('/review/')
     || (pathname === '/import' && new URLSearchParams(search).has('share'))

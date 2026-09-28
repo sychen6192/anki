@@ -18,6 +18,7 @@ import { createShare, isTouchDevice, shareUrlFor } from '../lib/share'
 import { State } from '../lib/fsrs'
 import { deckQueue, LEARN_AHEAD_MS, startOfToday, todayCards } from '../lib/queue'
 import { nextLearningDue, useNow } from '../lib/useNow'
+import { pageScroller } from '../lib/scroller'
 import { useBusy } from '../lib/useBusy'
 import { Loading } from '../components/Loading'
 import { SpeakerIcon } from '../components/SpeakerIcon'
@@ -151,13 +152,14 @@ export default function DeckDetail() {
   }, [notes, sort])
 
   // 捲到列表底部就再多顯示一批。sentinel 用 state 記:它等資料都讀到(載入畫面換成列表)才出現,
-  // 用 ref 的話 effect 可能在它出現之前就跑過了,之後捲到底也不會再載入
+  // 用 ref 的話 effect 可能在它出現之前就跑過了,之後捲到底也不會再載入。
+  // root 是頁面的捲動區:以畫面為準的話,sentinel 先被捲動區裁掉,400px 的提前量就沒作用了
   useEffect(() => {
     const el = sentinel
     if (el === null || typeof IntersectionObserver !== 'function') return
     const io = new IntersectionObserver((entries) => {
       if (entries.some((e) => e.isIntersecting)) setVisibleCount((n) => n + PAGE_SIZE)
-    }, { rootMargin: '400px' })
+    }, { root: pageScroller(), rootMargin: '400px' })
     io.observe(el)
     return () => io.disconnect()
   }, [sentinel, notes, search])

@@ -7,7 +7,18 @@ import { scrollBehavior } from './motion'
  * 沒有殼層的時候(測試)退回 window。
  */
 export function pageScroller(): HTMLElement | null {
-  return typeof document === 'undefined' ? null : document.querySelector<HTMLElement>('.scroller')
+  if (typeof document === 'undefined') return null
+  const el = document.querySelector<HTMLElement>('.scroller')
+  if (el !== null) trackScrolling(el)
+  return el
+}
+
+// 最近一次捲動的時間:還在捲(慣性)的時候跳到頂端,要先把慣性停掉(見 scrollPageTo)
+const lastScrollAt = new WeakMap<HTMLElement, number>()
+function trackScrolling(el: HTMLElement) {
+  if (lastScrollAt.has(el)) return
+  lastScrollAt.set(el, 0)
+  el.addEventListener('scroll', () => { lastScrollAt.set(el, performance.now()) }, { passive: true })
 }
 
 export function pageScrollTop(): number {
@@ -15,12 +26,24 @@ export function pageScrollTop(): number {
   return el !== null ? el.scrollTop : window.scrollY
 }
 
-/** smooth:照使用者的「減少動態效果」決定要不要動畫 */
+/**
+ * 捲到 top。smooth:照使用者的「減少動態效果」決定要不要動畫。
+ * iOS 27 起,scrollTo 不再打斷使用者的慣性捲動(Safari 27 release notes 41949531):
+ * 在慣性捲動時換頁,新頁面會接著往下滑。所以剛捲過的話,先讓捲動區暫時不能捲 ——
+ * WebKit 會拆掉它的捲動層,慣性跟著停 —— 過兩個 frame 再放開、捲過去。
+ */
 export function scrollPageTo(top: number, smooth = false): void {
-  const opts: ScrollToOptions = { top, behavior: smooth ? scrollBehavior() : 'auto' }
+  const behavior: ScrollBehavior = smooth ? scrollBehavior() : 'auto'
   const el = pageScroller()
-  if (el !== null) el.scrollTo(opts)
-  else window.scrollTo(opts)
+  if (el === null) { window.scrollTo({ top, behavior }); return }
+  const moving = performance.now() - (lastScrollAt.get(el) ?? 0) < 150
+  if (!moving || el.style.overflowY === 'hidden') { el.scrollTo({ top, behavior }); return }
+  el.style.overflowY = 'hidden'
+  if (behavior === 'auto') el.scrollTop = top
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    el.style.overflowY = ''
+    el.scrollTo({ top, behavior })
+  }))
 }
 
 export function onPageScroll(listener: () => void): () => void {

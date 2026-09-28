@@ -7,13 +7,16 @@
   --actions-h: 84px;
   display: flex; flex-direction: column;
   min-height: 100dvh;
+  /* 頂列是 fixed,不佔位置:上面讓出它的高度 */
+  padding-top: calc(52px + var(--safe-top));
   padding-bottom: calc(var(--actions-h) + var(--safe-bottom) + 8px);
 }
 
+/* 頂列固定在畫面頂端(不是 sticky):卡片很長、還在慣性捲動時點 ✕ ↶ ⋯ 才不會被拿去停住捲動 */
 .review-bar {
-  position: sticky; top: 0; z-index: 10;
+  position: fixed; top: 0; left: 0; right: 0; z-index: 10;
   display: flex; align-items: center; gap: 2px;
-  margin: 0 calc(-1 * (var(--page-x) + var(--safe-right))) 0 calc(-1 * (var(--page-x) + var(--safe-left)));
+  margin: 0;
   min-height: calc(52px + var(--safe-top));
   padding: var(--safe-top) calc(6px + var(--safe-right)) 0 calc(6px + var(--safe-left));
   background: var(--bg);
@@ -157,7 +160,7 @@
 
 /* 寬螢幕:按鈕接在卡片下面,不必跑到畫面最底 */
 @media (min-width: 768px) {
-  .review-screen, .review-screen.with-hint { min-height: 0; padding-bottom: 32px; }
+  .review-screen, .review-screen.with-hint { min-height: 0; padding-top: 0; padding-bottom: 32px; }
   /* relative(不是 static):橫放時提示條以頂列為準定位 */
   .review-bar { position: relative; margin: 0; padding: 12px 0 0; min-height: 0; background: none; }
   .flashcard { flex: none; min-height: 360px; margin-top: 12px; }
