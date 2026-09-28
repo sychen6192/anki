@@ -16,7 +16,7 @@ import { isSpeechSupported, speak } from '../lib/speak'
 import { requestSync } from '../lib/sync'
 import { createShare, isTouchDevice, shareUrlFor } from '../lib/share'
 import { State } from '../lib/fsrs'
-import { deckQueue, startOfToday } from '../lib/queue'
+import { deckQueue, LEARN_AHEAD_MS, startOfToday, todayCards } from '../lib/queue'
 import { nextLearningDue, useNow } from '../lib/useNow'
 import { useBusy } from '../lib/useBusy'
 import { Loading } from '../components/Loading'
@@ -92,7 +92,7 @@ export default function DeckDetail() {
   const [wakeAt, setWakeAt] = useState<number | null>(null)
   const now = useNow(wakeAt)
   const dayStart = startOfToday(now)
-  useEffect(() => { setWakeAt(nextLearningDue(deckCards, now)) }, [deckCards, now])
+  useEffect(() => { setWakeAt(nextLearningDue(deckCards, now, LEARN_AHEAD_MS)) }, [deckCards, now])
   const todayLogs = useLiveQuery(
     () => db.review_logs.where('reviewed_at').aboveOrEqual(dayStart).toArray(), [dayStart],
   )
@@ -216,7 +216,7 @@ export default function DeckDetail() {
     if (st !== 'active') statusCounts[st] += 1
   }
   const hasParked = statusCounts.known + statusCounts.paused > 0
-  const queueCount = deckQueue(deck.id, deck.new_per_day, deckCards ?? [], todayLogs, now).queue.length
+  const queueCount = todayCards(deckQueue(deck.id, deck.new_per_day, deckCards ?? [], todayLogs, now)).length
   const hasNewLeft = (deckCards ?? []).some((c) => !c.deleted && !c.suspended && c.state === State.New)
 
   const toggleSelected = (id: string) => setSelected((prev) => {

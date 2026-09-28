@@ -40,13 +40,18 @@ export function useNow(wakeAt?: number | null): number {
   return now
 }
 
-/** 下一張學習中的卡什麼時候到期(給 useNow 當 wakeAt);沒有就是 null */
-export function nextLearningDue(cards: readonly CardRecord[] | undefined, now: number): number | null {
+/**
+ * 下一張學習中的卡什麼時候到期(給 useNow 當 wakeAt);沒有就是 null。
+ * ahead:提前多久就算進來(首頁把 LEARN_AHEAD_MS 內會到期的學習中卡片算在「還有幾張」裡,
+ * 要在卡片進入這段時間的那一刻重算,不是等它真的到期)
+ */
+export function nextLearningDue(cards: readonly CardRecord[] | undefined, now: number, ahead = 0): number | null {
   let next: number | null = null
   for (const c of cards ?? []) {
     if (c.deleted || c.suspended) continue
     if (c.state !== State.Learning && c.state !== State.Relearning) continue
-    if (c.due > now && (next === null || c.due < next)) next = c.due
+    const at = c.due - ahead
+    if (at > now && (next === null || at < next)) next = at
   }
   return next
 }

@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
 import { sortDecks } from '../lib/deckOrder'
 import { createDeck } from '../db/repo'
-import { deckQueue, splitCounts, startOfToday } from '../lib/queue'
+import { deckQueue, LEARN_AHEAD_MS, splitCounts, startOfToday, todayCards } from '../lib/queue'
 import { nextLearningDue, useNow } from '../lib/useNow'
 import { streakDays } from '../lib/stats'
 import { adoptSyncSpace, generateSyncKey, getSyncSpace, SYNC_SINCE } from '../lib/space'
@@ -110,7 +110,7 @@ export default function DeckList() {
   const dayStart = startOfToday(now)
   const decks = useLiveQuery(async () => sortDecks(await db.decks.filter((d) => !d.deleted).toArray()), [])
   const cards = useLiveQuery(() => db.cards.toArray(), [])
-  useEffect(() => { setWakeAt(nextLearningDue(cards, now)) }, [cards, now])
+  useEffect(() => { setWakeAt(nextLearningDue(cards, now, LEARN_AHEAD_MS)) }, [cards, now])
   const todayLogs = useLiveQuery(
     () => db.review_logs.where('reviewed_at').aboveOrEqual(dayStart).toArray(), [dayStart],
   )
@@ -135,7 +135,8 @@ export default function DeckList() {
   if (!decks || !cards || !todayLogs || !stamps || space === undefined) return <Loading />
 
   const liveCards = cards.filter((c) => !c.deleted)
-  const queues = new Map(decks.map((d) => [d.id, deckQueue(d.id, d.new_per_day, cards, todayLogs, now).queue]))
+  // 幾分鐘內會回來的學習中卡片也算:複習畫面會直接提前拿來,這裡說「今天完成了」就對不上
+  const queues = new Map(decks.map((d) => [d.id, todayCards(deckQueue(d.id, d.new_per_day, cards, todayLogs, now))]))
   const wordCount = new Map<string, number>()
   const seenNotes = new Set<string>()
   for (const c of liveCards) {

@@ -80,6 +80,19 @@ export function rate(card: CardRecord, rating: RatingValue, now = Date.now()):
   }
 }
 
+/**
+ * 這張卡照「普通」一路答下去,今天還要答幾次:到期的複習卡 1 次;新卡與學習中的卡是學習步驟還剩幾步
+ * (預設 1 分、10 分:新卡 2 次),重學是重學步驟還剩幾步。複習畫面的進度條用它估「還剩多少」——
+ * 只數張數的話,學習中的卡答完一步還會回來,進度看起來就停住了。
+ */
+export function answersLeft(card: Pick<CardRecord, 'state' | 'learning_steps'>): number {
+  const { learning_steps, relearning_steps } = f.parameters
+  if (card.state === State.New) return Math.max(1, learning_steps.length)
+  if (card.state === State.Learning) return Math.max(1, learning_steps.length - card.learning_steps)
+  if (card.state === State.Relearning) return Math.max(1, relearning_steps.length - card.learning_steps)
+  return 1
+}
+
 export function previewIntervals(card: CardRecord, now = Date.now()): Record<RatingValue, string> {
   const rec = f.repeat(toFsrs(card), new Date(now))
   const out = {} as Record<RatingValue, string>

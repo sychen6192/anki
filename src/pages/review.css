@@ -1,5 +1,5 @@
 /* ---------- 複習(專注模式) ----------
-   頂列(✕ 進度 剩幾張 ↶ ⋯)、中間卡片、底部固定的「顯示答案」/評分鍵(拇指區) */
+   頂列(✕ 進度 三色計數 ↶ ⋯)、中間卡片、底部固定的「顯示答案」/評分鍵(拇指區) */
 /* 選擇器要比 .app.no-tabbar .page 重,不然複習畫面底下多一截可以捲的空白 */
 .app.no-tabbar .page:has(.review-screen), .app.no-tabbar .page:has(.review-done) { padding-bottom: 0; }
 
@@ -29,11 +29,14 @@
   background: var(--accent); border-radius: inherit;
   transition: width .3s ease;
 }
-.review-remaining {
-  margin-right: 4px; white-space: nowrap;
-  font-size: var(--fs-footnote); color: var(--text-2); font-variant-numeric: tabular-nums;
-}
-.review-remaining b { font-size: var(--fs-subhead); font-weight: 600; color: var(--text); }
+/* 還有幾張:新卡 / 學習中 / 待複習三色(和首頁同一套 .count),眼前這張的那一類畫底線 */
+.review-counts { display: flex; align-items: center; gap: 10px; margin: 0 6px 0 2px; font-size: var(--fs-subhead); }
+.review-counts .count { gap: 4px; }
+.review-counts .dot { width: 7px; height: 7px; }
+.review-counts .count.current b { text-decoration: underline 2px; text-underline-offset: 4px; }
+/* 窄螢幕(iPhone SE)三個數字都是三位數時,進度條還要看得到 */
+.review-progress { min-width: 40px; }
+@media (max-width: 359px) { .review-counts { gap: 7px; font-size: var(--fs-footnote); } }
 .review-err { margin: 4px 4px 0; }
 
 .flashcard {

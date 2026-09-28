@@ -1,6 +1,6 @@
 import { afterEach, describe, it, expect } from 'vitest'
 import { default_w } from 'ts-fsrs'
-import { applyFsrsSettings, newCardFields, rate, previewIntervals, formatInterval, State } from '../src/lib/fsrs'
+import { answersLeft, applyFsrsSettings, newCardFields, rate, previewIntervals, formatInterval, State } from '../src/lib/fsrs'
 import type { CardRecord } from '../shared/types'
 
 const NOW = new Date('2026-07-13T12:00:00Z').getTime()
@@ -119,5 +119,37 @@ describe('applyFsrsSettings', () => {
     w[3] *= 3
     applyFsrsSettings({ w, desired_retention: 0.9 })
     expect(rate(makeCard(), 4, NOW).fields.due).toBeGreaterThan(base)
+  })
+})
+
+describe('answersLeft:照「普通」答完今天還要答幾次(複習畫面的進度條)', () => {
+  const step = (c: CardRecord, rating: 1 | 2 | 3 | 4, at: number): CardRecord => ({ ...c, ...rate(c, rating, at).fields })
+
+  it('新卡 2 次(1 分、10 分兩步);每按一次「普通」少一次,畢業後是到期的複習卡的 1 次', () => {
+    let c = makeCard()
+    expect(answersLeft(c)).toBe(2)
+    c = step(c, 3, NOW)
+    expect(c.state).toBe(State.Learning)
+    expect(answersLeft(c)).toBe(1)
+    c = step(c, 3, c.due)
+    expect(c.state).toBe(State.Review)
+    expect(answersLeft(c)).toBe(1)
+  })
+
+  it('「困難」停在同一步、「重來」回到第一步:剩下的次數不會變少', () => {
+    const fresh = makeCard()
+    const hard = step(fresh, 2, NOW)
+    expect(hard.state).toBe(State.Learning)
+    expect(answersLeft(hard)).toBe(2)
+    const second = step(fresh, 3, NOW)
+    expect(answersLeft(step(second, 1, second.due))).toBe(2)
+  })
+
+  it('到期的複習卡答錯進重學:還要再答 1 次(重學一步 10 分)', () => {
+    const graduated = step(step(makeCard(), 3, NOW), 3, NOW + 10 * 60_000)
+    const lapsed = step(graduated, 1, graduated.due)
+    expect(lapsed.state).toBe(State.Relearning)
+    expect(answersLeft(lapsed)).toBe(1)
+    expect(step(lapsed, 3, lapsed.due).state).toBe(State.Review)
   })
 })
