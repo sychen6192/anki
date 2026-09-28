@@ -226,7 +226,7 @@ export default function StatsPage() {
           <>
           <p className="chart-summary">共 {pastTotal} 次，平均每天 {Math.round(pastTotal / 30)} 次
             {pastMax > 0 && pastMaxDay !== undefined && `，最多是 ${pastMaxDay} 的 ${pastMax} 次`}</p>
-          <DayBars data={past} color={C_REVIEWS} unit="次" />
+          <DayBars data={past} color={C_REVIEWS} unit="次" label="過去 30 天每天的複習次數" />
           </>
         )}
       </section>
@@ -239,7 +239,7 @@ export default function StatsPage() {
           <>
           <p className="chart-summary">未來 7 天有 {week} 張到期
             {forecastMax > 0 && forecastMaxDay !== undefined && `，最多是 ${forecastMaxDay} 的 ${forecastMax} 張`}</p>
-          <DayBars data={forecast} color={C_DUE} unit="張" />
+          <DayBars data={forecast} color={C_DUE} unit="張" label="未來 30 天每天到期的張數" />
           </>
         )}
       </section>

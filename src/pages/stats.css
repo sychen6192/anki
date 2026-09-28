@@ -48,7 +48,9 @@
 }
 .bars-y { position: relative; }
 .bars-y span { position: absolute; right: 2px; transform: translateY(50%); line-height: 1; }
-.bars-plot { position: relative; display: grid; grid-template-rows: 100%; }
+.bars-plot { position: relative; display: grid; grid-template-rows: 100%; border-radius: 4px; }
+.bars-plot:focus { outline: none; }
+.bars-plot:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .bar-slot { height: 100%; display: flex; align-items: flex-end; justify-content: center; padding: 0 12%; border-radius: 4px; }
 .bar-slot.selected { background: color-mix(in srgb, var(--text) 8%, transparent); }
 .bar {

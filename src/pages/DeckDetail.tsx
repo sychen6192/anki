@@ -113,7 +113,7 @@ export default function DeckDetail() {
   const [settingsNote, setSettingsNote] = useState<string | null>(null)
   const [busy, run] = useBusy()
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
-  const sentinel = useRef<HTMLDivElement | null>(null)
+  const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null)
   const firstField = useRef<HTMLInputElement | null>(null)
   const readingField = useRef<HTMLInputElement | null>(null)
   const meaningField = useRef<HTMLInputElement | null>(null)
@@ -150,16 +150,17 @@ export default function DeckDetail() {
     return arr
   }, [notes, sort])
 
-  // 捲到列表底部就再多顯示一批
+  // 捲到列表底部就再多顯示一批。sentinel 用 state 記:它等資料都讀到(載入畫面換成列表)才出現,
+  // 用 ref 的話 effect 可能在它出現之前就跑過了,之後捲到底也不會再載入
   useEffect(() => {
-    const el = sentinel.current
+    const el = sentinel
     if (el === null || typeof IntersectionObserver !== 'function') return
     const io = new IntersectionObserver((entries) => {
       if (entries.some((e) => e.isIntersecting)) setVisibleCount((n) => n + PAGE_SIZE)
     }, { rootMargin: '400px' })
     io.observe(el)
     return () => io.disconnect()
-  }, [notes, search])
+  }, [sentinel, notes, search])
 
   // 選取模式底部的動作列會依寬度與已選的數字換行,高度不固定:量出來給提示條讓位(deck.css 的 --batch-h)
   useEffect(() => {
@@ -702,7 +703,7 @@ export default function DeckDetail() {
               </button>
             </div>
           )}
-          <div ref={sentinel} />
+          <div ref={setSentinel} />
           <p className="list-count">
             顯示 {shown.length} / {filtered.length} 個字
             {shown.length < filtered.length && (
