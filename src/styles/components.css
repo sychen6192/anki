@@ -298,7 +298,9 @@ input.switch:disabled { opacity: .4; cursor: default; }
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
   display: flex; justify-content: space-around;
-  padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
+  /* 底部安全區(Home 橫條那一截)不放在 nav 上,放進每個分頁裡:看得到的分頁列一路到螢幕底都按得到。
+     放在 nav 上時,Face ID 的 iPhone 底下 34px 不屬於任何分頁,按下去什麼都不會發生 */
+  padding: 0 var(--safe-right) 0 var(--safe-left);
   background: color-mix(in srgb, var(--surface) 86%, transparent);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
@@ -306,14 +308,17 @@ input.switch:disabled { opacity: .4; cursor: default; }
 }
 .tabbar a {
   position: relative;
-  flex: 1; max-width: 160px;
+  /* 三個一樣寬、填滿整條:不設 max-width,手機橫放時分頁之間才不會留下點不到的空隙(圖示位置和 space-around 一樣) */
+  flex: 1;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  height: var(--tabbar-h);
+  height: calc(var(--tabbar-h) + var(--safe-bottom)); padding-bottom: var(--safe-bottom);
   color: var(--text-2); text-decoration: none;
   font-size: var(--fs-caption2); font-weight: 600; letter-spacing: .02em;
 }
 .tabbar a.active { color: var(--accent); }
 .tabbar a:active { opacity: .6; }
+/* 分頁一路延伸到螢幕底:焦點框往內縮,不然下緣被螢幕切掉 */
+.tabbar a:focus-visible { outline-offset: -2px; }
 .tabbar .tab-dot {
   position: absolute; top: 8px; left: calc(50% + 10px);
   width: 8px; height: 8px; border-radius: 50%;
@@ -340,6 +345,8 @@ input.switch:disabled { opacity: .4; cursor: default; }
     border-radius: 10px; font-size: var(--fs-subhead); letter-spacing: 0; color: var(--text-2);
   }
   .tabbar a svg { width: 18px; height: 18px; }
+  /* 看得見的是 40px 的膠囊,可點範圍撐滿整條列(上下 8px 的留白、膠囊之間 4px 的縫) */
+  .tabbar a::before { content: ''; position: absolute; inset: -8px -2px; }
   .tabbar a.active { background: var(--accent-tint); color: var(--accent-text); }
   @media (hover: hover) { .tabbar a:hover:not(.active) { background: var(--fill-2); color: var(--text); } }
   .tabbar .tab-dot { top: 8px; left: auto; right: 6px; }
