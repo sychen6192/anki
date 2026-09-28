@@ -158,7 +158,8 @@
 /* 寬螢幕:按鈕接在卡片下面,不必跑到畫面最底 */
 @media (min-width: 768px) {
   .review-screen, .review-screen.with-hint { min-height: 0; padding-bottom: 32px; }
-  .review-bar { position: static; margin: 0; padding: 12px 0 0; min-height: 0; background: none; }
+  /* relative(不是 static):橫放時提示條以頂列為準定位 */
+  .review-bar { position: relative; margin: 0; padding: 12px 0 0; min-height: 0; background: none; }
   .flashcard { flex: none; min-height: 360px; margin-top: 12px; }
   .review-actions { position: static; padding: 16px 0 0; background: none; }
   .review-actions > * { max-width: none; }
@@ -186,9 +187,13 @@
   .review-actions > * { max-width: 688px; }
   .rating, .show-answer { min-height: 52px; }
   .rating-hint { display: none; }
-  /* 橫放時卡片矮,底部的提示條會蓋住答案的最後一行:改疊在頂列上(✕ 和 ⋯ 在兩端,蓋不到) */
+  /* 橫放時卡片矮,底部的提示條會蓋住答案的最後一行:改疊在頂列上,夾在 ✕ 和右邊那一組之間
+     (進度條可以蓋;三色計數、↶、⋯ 不能蓋 —— 每答一張都跳出來,蓋住的話計數一直看不到) */
   .app.no-tabbar .review-screen .review-toast, .app.no-tabbar .review-screen.with-hint .review-toast {
-    top: calc(var(--safe-top) + 2px); bottom: auto;
+    position: absolute; top: calc(var(--safe-top) + 2px); bottom: auto;
+    left: calc(var(--safe-left) + 56px); right: calc(var(--safe-right) + 250px);
+    width: auto; max-width: none; transform: none; justify-content: center;
+    animation-name: toast-in-top;
   }
   .review-done { min-height: 0; }
 }
@@ -198,3 +203,4 @@
     font-size: clamp(var(--fs-title2), calc(100cqi / var(--n, 4) - 1px), 34px);
   }
 }
+@keyframes toast-in-top { from { opacity: 0; transform: translateY(-8px); } }
