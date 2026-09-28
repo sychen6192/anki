@@ -190,7 +190,8 @@ export default function DeckDetail() {
   const [progressMsg, setProgressMsg] = useState<string | null>(null)
   const [shareMsg, setShareMsg] = useState<string | null>(null)
 
-  if (deck === undefined || !notes || !todayLogs) return <Loading />
+  // 卡片也要等:還沒讀到時算出來是 0 張,按鈕會先閃一下「今天完成了」
+  if (deck === undefined || !notes || !todayLogs || !deckCards) return <Loading />
   if (deck === null || deck.deleted) {
     // 這台根本沒有這副(換過金鑰後按上一頁、清空重新下載還沒下載完、從別台複製的網址)不等於被刪了
     const missing = deck === null
@@ -216,8 +217,8 @@ export default function DeckDetail() {
     if (st !== 'active') statusCounts[st] += 1
   }
   const hasParked = statusCounts.known + statusCounts.paused > 0
-  const queueCount = todayCards(deckQueue(deck.id, deck.new_per_day, deckCards ?? [], todayLogs, now)).length
-  const hasNewLeft = (deckCards ?? []).some((c) => !c.deleted && !c.suspended && c.state === State.New)
+  const queueCount = todayCards(deckQueue(deck.id, deck.new_per_day, deckCards, todayLogs, now)).length
+  const hasNewLeft = deckCards.some((c) => !c.deleted && !c.suspended && c.state === State.New)
 
   const toggleSelected = (id: string) => setSelected((prev) => {
     const next = new Set(prev)
@@ -527,7 +528,9 @@ export default function DeckDetail() {
       await softDeleteDeck(deck.id)
       setErrMsg(null)
       requestSync()
-      navigate('/')
+      // 大牌組刪得久,這段時間點了別的分頁就別再把人拉回牌組(網址在換頁當下就變了);
+      // 用 replace:上一頁不會回到已經刪掉的牌組
+      if (window.location.pathname === `/deck/${deck.id}`) navigate('/', { replace: true })
     } catch (e) {
       setErrMsg(`操作失敗：${errText(e)}`)
     }
