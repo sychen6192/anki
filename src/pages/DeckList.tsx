@@ -38,7 +38,7 @@ function inSeparateBrowser(): boolean {
 function Welcome({ onImport, onJoin, inBrowser }: { onImport: () => void; onJoin: () => void; inBrowser: boolean }) {
   return (
     <section className="welcome card">
-      <img className="welcome-icon" src="/icon.svg" alt="" width={64} height={64} />
+      <img className="welcome-icon" src="/apple-touch-icon-180x180.png" alt="" width={64} height={64} />
       <h2>歡迎使用字卡</h2>
       <p>挑一份單字範本就能開始背，每天只會出一小批新字。</p>
       {inBrowser && (

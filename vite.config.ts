@@ -13,7 +13,7 @@ export default defineConfig({
       // 註冊與更新提示由 src/lib/sw.ts 自己做
       injectRegister: null,
       // 預設只預先快取 js/css/html 與 manifest 的圖示:歡迎畫面的圖示、網頁小圖示也要,離線打開才不會破圖
-      includeAssets: ['icon.svg', 'favicon-48.png', 'apple-touch-icon-180x180.png'],
+      includeAssets: ['favicon-48.png', 'apple-touch-icon-180x180.png'],
       manifest: {
         // id 固定住已安裝 app 的身分,之後改 start_url 或圖示也不會被當成另一個 app
         id: '/',
@@ -25,7 +25,7 @@ export default defineConfig({
         scope: '/',
         display: 'standalone',
         categories: ['education', 'productivity'],
-        theme_color: '#5b57d6',
+        theme_color: '#1a66e8',
         background_color: '#f2f2f7',
         icons: [
           { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },

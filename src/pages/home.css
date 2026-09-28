@@ -50,7 +50,8 @@
 .welcome p { color: var(--text-2); font-size: var(--fs-subhead); max-width: 26em; }
 .welcome .btn-stack { width: 100%; max-width: 340px; margin-top: 8px; }
 .welcome > .btn.lg { max-width: 340px; margin-top: 6px; }
-.welcome-icon { width: 64px; height: 64px; border-radius: 16px; }
+/* 滿版的主畫面圖示,圓角照 iPhone 裁的比例 */
+.welcome-icon { width: 64px; height: 64px; border-radius: 22.5%; }
 .welcome-join { margin-top: 2px; font-size: var(--fs-subhead); }
 .welcome .welcome-install {
   width: 100%; max-width: 340px; padding: 10px 12px; border-radius: var(--radius);

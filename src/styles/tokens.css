@@ -19,12 +19,14 @@
   --text-2: #636368;             /* 次要文字:白底、灰底、灰底上的淡色框(匯入結果、提醒)都 4.5:1 以上 */
   --text-3: #8e8e93;             /* 只給 placeholder、箭頭、圖示(3:1);要讀的字一律用 --text-2 */
 
-  --accent: #5b57d6;
-  --accent-pressed: #4a46c4;
-  --accent-tint: rgb(91 87 214 / 0.12);
-  --accent-tint-pressed: rgb(91 87 214 / 0.2);
-  /* 淡色底(tinted 按鈕、標籤)上的字:比 --accent 深一階,疊在灰底上也有 4.5:1 */
-  --accent-text: #4f4bc9;
+  /* 主題色跟 App 圖示同一個藍:白字在上面 5.1:1,當字用在白底、灰底上也 4.5:1 以上。
+     淡色底上的圖示(3:1 就夠)直接用 --accent;淡色底上的字一律用 --accent-text */
+  --accent: #1a66e8;
+  --accent-pressed: #1459d4;
+  --accent-tint: rgb(26 102 232 / 0.12);
+  --accent-tint-pressed: rgb(26 102 232 / 0.2);
+  /* 淡色底(tinted 按鈕、標籤)上的字:比 --accent 深一階,疊在灰底上、按下去時也有 4.5:1 */
+  --accent-text: #1554c6;
   --on-accent: #ffffff;
 
   /* 語意色都是「當字用也有 4.5:1」的深度:白底、灰底,以及淡色框直接疊在灰底上(匯入結果、捨棄鈕)都算過 */
@@ -39,7 +41,7 @@
   --c-new: #2f62c8;
   --c-learn: #b3343a;
   --c-due-count: #25703f;
-  --chart-reviews: #5b57d6;
+  --chart-reviews: #1a66e8;
   --chart-due: #2f8253;
 
   /* 評分鍵:最常按的「普通」是實心(白字 4.5:1 以上),其他三個是淡色塊配深色字(也 4.5:1 以上),
@@ -108,13 +110,14 @@
   --text-2: #a1a1a6;
   --text-3: #7c7c80;
 
-  /* 浮層(#2c2c2e:提示條的「復原」、動作選單、確認框)上也要 4.5:1 */
-  --accent: #9390f4;
-  --accent-pressed: #a19ef6;
-  --accent-tint: rgb(147 144 244 / 0.2);
-  --accent-tint-pressed: rgb(147 144 244 / 0.3);
-  --accent-text: #a5a3f7;
-  --on-accent: #12121a;
+  /* 浮層(#2c2c2e:提示條的「復原」、動作選單、確認框)上也要 4.5:1;
+     淡色底上的字(--accent-text)在浮層上按下去時也 4.5:1 */
+  --accent: #64a0ff;
+  --accent-pressed: #77adff;
+  --accent-tint: rgb(100 160 255 / 0.2);
+  --accent-tint-pressed: rgb(100 160 255 / 0.3);
+  --accent-text: #9cc3ff;
+  --on-accent: #0a1020;
 
   --danger: #ff6b6b;
   --danger-tint: rgb(255 107 107 / 0.14);
@@ -126,7 +129,7 @@
   --c-new: #7ea6ff;
   --c-learn: #ff7a7f;
   --c-due-count: #4bb37c;
-  --chart-reviews: #8683f0;
+  --chart-reviews: #64a0ff;
   --chart-due: #4bb37c;
 
   --rate-again-tint: #492f31;
