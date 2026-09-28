@@ -2,7 +2,7 @@ import { useEffect, useOptimistic, useRef, useTransition, type ReactNode } from 
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
-import { scrollBehavior } from '../lib/motion'
+import { scrollPageTo } from '../lib/scroller'
 
 export interface Tab {
   to: string
@@ -61,7 +61,7 @@ export function TabBar({ tabs }: { tabs: Tab[] }) {
   const go = (to: string) => {
     // 看 window.location 不看 useLocation:別的換頁還在畫的時候,網址已經換過去了
     if (window.location.pathname === to && window.location.search === '') {
-      window.scrollTo({ top: 0, behavior: scrollBehavior() })
+      scrollPageTo(0, true)
       return
     }
     startTransition(() => {

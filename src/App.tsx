@@ -8,6 +8,7 @@ import { UpdateBanner } from './components/UpdateBanner'
 import { ConfirmProvider } from './components/Confirm'
 import { ChartIcon, DecksIcon, GearIcon } from './components/icons'
 import { lazyRoute, prefetchRoutes } from './lib/lazyRoute'
+import { scrollPageTo } from './lib/scroller'
 import DeckList from './pages/DeckList'
 import Review from './pages/Review'
 
@@ -52,7 +53,7 @@ function NotFound() {
 /** 換頁時回到頂端(BrowserRouter 不會自己做,新頁面會停在上一頁的捲動位置) */
 function ScrollToTop() {
   const { pathname } = useLocation()
-  useEffect(() => { window.scrollTo(0, 0) }, [pathname])
+  useEffect(() => { scrollPageTo(0) }, [pathname])
   return null
 }
 
@@ -64,26 +65,30 @@ function Shell() {
   return (
     <div className={`app${hideTabbar ? ' no-tabbar' : ''}`}>
       <ScrollToTop />
-      {/* DOM 放在內容前面:手機上是 fixed 在底部,位置不受影響;寬螢幕時 sticky 在頂端要排第一個 */}
+      {/* 分頁列和捲動區是上下兩列(手機:CSS 的 order 把分頁列排到下面;寬螢幕在上面)。
+          頁面在 .scroller 裡捲,文件本身不捲:分頁列不疊在捲動區上,iPhone 上頁面還在慣性捲動時
+          點分頁才不會被拿去停住捲動(見 lib/scroller.ts) */}
       {!hideTabbar && <TabBar tabs={TABS} />}
-      <main className="page">
-        {/* 換網址就收掉錯誤畫面:出錯後點分頁列換頁就重新來過(不然錯誤畫面會一直留著,設定頁的修復工具也到不了)。
-            不當 key 用:複習完一副按「繼續複習其他牌組」只是換網址,復原紀錄要留著 */}
-        <ErrorBoundary resetKey={pathname}>
-          <Suspense fallback={<Loading />}>
-            <Routes>
-              <Route path="/" element={<DeckList />} />
-              <Route path="/deck/:deckId" element={<DeckDetail />} />
-              <Route path="/review/:deckId" element={<Review />} />
-              <Route path="/import" element={<ImportPage />} />
-              <Route path="/stats" element={<StatsPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/guide" element={<GuidePage />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Suspense>
-        </ErrorBoundary>
-      </main>
+      <div className="scroller">
+        <main className="page">
+          {/* 換網址就收掉錯誤畫面:出錯後點分頁列換頁就重新來過(不然錯誤畫面會一直留著,設定頁的修復工具也到不了)。
+              不當 key 用:複習完一副按「繼續複習其他牌組」只是換網址,復原紀錄要留著 */}
+          <ErrorBoundary resetKey={pathname}>
+            <Suspense fallback={<Loading />}>
+              <Routes>
+                <Route path="/" element={<DeckList />} />
+                <Route path="/deck/:deckId" element={<DeckDetail />} />
+                <Route path="/review/:deckId" element={<Review />} />
+                <Route path="/import" element={<ImportPage />} />
+                <Route path="/stats" element={<StatsPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/guide" element={<GuidePage />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
+          </ErrorBoundary>
+        </main>
+      </div>
       <UpdateBanner />
     </div>
   )

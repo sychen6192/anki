@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronLeftIcon } from './icons'
+import { onPageScroll, pageScrollTop } from '../lib/scroller'
 
 interface Props {
   title: ReactNode
@@ -23,10 +24,9 @@ interface Props {
 export function PageHeader({ title, shortTitle, back, leading, actions, subtitle }: Props) {
   const [scrolled, setScrolled] = useState(false)
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 34)
+    const onScroll = () => setScrolled(pageScrollTop() > 34)
     onScroll()
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
+    return onPageScroll(onScroll)
   }, [])
 
   return (

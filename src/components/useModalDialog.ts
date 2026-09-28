@@ -1,25 +1,30 @@
 import {
   useEffect, useLayoutEffect, useRef, type KeyboardEvent, type MouseEvent, type PointerEvent, type SyntheticEvent,
 } from 'react'
+import { pageScroller } from '../lib/scroller'
 
 // 好幾層疊在一起(確認框開在面板上)時,各自記「開之前的值」再寫回去會互相蓋掉,
 // 關掉的順序一亂頁面就一直捲不動:用計數器,第一層打開時鎖、最後一層關掉才還原
 let lockCount = 0
 let savedOverflow = ''
+let locked: HTMLElement | null = null
 
-/** 開著 sheet 的時候鎖住底下頁面的捲動(iPhone 上拖背景會帶著整頁跑) */
-function useScrollLock(locked: boolean) {
+/** 開著 sheet 的時候鎖住底下頁面的捲動(iPhone 上拖背景會帶著整頁跑)。頁面在 .scroller 裡捲(見 lib/scroller.ts) */
+function useScrollLock(on: boolean) {
   useEffect(() => {
-    if (!locked) return
-    const html = document.documentElement
+    if (!on) return
     if (lockCount++ === 0) {
-      savedOverflow = html.style.overflow
-      html.style.overflow = 'hidden'
+      locked = pageScroller() ?? document.documentElement
+      savedOverflow = locked.style.overflow
+      locked.style.overflow = 'hidden'
     }
     return () => {
-      if (--lockCount === 0) html.style.overflow = savedOverflow
+      if (--lockCount === 0 && locked !== null) {
+        locked.style.overflow = savedOverflow
+        locked = null
+      }
     }
-  }, [locked])
+  }, [on])
 }
 
 /**

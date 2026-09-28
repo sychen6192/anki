@@ -22,6 +22,7 @@ import {
 } from '../lib/queue'
 import { reviewKeyAction, type KeyTarget } from '../lib/reviewKeys'
 import { requestSync } from '../lib/sync'
+import { scrollPageTo } from '../lib/scroller'
 import type { CardRecord, DeckRecord, NoteRecord } from '../../shared/types'
 import './review.css'
 
@@ -282,7 +283,7 @@ export default function Review() {
     setDone(false)
     setNextDue(null)
     shownAt.current = performance.now()
-    window.scrollTo(0, 0)
+    scrollPageTo(0)
   }, [deckId, allMode, showProgress])
 
   // 換到另一個複習(例如完成後按「繼續複習其他牌組」,同一個畫面換網址):這一輪的進度、
