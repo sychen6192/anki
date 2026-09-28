@@ -21,7 +21,7 @@ export const DECK_TEMPLATES: DeckTemplate[] = [
   {
     id: 'mnn-shokyu-1',
     name: '大家的日本語 初級 I',
-    description: '第 1～25 課的單字,依課次排序。從自我介紹、數字時間一路到動詞變化。',
+    description: '第 1～25 課的單字，依課次排序。從自我介紹、數字時間一路到動詞變化。',
     count: 1408,
     preview: '私、あなた、あの人（あの方）…',
     loadCsv: () => import('./mnn').then((m) => m.MNN_1_CSV),
@@ -29,7 +29,7 @@ export const DECK_TEMPLATES: DeckTemplate[] = [
   {
     id: 'mnn-shokyu-2',
     name: '大家的日本語 初級 II',
-    description: '第 26～50 課的單字,依課次排序。含敬語、擬聲擬態語與各類生活場景用字。',
+    description: '第 26～50 課的單字，依課次排序。含敬語、擬聲擬態語與各類生活場景用字。',
     count: 1440,
     preview: '見ます（診ます）、探します（捜します）、「時間に」遅れます…',
     loadCsv: () => import('./mnn').then((m) => m.MNN_2_CSV),

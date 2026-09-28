@@ -1,14 +1,16 @@
 import { db, type Local } from '../db/db'
+import { PENDING_FOLD, readRekeyed, REKEYED, resolveRekeyed } from './space'
 import type { CardRecord, DeckRecord, NoteRecord, ReviewLogRecord, SettingRecord } from '../../shared/types'
 
 function stripDirty<T extends { dirty: 0 | 1 }>(rows: T[]): Omit<T, 'dirty'>[] {
   return rows.map(({ dirty: _d, ...rest }) => rest)
 }
 
-export async function exportBackup(): Promise<string> {
+/** exportedAt:手機上兩步備份時拿同一個時間重新匯出一次,比對內容有沒有變(見設定頁) */
+export async function exportBackup(exportedAt = Date.now()): Promise<string> {
   return JSON.stringify({
     version: 1,
-    exported_at: Date.now(),
+    exported_at: exportedAt,
     decks: stripDirty(await db.decks.toArray()),
     notes: stripDirty(await db.notes.toArray()),
     cards: stripDirty(await db.cards.toArray()),
@@ -50,10 +52,30 @@ function parseBackup(json: string): Record<string, Record<string, unknown>[]> {
   // new_per_day 若不是數字,之後每日新卡額度會算成 NaN,佇列會靜默變成空的
   for (const deck of out.decks) {
     if (typeof deck.new_per_day !== 'number' || !Number.isFinite(deck.new_per_day)) {
-      throw new Error('備份檔的牌組缺少每日新卡上限(new_per_day)')
+      throw new Error('備份檔的牌組缺少每日新卡上限（new_per_day）')
     }
   }
   return out
+}
+
+export interface BackupSummary {
+  exportedAt: number | null
+  decks: number
+  words: number
+  reviews: number
+}
+
+/** 還原前給使用者看的內容摘要(只算沒刪除的牌組與單字);檔案不對會丟出和還原時一樣的錯誤 */
+export function describeBackup(json: string): BackupSummary {
+  const data = parseBackup(json)
+  const exportedAt = (JSON.parse(json) as { exported_at?: unknown }).exported_at
+  const live = (rows: Record<string, unknown>[]) => rows.filter((r) => !r.deleted).length
+  return {
+    exportedAt: typeof exportedAt === 'number' && Number.isFinite(exportedAt) ? exportedAt : null,
+    decks: live(data.decks),
+    words: live(data.notes),
+    reviews: data.review_logs.length,
+  }
 }
 
 export async function importBackup(json: string): Promise<void> {
@@ -80,5 +102,35 @@ export async function importBackup(json: string): Promise<void> {
     await db.review_logs.clear(); await db.review_logs.bulkAdd(as<Local<ReviewLogRecord>>(data.review_logs.map(withDirtyOnly)))
     await db.settings.clear(); await db.settings.bulkAdd(as<Local<SettingRecord>>(data.settings.map(withDirty)))
     await db.meta.delete('sync_cursor') // 下次同步全量重拉,restore-wins 讓還原內容覆蓋雲端與其他裝置
+    await db.meta.delete(REKEYED) // 之前換過的 id 跟這份備份無關;還原後的同步撞到別的空間會重新記
+    await db.meta.delete(PENDING_FOLD) // 還原成備份的樣子,不再去併之前合併時記下的牌組
   })
+}
+
+/**
+ * 同步中還原備份的第二步:還原後同步一次(備份推上去,雲端有、備份沒有的也會被拉回來),
+ * 再把「備份裡沒有的」牌組、字、卡片標成刪除,下一次同步推上去 ——
+ * 還原完的樣子才會跟備份一樣,而不是「備份 + 之後新增的東西」。回傳標成刪除的列數。
+ * 備份來自別的空間時,同步會把它的列換成新 id(見 space.ts rekeyConflicts),換過的也算備份裡的。
+ */
+export async function pruneToBackup(json: string): Promise<number> {
+  const data = parseBackup(json)
+  const rekeyed = await readRekeyed()
+  const idsOf = (rows: Record<string, unknown>[]) => new Set(rows.flatMap((r) => {
+    const id = r.id as string
+    const latest = resolveRekeyed(rekeyed, id) // 換過不只一次的,照最後的 id 認
+    return latest === id ? [id] : [id, latest]
+  }))
+  const keep = { decks: idsOf(data.decks), notes: idsOf(data.notes), cards: idsOf(data.cards) }
+  const now = Date.now()
+  let pruned = 0
+  await db.transaction('rw', [db.decks, db.notes, db.cards], async () => {
+    const tables = [[db.decks, keep.decks], [db.notes, keep.notes], [db.cards, keep.cards]] as const
+    for (const [table, ids] of tables) {
+      const extra = await (table as typeof db.decks).filter((r) => !r.deleted && !ids.has(r.id)).primaryKeys()
+      for (const id of extra) await (table as typeof db.decks).update(id, { deleted: 1, updated_at: now, dirty: 1 })
+      pruned += extra.length
+    }
+  })
+  return pruned
 }

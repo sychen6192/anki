@@ -4,6 +4,14 @@ export function isValidAccent(s: string): boolean {
   return s === '' || /^\d+(,\d+)*$/.test(s)
 }
 
+/**
+ * 手機上打重音常混進全形數字、頓號或全形逗號(「０、３」「0，3」):先統一成「0,3」再驗證。
+ * 前後多餘的分隔符號去掉;其他字元留著,交給 isValidAccent 判斷。
+ */
+export function normalizeAccent(s: string): string {
+  return s.normalize('NFKC').replace(/[、,，､。．.\s]+/g, ',').replace(/^,+|,+$/g, '')
+}
+
 export interface AccentQuery { expression: string; reading: string }
 
 /** 呼叫 /api/accent/lookup;>200 筆自動分批。回傳與 items 同序,查無為 null。 */

@@ -13,6 +13,26 @@ export interface QueueResult {
  */
 export const DAY_START_HOUR = 4
 
+export interface QueueCounts { news: number; learn: number; rev: number }
+
+/** 佇列分成新卡/學習中/待複習三類(首頁與複習畫面的三色計數共用,兩邊才會對得上) */
+export function splitCounts(queue: readonly CardRecord[]): QueueCounts {
+  let news = 0
+  let learn = 0
+  for (const c of queue) {
+    if (c.state === State.New) news++
+    else if (c.state === State.Learning || c.state === State.Relearning) learn++
+  }
+  return { news, learn, rev: queue.length - news - learn }
+}
+
+/** 一張卡算在三類的哪一類 */
+export function countKind(card: CardRecord): keyof QueueCounts {
+  if (card.state === State.New) return 'news'
+  if (card.state === State.Learning || card.state === State.Relearning) return 'learn'
+  return 'rev'
+}
+
 export function startOfToday(now = Date.now()): number {
   const d = new Date(now)
   if (d.getHours() < DAY_START_HOUR) d.setDate(d.getDate() - 1)
@@ -23,6 +43,22 @@ export function startOfToday(now = Date.now()): number {
 export function countTodayNew(logs: ReviewLogRecord[], now = Date.now()): number {
   const start = startOfToday(now)
   return logs.filter((l) => l.reviewed_at >= start && l.state === State.New).length
+}
+
+/**
+ * 今天已經超出每日上限學了幾張新卡(之前按「再學 N 張」加碼學掉的);跨牌組時各副分開算再加總。
+ * 「再學 N 張」要從這個數往上加:加碼是「今天總共多學幾張」,之前加碼學過的會把這次的份抵掉 ——
+ * 同一天第二次按「再學一點」就會什麼都沒有。
+ */
+export function newOverLimit(
+  decks: Pick<DeckRecord, 'id' | 'new_per_day'>[], cards: CardRecord[], todayLogs: ReviewLogRecord[], now = Date.now(),
+): number {
+  let over = 0
+  for (const d of decks) {
+    const ids = new Set(cards.filter((c) => c.deck_id === d.id).map((c) => c.id))
+    over += Math.max(0, countTodayNew(todayLogs.filter((l) => ids.has(l.card_id)), now) - d.new_per_day)
+  }
+  return over
 }
 
 /**
@@ -103,7 +139,10 @@ function assembleQueue(groups: QueueGroup[], now: number, extraNew = 0): QueueRe
     .sort((a, b) => a.due - b.due), recent)
 
   let newRemaining = 0
-  let extraLeft = Math.max(0, extraNew)
+  // 加碼是「今天總共多學幾張」:今天已經超出各牌組額度的新卡(之前加碼學掉的)要先扣掉,
+  // 不然佇列每重算一次又給一輪加碼,「再學 3 張」會一路學到整副的新卡都出完
+  const overLimit = groups.reduce((sum, g) => sum + Math.max(0, countTodayNew(g.logs, now) - g.newPerDay), 0)
+  let extraLeft = Math.max(0, extraNew - overLimit)
   const news: CardRecord[] = []
   for (const g of groups) {
     const fresh = g.cards.filter((c) => isActive(c) && c.state === State.New)

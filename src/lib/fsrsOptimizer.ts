@@ -104,7 +104,7 @@ export function optimizeParameters(
 ): Promise<number[]> {
   return new Promise((resolve, reject) => {
     if (typeof crossOriginIsolated !== 'undefined' && !crossOriginIsolated) {
-      reject(new Error('這個頁面沒有跨來源隔離(可能是更新前的舊版快取),請完全關閉再重新開啟 App'))
+      reject(new Error('這個頁面沒有跨來源隔離（可能是更新前的舊版快取），請完全關閉再重新開啟 App'))
       return
     }
     const worker = new Worker(new URL('./fsrsOptimizer.worker.ts', import.meta.url), { type: 'module' })
@@ -122,7 +122,7 @@ export function optimizeParameters(
         finish()
         const w: unknown = m.w
         if (isValidW(w)) resolve(w)
-        else reject(new Error(`optimizer 回傳的參數不合法(${Array.isArray(w) ? w.length : '?'} 個)`))
+        else reject(new Error(`optimizer 回傳的參數不合法（${Array.isArray(w) ? w.length : '?'} 個）`))
       } else {
         finish()
         reject(new Error(m.message))

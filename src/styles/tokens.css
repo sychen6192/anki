@@ -1,0 +1,143 @@
+/* ============================================================
+   設計 token。所有元件走變數,深淺色一次切換。
+   參考 iOS 的分組列表配色:淺灰底 + 白色表面;深色是純黑底 + 深灰表面。
+   ============================================================ */
+:root {
+  color-scheme: light;
+
+  --bg: #f2f2f7;
+  --surface: #ffffff;
+  --surface-2: #f7f7fa;
+  --elevated: #ffffff;           /* sheet、選單等浮在上面的層 */
+  /* 輸入框、分段控制、搜尋框的底色:半透明灰,疊在白或灰上都自然 */
+  --fill: rgb(118 118 128 / 0.12);
+  --fill-2: rgb(118 118 128 / 0.08);
+  --separator: rgb(60 60 67 / 0.16);
+  --border: rgb(60 60 67 / 0.14);
+
+  --text: #1c1c1e;
+  --text-2: #636368;             /* 次要文字:白底、灰底、灰底上的淡色框(匯入結果、提醒)都 4.5:1 以上 */
+  --text-3: #8e8e93;             /* 只給 placeholder、箭頭、圖示(3:1);要讀的字一律用 --text-2 */
+
+  --accent: #5b57d6;
+  --accent-pressed: #4a46c4;
+  --accent-tint: rgb(91 87 214 / 0.12);
+  --accent-tint-pressed: rgb(91 87 214 / 0.2);
+  /* 淡色底(tinted 按鈕、標籤)上的字:比 --accent 深一階,疊在灰底上也有 4.5:1 */
+  --accent-text: #4f4bc9;
+  --on-accent: #ffffff;
+
+  /* 語意色都是「當字用也有 4.5:1」的深度:白底、灰底,以及淡色框直接疊在灰底上(匯入結果、捨棄鈕)都算過 */
+  --danger: #b52a2a;
+  --danger-tint: rgb(181 42 42 / 0.1);
+  --success: #1a6b3c;
+  --success-tint: rgb(26 107 60 / 0.1);
+  --warning: #b86e00;
+  --warning-text: #8a5300;
+
+  /* 計數與圖表共用同一組語意色(Anki 的慣例:新卡藍、學習中紅、待複習綠) */
+  --c-new: #2f62c8;
+  --c-learn: #b3343a;
+  --c-due-count: #25703f;
+  --chart-reviews: #5b57d6;
+  --chart-due: #2f8253;
+
+  /* 評分鍵:最常按的「普通」是實心(白字 4.5:1 以上),其他三個是淡色塊配深色字(也 4.5:1 以上),
+     四塊一樣重的飽和色會比卡上的答案還搶眼 */
+  --rate-again-tint: #f8e6e7;
+  --rate-again-fg: #b8323a;
+  --rate-hard-tint: #f4ebe3;
+  --rate-hard-fg: #8f5019;
+  --rate-good: #2f8253;
+  --rate-easy-tint: #e7ecf7;
+  --rate-easy-fg: #3a5cab;
+
+  /* 字級:只用這幾級,頁面 CSS 一律寫 var(--fs-*),不寫原始 px */
+  --fs-caption2: 11px;   /* 分頁列文字、圖表軸 */
+  --fs-caption: 12px;    /* 標籤、小計 */
+  --fs-footnote: 13px;   /* 分組標題與底下說明、提示 */
+  --fs-small: 14px;      /* 小按鈕、chip、分段控制 */
+  --fs-subhead: 15px;    /* 次要一行(副標、讀音、意思) */
+  --fs-body: 16px;       /* 內文、列標題、輸入框(小於 16px iPhone 會放大整頁) */
+  --fs-headline: 17px;   /* 強調的列標題、名稱、按鈕 */
+  --fs-title3: 20px;     /* 區塊標題 */
+  --fs-title2: 22px;     /* 卡片上的主資訊 */
+  --fs-title1: 28px;     /* 大數字、完成畫面 */
+  --fs-large: 34px;      /* 頁面大標(寬螢幕)、首頁的今日張數 */
+  --fs-display: 48px;    /* 複習卡上的單字 */
+
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.04), 0 1px 3px rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.08), 0 12px 32px rgb(0 0 0 / 0.08);
+  --shadow-lg: 0 10px 40px rgb(0 0 0 / 0.18);
+
+  --font: -apple-system, BlinkMacSystemFont, "PingFang TC", "Hiragino Sans",
+    "Noto Sans TC", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  /* 日文內容(單字/讀音)要用日文字型:同一個漢字的中日字形不同(例:直、令、骨),
+     用 PingFang 排日文單字會學到台版字形。標了 lang="ja" 的元素走這組。 */
+  --font-ja: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP",
+    "Yu Gothic", "Meiryo", sans-serif;
+
+  --tabbar-h: 56px;
+  --header-h: 48px;
+  --page-x: 16px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+/* 深色 token:由 lib/theme.ts 解析(系統偏好或手動鎖定)後寫進 data-theme */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #000000;
+  --surface: #1c1c1e;
+  --surface-2: #2c2c2e;
+  --elevated: #2c2c2e;
+  --fill: rgb(118 118 128 / 0.24);
+  --fill-2: rgb(118 118 128 / 0.16);
+  --separator: rgb(84 84 88 / 0.55);
+  --border: rgb(84 84 88 / 0.5);
+
+  --text: #f2f2f7;
+  --text-2: #a1a1a6;
+  --text-3: #7c7c80;
+
+  /* 浮層(#2c2c2e:提示條的「復原」、動作選單、確認框)上也要 4.5:1 */
+  --accent: #9390f4;
+  --accent-pressed: #a19ef6;
+  --accent-tint: rgb(147 144 244 / 0.2);
+  --accent-tint-pressed: rgb(147 144 244 / 0.3);
+  --accent-text: #a5a3f7;
+  --on-accent: #12121a;
+
+  --danger: #ff6b6b;
+  --danger-tint: rgb(255 107 107 / 0.14);
+  --success: #4bb37c;
+  --success-tint: rgb(75 179 124 / 0.15);
+  --warning: #e6a23c;
+  --warning-text: #e6a23c;
+
+  --c-new: #7ea6ff;
+  --c-learn: #ff7a7f;
+  --c-due-count: #4bb37c;
+  --chart-reviews: #8683f0;
+  --chart-due: #4bb37c;
+
+  --rate-again-tint: #492f31;
+  --rate-again-fg: #ff8a8f;
+  --rate-hard-tint: #43362c;
+  --rate-hard-fg: #e8ac72;
+  --rate-good: #2a7a4c;
+  --rate-easy-tint: #30384b;
+  --rate-easy-fg: #8fb2ff;
+
+  --shadow-sm: none;
+  --shadow-md: 0 4px 16px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 10px 40px rgb(0 0 0 / 0.6);
+}

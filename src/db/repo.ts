@@ -72,10 +72,16 @@ export async function createNotes(deckId: string, inputs: NoteInput[]): Promise<
   return notes
 }
 
-export async function updateNote(id: string, patch: Partial<NoteInput>): Promise<void> {
+/**
+ * 改一個字(與它的反向卡)。字已經刪掉了(別的分頁或裝置刪的)就什麼都不寫、回傳 false ——
+ * 寫進刪掉的那筆會把反向卡救回來,留下一張找不到字的卡,之後的「復原」也對不上。
+ */
+export async function updateNote(id: string, patch: Partial<NoteInput>): Promise<boolean> {
+  let written = false
   await db.transaction('rw', [db.notes, db.cards], async () => {
     const note = await db.notes.get(id)
-    if (!note) return
+    if (!note || note.deleted) return
+    written = true
     const t = now()
     const reversed: 0 | 1 = patch.reversed === undefined ? note.reversed : patch.reversed ? 1 : 0
     await db.notes.update(id, {
@@ -90,13 +96,15 @@ export async function updateNote(id: string, patch: Partial<NoteInput>): Promise
     // 新建的反向卡跟著正向卡的狀態:已經會了的字,開反向卡也不該跑回佇列
     const inherited = cardsOfNote.find((c) => c.direction === 'forward' && !c.deleted)?.suspended ?? 0
     if (reversed && rev?.deleted) {
-      await db.cards.update(rev.id, { deleted: 0, updated_at: t, dirty: 1 }) // 復原保留舊複習進度
+      // 復原保留舊複習進度;狀態跟著正向卡(已經會了/先不學的字,復原的反向卡也不該跑回佇列)
+      await db.cards.update(rev.id, { deleted: 0, suspended: inherited, updated_at: t, dirty: 1 })
     } else if (reversed && !rev) {
       await db.cards.add(makeCard({ ...note, reversed }, 'reverse', t, inherited))
     } else if (!reversed && rev && !rev.deleted) {
       await db.cards.update(rev.id, { deleted: 1, updated_at: t, dirty: 1 })
     }
   })
+  return written
 }
 
 /**
@@ -115,7 +123,7 @@ export async function enableReverseCards(deckId: string): Promise<number> {
       const cardsOfNote = await db.cards.where('note_id').equals(note.id).toArray()
       const rev = cardsOfNote.find((c) => c.direction === 'reverse')
       const inherited = cardsOfNote.find((c) => c.direction === 'forward' && !c.deleted)?.suspended ?? 0
-      if (rev && rev.deleted) await db.cards.update(rev.id, { deleted: 0, updated_at: t, dirty: 1 })
+      if (rev && rev.deleted) await db.cards.update(rev.id, { deleted: 0, suspended: inherited, updated_at: t, dirty: 1 })
       else if (!rev) await db.cards.add(makeCard({ ...note, reversed: 1 }, 'reverse', t, inherited))
       changed++
     }
@@ -126,6 +134,8 @@ export async function enableReverseCards(deckId: string): Promise<number> {
 /** 把 note 連同底下所有卡片搬到另一副牌組;排程進度不動。 */
 export async function moveNote(id: string, deckId: string): Promise<void> {
   await db.transaction('rw', [db.notes, db.cards], async () => {
+    const note = await db.notes.get(id)
+    if (!note || note.deleted) return // 刪掉的字不搬(不然刪除的時間戳被改掉,「復原」就對不上它的卡)
     const t = now()
     await db.notes.update(id, { deck_id: deckId, updated_at: t, dirty: 1 })
     await db.cards.where('note_id').equals(id).modify({ deck_id: deckId, updated_at: t, dirty: 1 })
@@ -136,16 +146,49 @@ export async function softDeleteNote(id: string): Promise<void> {
   await db.transaction('rw', [db.notes, db.cards], async () => {
     const t = now()
     await db.notes.update(id, { deleted: 1, updated_at: t, dirty: 1 })
-    await db.cards.where('note_id').equals(id).modify({ deleted: 1, updated_at: t, dirty: 1 })
+    // 已經刪掉的卡不再蓋章:保留原本的刪除時間,restoreNote 才分得出哪些是這次一起刪的
+    await db.cards.where('note_id').equals(id).filter((c) => !c.deleted)
+      .modify({ deleted: 1, updated_at: t, dirty: 1 })
   })
 }
 
-/** 回傳新增的 review_log id,讓呼叫端可以復原這次評分。 */
+/**
+ * 復原剛刪掉的筆記:筆記與「跟著它一起刪」的卡片(同一個時間戳)改回未刪除,時間戳往前推讓 LWW 傳播。
+ * 在這之前就刪掉的卡(例如先前關掉的反向卡)維持刪除。
+ */
+export async function restoreNote(id: string): Promise<void> {
+  await db.transaction('rw', [db.notes, db.cards], async () => {
+    const note = await db.notes.get(id)
+    if (note === undefined || note.deleted !== 1) return
+    const deletedAt = note.updated_at
+    const t = Math.max(now(), deletedAt + 1)
+    await db.notes.update(id, { deleted: 0, updated_at: t, dirty: 1 })
+    await db.cards.where('note_id').equals(id)
+      .filter((c) => c.deleted === 1 && c.updated_at === deletedAt)
+      .modify({ deleted: 0, updated_at: t, dirty: 1 })
+  })
+}
+
+/** 評分用的是畫面上的舊資料:這張卡在那之後被改過(多半是同步拉到別台的複習),不能拿舊排程蓋掉 */
+export class StaleCardError extends Error {
+  constructor() {
+    super('這張卡在其他裝置更新過了')
+    this.name = 'StaleCardError'
+  }
+}
+
+/**
+ * 回傳新增的 review_log id,讓呼叫端可以復原這次評分。
+ * `card` 是評分時畫面上的那份:資料庫裡的已經不一樣(被刪、或 updated_at 變了)就丟 StaleCardError,什麼都不寫 ——
+ * 比對和寫入在同一個交易裡,中間不會被同步插隊。
+ */
 export async function applyReview(
   card: CardRecord, fields: FsrsFields, log: Omit<ReviewLogRecord, 'id' | 'card_id'>,
 ): Promise<string> {
   const logId = crypto.randomUUID()
   await db.transaction('rw', [db.cards, db.review_logs], async () => {
+    const cur = await db.cards.get(card.id)
+    if (cur === undefined || cur.deleted || cur.updated_at !== card.updated_at) throw new StaleCardError()
     await db.cards.update(card.id, { ...fields, updated_at: now(), dirty: 1 })
     await db.review_logs.add({ id: logId, card_id: card.id, ...log, dirty: 1 })
   })
@@ -193,14 +236,22 @@ export async function setNoteSuspended(noteId: string, value: CardSuspended): Pr
 
 /** 批次版(牌組頁勾選多筆)。回傳實際改到的卡片數,已經是該狀態的不動。 */
 export async function setNotesSuspended(noteIds: string[], value: CardSuspended): Promise<number> {
-  let changed = 0
+  return (await setNotesSuspendedUndoable(noteIds, value)).length
+}
+
+/** 同 setNotesSuspended,回傳改動前的狀態:交給 restoreCardsSuspended 就能復原 */
+export async function setNotesSuspendedUndoable(noteIds: string[], value: CardSuspended): Promise<SuspendedSnapshot[]> {
+  const prev: SuspendedSnapshot[] = []
   await db.transaction('rw', [db.cards], async () => {
     const t = now()
     await db.cards.where('note_id').anyOf(noteIds)
       .filter((c) => !c.deleted && (c.suspended ?? 0) !== value)
-      .modify((c) => { c.suspended = value; c.updated_at = t; c.dirty = 1; changed += 1 })
+      .modify((c) => {
+        prev.push({ id: c.id, suspended: (c.suspended ?? 0) as CardSuspended })
+        c.suspended = value; c.updated_at = t; c.dirty = 1
+      })
   })
-  return changed
+  return prev
 }
 
 /** 復原 setNoteSuspended:逐張寫回原值。用新的 updated_at,其他裝置才會經 LWW 收到復原結果。 */

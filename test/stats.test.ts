@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { afterAll, beforeAll, describe, it, expect } from 'vitest'
 import { DAY, dayStart, lastNDays, prevDayStart, streakDays, trueRetention } from '../src/lib/stats'
 import { State } from '../src/lib/fsrs'
+import { startOfToday } from '../src/lib/queue'
 
 // 固定一個「今天」:2026-07-20(一)凌晨 4 點
 const T = new Date(2026, 6, 20, 4, 0, 0).getTime()
@@ -68,5 +69,18 @@ describe('trueRetention', () => {
 
   it('沒有紀錄時 total 為 0,由畫面決定怎麼顯示', () => {
     expect(trueRetention([])).toEqual({ passed: 0, total: 0 })
+  })
+})
+
+describe('日光節約那天(streak 與 startOfToday 同一套換日)', () => {
+  const original = process.env.TZ
+  beforeAll(() => { process.env.TZ = 'America/New_York' })
+  afterAll(() => { process.env.TZ = original })
+
+  it('3/8 撥快一小時:3/7、3/8 都有複習,連續 2 天(以前會算成 1 天)', () => {
+    const today = startOfToday(new Date('2026-03-08T12:00:00').getTime())
+    const stamps = [new Date('2026-03-07T20:00:00').getTime(), new Date('2026-03-08T09:00:00').getTime()]
+    expect(streakDays(stamps, today)).toBe(2)
+    expect(dayStart(stamps[1])).toBe(today)
   })
 })

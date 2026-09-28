@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { parseCsv, autoMapHeaders, mapRows, noteKey, dedupeRows, exportCsv, findDuplicateNote } from '../src/lib/csv'
+import {
+  parseCsv, autoMapHeaders, mapRows, noteKey, dedupeRows, exportCsv, findDuplicateNote, decodeCsvBytes, encodingNote,
+} from '../src/lib/csv'
 import type { NoteRecord } from '../shared/types'
 
 const VOCAB_SAMPLE = `id,漢字,拼音,中文翻譯
@@ -54,6 +56,10 @@ describe('mapRows', () => {
       { expression: 'a', reading: '', meaning: 'b', accent: '' },
     ])
   })
+  it('重音欄的全形數字與頓號先統一成 0,2', () => {
+    expect(mapRows([['犬', 'いぬ', '狗', '０、２']], { expression: 0, reading: 1, meaning: 2, accent: 3 }))
+      .toEqual([{ expression: '犬', reading: 'いぬ', meaning: '狗', accent: '0,2' }])
+  })
   it('讀取重音欄;不合法值清成空字串', () => {
     const rows = [['犬', 'いぬ', '狗', '1'], ['猫', 'ねこ', '貓', 'bad']]
     expect(mapRows(rows, { expression: 0, reading: 1, meaning: 2, accent: 3 })).toEqual([
@@ -93,9 +99,78 @@ describe('exportCsv', () => {
       { id: '2', deck_id: 'd', expression: '猫', reading: 'ねこ', meaning: '貓', accent: '', reversed: 0, updated_at: 0, deleted: 1 },
     ] satisfies NoteRecord[]
     const csv = exportCsv(notes)
-    expect(csv.split('\n')[0]).toBe('單字,讀音,意思,重音')
+    // 開頭有 BOM(給 Excel 認 UTF-8),自己的匯入照樣讀得懂
+    expect(csv.startsWith('\uFEFF')).toBe(true)
+    expect(csv.split('\n')[0]).toBe('\uFEFF單字,讀音,意思,重音')
+    expect(parseCsv(csv)[0]).toEqual(['單字', '讀音', '意思', '重音'])
     expect(csv).toContain('犬,いぬ,狗,2')
     expect(csv).not.toContain('猫')
+  })
+})
+
+describe('decodeCsvBytes', () => {
+  it('UTF-8 照讀;Excel 存的 Big5 自動認出來', () => {
+    const utf8 = new TextEncoder().encode('單字,意思\n犬,狗\n')
+    expect(decodeCsvBytes(utf8)).toEqual({ text: '單字,意思\n犬,狗\n', encoding: 'utf-8' })
+    // 「單字,意思」的 Big5:B3E6 A672 2C B74E AB E4
+    const big5 = new Uint8Array([0xb3, 0xe6, 0xa6, 0x72, 0x2c, 0xb7, 0x4e, 0xab, 0xe4])
+    expect(decodeCsvBytes(big5)).toEqual({ text: '單字,意思', encoding: 'big5' })
+  })
+
+  it('開頭有 BOM 的 UTF-16(Excel 的「Unicode 文字」)照 BOM 解,表頭認得出來', () => {
+    const text = '單字\t意思\n犬\t狗\n'
+    const le = new Uint8Array(2 + text.length * 2)
+    le.set([0xff, 0xfe])
+    const be = new Uint8Array(2 + text.length * 2)
+    be.set([0xfe, 0xff])
+    for (let i = 0; i < text.length; i++) {
+      const c = text.charCodeAt(i)
+      le[2 + i * 2] = c & 0xff; le[3 + i * 2] = c >> 8
+      be[2 + i * 2] = c >> 8; be[3 + i * 2] = c & 0xff
+    }
+    expect(decodeCsvBytes(le)).toEqual({ text, encoding: 'utf-16le' })
+    expect(decodeCsvBytes(be)).toEqual({ text, encoding: 'utf-16be' })
+    expect(autoMapHeaders(parseCsv(decodeCsvBytes(le).text)[0])).not.toBeNull()
+  })
+
+  it('哪一種都解不開就照實說,不假裝是 UTF-8', () => {
+    const junk = new Uint8Array([0xc3, 0x28, 0xa0, 0xa1, 0xff, 0x80, 0x81])
+    expect(decodeCsvBytes(junk).encoding).toBe('unknown')
+    expect(encodingNote('unknown')).toMatch(/亂碼/)
+    expect(encodingNote('utf-8')).toBe('')
+    expect(encodingNote('utf-16le')).toMatch(/UTF-16/)
+  })
+})
+
+describe('parseCsv:Excel 留下的空白列', () => {
+  it('只有逗號或空白的列不算一列', () => {
+    expect(parseCsv('單字,意思\n犬,狗\n,,\n  \n , \n猫,貓\n,,\n')).toEqual([['單字', '意思'], ['犬', '狗'], ['猫', '貓']])
+  })
+
+  it('開頭好幾列空白、開頭引號前的空格、結尾引號後的空格:照樣解得對', () => {
+    const tsv = '\n'.repeat(12) + '\t\t\n' + '單字\t讀音\t意思\n犬\tいぬ\t狗\n'
+    const rows = parseCsv(tsv)
+    expect(rows[0]).toEqual(['單字', '讀音', '意思'])
+    expect(autoMapHeaders(rows[0])).not.toBeNull()
+    expect(parseCsv('  "單字","意思"\n犬,狗\n')[0]).toEqual(['單字', '意思'])
+    expect(parseCsv('單字,意思\n引用,"引用,引述"  ')[1]).toEqual(['引用', '引用,引述'])
+  })
+
+  it('兩欄的 tab 分隔、最後一格空著:最後那個 tab 不會被吃掉(不然猜不出是 tab 分隔,一個字都匯不進來)', () => {
+    const rows = parseCsv('單字\t意思\r\n勉強\t讀書\r\n先生\t老師\r\n宿題\t\r\n')
+    expect(rows[0]).toEqual(['單字', '意思'])
+    expect(rows[3]).toEqual(['宿題', ''])
+    expect(parseCsv('單字\t意思\n犬\t狗\n鳥\t\n')[0]).toEqual(['單字', '意思'])
+  })
+
+  it('tab 分隔、第一格空著的表頭不會少一欄(Excel 的「Unicode 文字」)', () => {
+    const tsv = '\t單字\t讀音\t意思\r\n1\t犬\tいぬ\t狗\r\n2\t猫\tねこ\t貓\r\n'
+    const le = new Uint8Array([0xff, 0xfe, ...Array.from(tsv).flatMap((ch) => [ch.charCodeAt(0) & 0xff, ch.charCodeAt(0) >> 8])])
+    const rows = parseCsv(decodeCsvBytes(le).text)
+    expect(rows.map((r) => r.length)).toEqual([4, 4, 4])
+    const mapping = autoMapHeaders(rows[0])
+    expect(mapping).not.toBeNull()
+    expect(mapRows(rows.slice(1), mapping!)[0]).toMatchObject({ expression: '犬', reading: 'いぬ', meaning: '狗' })
   })
 })
 

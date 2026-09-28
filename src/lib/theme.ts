@@ -7,7 +7,8 @@
 export type ThemePref = 'system' | 'light' | 'dark'
 
 const KEY = 'theme'
-const BG = { light: '#f5f5f6', dark: '#0f1013' } as const
+// 和 tokens.css 的 --bg 一致:狀態列跟頁面同色,深色模式才不會在頂端多一條灰帶
+const BG = { light: '#f2f2f7', dark: '#000000' } as const
 
 export function getThemePref(): ThemePref {
   const v = localStorage.getItem(KEY)

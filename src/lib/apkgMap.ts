@@ -1,7 +1,7 @@
 import type { ApkgNote } from './apkg'
 import { ACCENT_ALIASES, EXPRESSION_ALIASES, MEANING_ALIASES, READING_ALIASES, type ParsedRow } from './csv'
 import { splitFurigana, stripAnkiHtml } from './ankiText'
-import { isValidAccent } from './accent'
+import { isValidAccent, normalizeAccent } from './accent'
 
 export interface ApkgMapping { expression: number; reading: number | null; meaning: number; accent: number | null }
 
@@ -50,12 +50,12 @@ export function mapApkgNotes(notes: ApkgNote[], mapping: ApkgMapping): ParsedRow
           reading = furigana.reading
         }
       }
-      const rawAccent = at(note, mapping.accent)
+      const accent = normalizeAccent(at(note, mapping.accent))
       return {
         expression,
         reading,
         meaning: at(note, mapping.meaning),
-        accent: isValidAccent(rawAccent) ? rawAccent : '',
+        accent: isValidAccent(accent) ? accent : '',
       }
     })
     .filter((r) => r.expression !== '' && r.meaning !== '')

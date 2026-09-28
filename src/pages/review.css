@@ -1,0 +1,197 @@
+/* ---------- 複習(專注模式) ----------
+   頂列(✕ 進度 剩幾張 ↶ ⋯)、中間卡片、底部固定的「顯示答案」/評分鍵(拇指區) */
+/* 選擇器要比 .app.no-tabbar .page 重,不然複習畫面底下多一截可以捲的空白 */
+.app.no-tabbar .page:has(.review-screen), .app.no-tabbar .page:has(.review-done) { padding-bottom: 0; }
+
+.review-screen {
+  --actions-h: 84px;
+  display: flex; flex-direction: column;
+  min-height: 100dvh;
+  padding-bottom: calc(var(--actions-h) + var(--safe-bottom) + 8px);
+}
+
+.review-bar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 2px;
+  margin: 0 calc(-1 * (var(--page-x) + var(--safe-right))) 0 calc(-1 * (var(--page-x) + var(--safe-left)));
+  min-height: calc(52px + var(--safe-top));
+  padding: var(--safe-top) calc(6px + var(--safe-right)) 0 calc(6px + var(--safe-left));
+  background: var(--bg);
+}
+.review-bar .icon-btn { color: var(--text-2); }
+.review-bar .icon-btn:not(:disabled):active { color: var(--text); }
+.review-progress {
+  flex: 1; height: 6px; margin: 0 8px;
+  background: var(--fill); border-radius: 999px; overflow: hidden;
+}
+.review-progress > span {
+  display: block; height: 100%; min-width: 6px;
+  background: var(--accent); border-radius: inherit;
+  transition: width .3s ease;
+}
+.review-remaining {
+  margin-right: 4px; white-space: nowrap;
+  font-size: var(--fs-footnote); color: var(--text-2); font-variant-numeric: tabular-nums;
+}
+.review-remaining b { font-size: var(--fs-subhead); font-weight: 600; color: var(--text); }
+.review-err { margin: 4px 4px 0; }
+
+.flashcard {
+  position: relative;
+  /* 卡上的字級依卡片的寬度算(.expression 的 100cqi) */
+  container-type: inline-size;
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center;
+  /* 從上往下排、不置中:單字的位置正反面都一樣,翻面時不會往上跳 */
+  justify-content: flex-start;
+  margin-top: 8px; min-height: 300px;
+  padding: clamp(52px, 13vh, 120px) 22px 36px;
+  background: var(--surface); border-radius: 24px;
+  box-shadow: var(--shadow-sm);
+  text-align: center; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  animation: card-in .22s ease;
+}
+.flashcard.flipped { cursor: default; }
+@keyframes card-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.card-face { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; animation: card-in .16s ease; }
+/* 跨牌組複習時,左上角標出這張卡屬於哪副牌組;新卡在右上角標「新卡」 */
+.card-deck {
+  position: absolute; top: 14px; left: 18px; right: 76px;
+  font-size: var(--fs-caption); font-weight: 600; color: var(--text-2); text-align: left;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.card-tag {
+  position: absolute; top: 12px; right: 14px;
+  padding: 2px 9px; border-radius: 999px;
+  background: color-mix(in srgb, var(--c-new) 12%, transparent); color: var(--c-new);
+  font-size: var(--fs-caption); font-weight: 600;
+}
+/* 焦點跟著卡片移動是給讀螢幕的;畫面上不必畫框 */
+.expression:focus, .card-answer:focus, .review-done h1:focus { outline: none; }
+.expression {
+  /* 依卡片的寬度(100cqi)和字數(--n,Review.tsx 寫入)算字級:整個字放得進一行就不斷行,
+     最大 48px、最小 22px;太長的片語到最小字級還放不下才換行 */
+  font-size: clamp(var(--fs-title2), calc(100cqi / var(--n, 4) - 1px), var(--fs-display));
+  font-weight: 700; letter-spacing: -0.01em; line-height: 1.25;
+  line-break: strict; overflow-wrap: anywhere;
+}
+/* 字多的行高鬆一點、字重輕一點(字級本身已經依寬度縮了) */
+.expression.size-sm { line-height: 1.35; }
+.expression.size-xs { line-height: 1.5; font-weight: 600; }
+/* 反向卡正面是中文意思:字重輕一點,跟日文單字分得出來 */
+.expression.prompt-text { font-weight: 600; }
+.card-prompt {
+  font-size: var(--fs-caption); font-weight: 600; color: var(--accent-text); letter-spacing: .04em;
+  padding: 3px 10px; border-radius: 999px; background: var(--accent-tint);
+}
+.card-hint { font-size: var(--fs-small); color: var(--text-2); }
+/* 卡上的輔助字(牌組名、標籤、提示)不必被長按選取;單字本身保留長按「查詢」 */
+.card-deck, .card-tag, .card-prompt, .card-hint { -webkit-user-select: none; user-select: none; }
+
+/* 答案:正面時先佔好位置但看不見,翻面只淡入,不推動上面的單字 */
+.card-answer { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; }
+.card-answer.concealed { visibility: hidden; }
+.flashcard.flipped .card-answer { animation: answer-in .2s ease; }
+@keyframes answer-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.reading-row { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
+.reading-row .speak-btn { width: 44px; height: 44px; }
+.card-divider { width: 40px; height: 3px; border-radius: 2px; background: var(--separator); margin: 2px 0; }
+/* 意思是這張卡的「答案」,不該是最灰的一層 */
+.meaning { font-size: var(--fs-title2); font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
+
+.review-actions {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  padding: 12px calc(16px + var(--safe-right)) calc(12px + var(--safe-bottom)) calc(16px + var(--safe-left));
+  background: linear-gradient(to top, var(--bg) 72%, color-mix(in srgb, var(--bg) 0%, transparent));
+}
+.review-actions > * { max-width: 688px; margin: 0 auto; }
+.show-answer { min-height: 60px; font-size: var(--fs-headline); border-radius: 16px; }
+.show-answer .kbd-hint { font-size: var(--fs-footnote); font-weight: 500; }
+
+.ratings { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+/* 新手提示:評分鍵上方一行;位置正反面都先留好,翻面時卡片不會縮 */
+.rating-hint { text-align: center; font-size: var(--fs-footnote); color: var(--text-2); margin-bottom: 8px; }
+.review-screen.with-hint { padding-bottom: calc(var(--actions-h) + var(--safe-bottom) + 36px); }
+.rating {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  min-height: 60px; padding: 6px 2px;
+  border: none; border-radius: 16px;
+  font-family: inherit; cursor: pointer;
+  transition: transform .08s ease, filter .15s ease;
+}
+.rating:active { transform: scale(0.96); filter: brightness(.94); }
+@media (hover: hover) { .rating:hover { filter: brightness(1.06); } }
+.rating-label { font-size: var(--fs-headline); font-weight: 600; }
+.rating-interval { font-size: var(--fs-caption); font-weight: 500; font-variant-numeric: tabular-nums; }
+.rating-key { position: absolute; top: 5px; right: 8px; font-size: var(--fs-caption2); }
+
+/* 評分後的回饋(可復原):浮在評分鍵上方,絕不蓋住按鈕。
+   頁面 CSS 和元件 CSS 的載入順序不固定,同權重時會被 .app.no-tabbar .toast 蓋掉,所以選擇器寫長一點 */
+.app.no-tabbar .review-screen .review-toast { bottom: calc(var(--safe-bottom) + 96px); }
+.app.no-tabbar .review-screen.with-hint .review-toast { bottom: calc(var(--safe-bottom) + 124px); }
+
+/* ---------- 完成畫面 ---------- */
+.review-done {
+  min-height: 100dvh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; text-align: center;
+  padding: calc(32px + var(--safe-top)) 0 calc(32px + var(--safe-bottom));
+}
+.done-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 80px; height: 80px; border-radius: 50%; margin-bottom: 4px;
+  background: var(--success-tint); color: var(--success);
+  animation: pop-in .35s cubic-bezier(.2, .8, .2, 1);
+}
+.review-done h1 { font-size: var(--fs-title1); font-weight: 700; }
+.done-stats { color: var(--text-2); font-size: var(--fs-body); }
+.done-stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+.done-wait { color: var(--text-2); font-size: var(--fs-subhead); max-width: 24em; }
+.review-done .btn-stack { width: 100%; max-width: 340px; margin-top: 16px; }
+.btn-note { font-size: var(--fs-footnote); font-weight: 500; opacity: .75; }
+
+/* 寬螢幕:按鈕接在卡片下面,不必跑到畫面最底 */
+@media (min-width: 768px) {
+  .review-screen, .review-screen.with-hint { min-height: 0; padding-bottom: 32px; }
+  .review-bar { position: static; margin: 0; padding: 12px 0 0; min-height: 0; background: none; }
+  .flashcard { flex: none; min-height: 360px; margin-top: 12px; }
+  .review-actions { position: static; padding: 16px 0 0; background: none; }
+  .review-actions > * { max-width: none; }
+  .app.no-tabbar .review-screen .review-toast, .app.no-tabbar .review-screen.with-hint .review-toast { bottom: 24px; }
+  .review-done { min-height: 70vh; }
+}
+
+/* 手機橫放(高度 500 以下;寬度常超過 768,會先套到上面的寬螢幕規則):
+   評分鍵照樣固定在底部、一定看得到,卡片變矮、留白收緊,新手提示先不出現 */
+@media (orientation: landscape) and (max-height: 500px) {
+  .review-screen, .review-screen.with-hint {
+    min-height: 100dvh; padding-bottom: calc(68px + var(--safe-bottom));
+  }
+  .review-bar { padding-top: calc(4px + var(--safe-top)); }
+  .flashcard { flex: 1; min-height: 0; margin-top: 4px; padding: 18px 22px 14px; }
+  /* 角落有牌組名或「新卡」標籤時,字往下讓出標籤的高度(不然長的字會壓在標籤底下) */
+  .flashcard:has(.card-deck, .card-tag) { padding-top: 40px; }
+  .card-face { gap: 10px; }
+  .card-answer { gap: 8px; }
+  .review-actions {
+    position: fixed;
+    padding: 8px calc(16px + var(--safe-right)) calc(8px + var(--safe-bottom)) calc(16px + var(--safe-left));
+    background: linear-gradient(to top, var(--bg) 72%, color-mix(in srgb, var(--bg) 0%, transparent));
+  }
+  .review-actions > * { max-width: 688px; }
+  .rating, .show-answer { min-height: 52px; }
+  .rating-hint { display: none; }
+  /* 橫放時卡片矮,底部的提示條會蓋住答案的最後一行:改疊在頂列上(✕ 和 ⋯ 在兩端,蓋不到) */
+  .app.no-tabbar .review-screen .review-toast, .app.no-tabbar .review-screen.with-hint .review-toast {
+    top: calc(var(--safe-top) + 2px); bottom: auto;
+  }
+  .review-done { min-height: 0; }
+}
+/* 更矮的橫放(iPhone SE 的 568×320):有標籤的卡片上方讓出 40px 之後,答案會被評分鍵蓋住 —— 字級上限壓到 34px 還回來 */
+@media (orientation: landscape) and (max-height: 340px) {
+  .flashcard:has(.card-deck, .card-tag) .expression {
+    font-size: clamp(var(--fs-title2), calc(100cqi / var(--n, 4) - 1px), 34px);
+  }
+}

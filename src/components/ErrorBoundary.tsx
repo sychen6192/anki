@@ -1,6 +1,10 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 
-interface Props { children: ReactNode }
+interface Props {
+  children: ReactNode
+  /** 這個值變了(換頁)就收掉錯誤畫面重來。不用 key:用 key 的話每次換網址整棵子樹都重建,頁面自己的狀態也跟著不見 */
+  resetKey?: string
+}
 interface State { error: Error | null }
 
 /**
@@ -14,6 +18,10 @@ export class ErrorBoundary extends Component<Props, State> {
     return { error }
   }
 
+  componentDidUpdate(prev: Props) {
+    if (this.state.error !== null && prev.resetKey !== this.props.resetKey) this.setState({ error: null })
+  }
+
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('未預期的錯誤', error, info.componentStack)
   }
@@ -23,11 +31,13 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="crash">
         <h1>出了點問題</h1>
-        <p className="hint">你的資料還在本機,沒有遺失。重新載入通常就能繼續。</p>
+        <p className="hint">你的資料還在本機，沒有遺失。重新載入通常就能繼續。</p>
         <pre className="crash-detail">{this.state.error.message}</pre>
-        <div className="form-actions">
+        <div className="btn-stack">
           <button className="btn" onClick={() => window.location.reload()}>重新載入</button>
-          <button className="btn secondary" onClick={() => { window.location.href = '/' }}>回牌組列表</button>
+          <button className="btn secondary" onClick={() => { window.location.href = '/' }}>回牌組</button>
+          {/* 牌組頁本身就壞掉時,從這裡去設定頁用「從備份還原」「清空這台並重新下載」 */}
+          <button className="btn secondary" onClick={() => { window.location.href = '/settings' }}>前往設定</button>
         </div>
       </div>
     )

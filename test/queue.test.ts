@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  buildMultiDeckQueue, buildQueue, countTodayNew, deckQueue, startOfToday, DAY_START_HOUR, SIBLING_GAP_MS,
+  buildMultiDeckQueue, buildQueue, countTodayNew, deckQueue, newOverLimit, startOfToday, DAY_START_HOUR, SIBLING_GAP_MS,
 } from '../src/lib/queue'
 import { newCardFields, State } from '../src/lib/fsrs'
 import type { CardRecord, ReviewLogRecord } from '../shared/types'
@@ -242,6 +242,20 @@ describe('buildMultiDeckQueue:跨牌組一次複習', () => {
     expect(ids(queue)).toEqual(ids([a[0], a[1], a[2], b[0], b[1], b[2]]))
   })
 
+  it('加碼學掉的新卡要扣掉:「再學 3 張」學完 3 張就沒了,不會每重算一次又給 3 張', () => {
+    const d3 = [{ id: 'A', new_per_day: 3 }, { id: 'B', new_per_day: 3 }]
+    const a = Array.from({ length: 15 }, (_, i) => card({ deck_id: 'A', state: State.New, updated_at: i }))
+    const b = Array.from({ length: 15 }, (_, i) => card({ deck_id: 'B', state: State.New, updated_at: i }))
+    // 今天各學了 3 張(額度用完),又加碼學了 A 的 2 張
+    const learned = [...a.slice(0, 5), ...b.slice(0, 3)]
+    const logs = learned.map((c) => log({ card_id: c.id, state: State.New, reviewed_at: NOW - 60_000 }))
+    // 學過的卡還在(進入學習中,10 分鐘後才到期),只是不再是新卡
+    const learning = learned.map((c) => ({ ...c, state: State.Learning, due: NOW + 600_000 }))
+    const rest = [...learning, ...a.slice(5), ...b.slice(3)]
+    const { queue } = buildMultiDeckQueue(d3, rest, logs, NOW, 3)
+    expect(queue.length).toBe(1) // 加碼 3 張,已經學掉 2 張,只剩 1 張
+  })
+
   it('剛看過的字,另一面排到整個到期段最後 —— 不會因為跨牌組重排 due 又黏回去', () => {
     const fwdA = card({ deck_id: 'A', note_id: 'nA', state: State.Learning, due: NOW - 30_000 })
     const revA = card({ deck_id: 'A', note_id: 'nA', direction: 'reverse', state: State.Review, due: NOW - 3600_000 })
@@ -263,5 +277,36 @@ describe('buildMultiDeckQueue:跨牌組一次複習', () => {
     expect(queue).toEqual([])
     expect(newRemaining).toBe(0)
     expect(nextLearningDue).toBeNull()
+  })
+})
+
+describe('newOverLimit:同一天第二次「再學一點」', () => {
+  // 每天 2 張、8 張新卡:學了 2 張 + 加碼 2 張 = 今天 4 張新卡
+  const setup = (deckId: string) => {
+    const fresh = Array.from({ length: 8 }, (_, i) => card({ id: `${deckId}-n${i}`, deck_id: deckId, updated_at: NOW + i }))
+    const learned = fresh.slice(0, 4).map((c) => ({ ...c, state: State.Learning, due: NOW + 3600_000 }))
+    const cards = [...learned, ...fresh.slice(4)]
+    const logs = learned.map((c) => log({ card_id: c.id, state: State.New, reviewed_at: NOW - 60_000 }))
+    return { cards, logs }
+  }
+
+  it('算出今天超出上限學了幾張;跨牌組各副分開算', () => {
+    const a = setup('A')
+    const b = setup('B')
+    expect(newOverLimit([{ id: 'A', new_per_day: 2 }], a.cards, a.logs, NOW)).toBe(2)
+    expect(newOverLimit([{ id: 'A', new_per_day: 5 }], a.cards, a.logs, NOW)).toBe(0)
+    expect(newOverLimit([{ id: 'A', new_per_day: 2 }, { id: 'B', new_per_day: 3 }],
+      [...a.cards, ...b.cards], [...a.logs, ...b.logs], NOW)).toBe(3)
+  })
+
+  it('加碼從超出的量往上加:單副與全部牌組都拿得到新的一輪', () => {
+    const { cards, logs } = setup('A')
+    const unit = 2
+    // 以前:加碼只算這次的 2 張,被今天已經加碼學掉的 2 張抵掉 → 0 張
+    expect(deckQueue('A', 2 + unit, cards, logs, NOW).queue.filter((c) => c.state === State.New)).toHaveLength(0)
+    const bonus = newOverLimit([{ id: 'A', new_per_day: 2 }], cards, logs, NOW) + unit
+    expect(deckQueue('A', 2 + bonus, cards, logs, NOW).queue.filter((c) => c.state === State.New)).toHaveLength(2)
+    const multi = buildMultiDeckQueue([{ id: 'A', new_per_day: 2 }], cards, logs, NOW, bonus)
+    expect(multi.queue.filter((c) => c.state === State.New)).toHaveLength(2)
   })
 })

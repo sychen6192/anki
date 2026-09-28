@@ -87,14 +87,15 @@ export function previewIntervals(card: CardRecord, now = Date.now()): Record<Rat
   return out
 }
 
+/** 間隔轉成中文:「10 分鐘」「3 小時」「19 天」「1.4 個月」「1.1 年」(「1.4月」讀起來像日期) */
 export function formatInterval(ms: number): string {
   const min = ms / 60000
-  if (min < 60) return `${Math.max(1, Math.round(min))}分`
+  if (min < 60) return `${Math.max(1, Math.round(min))} 分鐘`
   const hr = min / 60
-  if (hr < 24) return `${Math.round(hr)}小時`
+  if (hr < 24) return `${Math.round(hr)} 小時`
   const day = hr / 24
-  if (day < 31) return `${Math.round(day)}天`
+  if (day < 31) return `${Math.round(day)} 天`
   const mon = day / 30.44
-  if (mon < 12) return `${mon.toFixed(1)}月`
-  return `${(day / 365.25).toFixed(1)}年`
+  if (mon < 12) return `${mon.toFixed(1)} 個月`
+  return `${(day / 365.25).toFixed(1)} 年`
 }

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type {
-  CardRecord, DeckRecord, NoteRecord, ReviewLogRecord, SettingRecord, SyncPush, SyncPullResponse,
+  CardRecord, ConflictTable, DeckRecord, NoteRecord, ReviewLogRecord, SettingRecord, SyncPush, SyncPullResponse,
+  SyncPushResponse,
 } from '../shared/types'
 
 export type Env = { DB: D1Database; ASSETS: Fetcher }
@@ -64,7 +65,8 @@ const BUMP_SEQ_SQL = "UPDATE meta SET value = value + 1 WHERE key = 'seq'"
 // contiguous, so gaps are safe.
 //
 // 注意:namespace 不在 upsert 的 conflict target —— conflict 仍以 id(全表唯一 PK)為準。
-// 跨 namespace 的隔離因此仰賴「id 全域唯一(UUID)」+「換金鑰時客戶端強制清空本機」。
+// 同一個 id 已經在別的空間時,push 先查出來、不寫、回報給客戶端換新 id(見 findTaken);
+// upsert 的 WHERE 再擋一次,就算查完到寫入之間有別的空間寫進同一個 id,也不會把那一列搬走。
 // 這是刻意的輕量設計(非安全邊界);見 spec 2026-07-16-sync-namespace-design.md「安全」。
 function buildRowStatements(
   db: D1Database, table: TableName, row: Record<string, unknown>,
@@ -95,11 +97,12 @@ function buildRowStatements(
   // land between. New id -> inserted. Existing id with strictly newer updated_at ->
   // updated. Existing id with older/equal updated_at -> WHERE clause false, DO
   // UPDATE is skipped, row is left untouched (LWW: 較舊或同時間戳忽略).
+  // 別的空間的同 id 列也不動(不搬走)。
   const updateSet = cols.map((c) => `${c} = excluded.${c}`).concat('server_seq = excluded.server_seq').join(', ')
   const write = db.prepare(`
     INSERT INTO ${table} (${allCols.join(', ')}) VALUES (${colPlaceholders}, ${SEQ_EXPR})
     ON CONFLICT(id) DO UPDATE SET ${updateSet}
-    WHERE excluded.updated_at > ${table}.updated_at
+    WHERE excluded.updated_at > ${table}.updated_at AND ${table}.namespace = excluded.namespace
   `).bind(...values)
   return [bump, write]
 }
@@ -133,31 +136,117 @@ function isStorableRow(table: TableName, row: Record<string, unknown>): boolean 
   })
 }
 
+/**
+ * 設定列的 id 是固定的名稱(例如 'fsrs'),不像其他表是全域唯一的 UUID;而資料表以 id 當全表共用的主鍵
+ * —— 兩個空間都存 'fsrs' 就會搶同一列(較新的那個空間把它搬走,另一個空間從此拉不到自己的設定)。
+ * 所以存進資料庫時在 id 前面加上空間、讀出來再拿掉;以前存的(沒有前綴)照樣讀得到。
+ * 不改 schema,舊版 worker 與新版 schema 並存時也不會出錯。
+ */
+const settingStorageId = (space: string, id: string): string => `${space}:${id}`
+const settingClientId = (space: string, id: string): string =>
+  id.startsWith(`${space}:`) ? id.slice(space.length + 1) : id
+
+const CONFLICT_TABLES = ['decks', 'notes', 'cards', 'review_logs'] as const satisfies readonly ConflictTable[]
+
+/** 子列參照父列的欄位:父列是別的空間的,子列就算自己的 id 沒問題也不存(存了就指向這個空間沒有的列) */
+const PARENT_REFS: Partial<Record<ConflictTable, readonly (readonly [string, ConflictTable])[]>> = {
+  notes: [['deck_id', 'decks']],
+  cards: [['note_id', 'notes'], ['deck_id', 'decks']],
+  review_logs: [['card_id', 'cards']],
+}
+
+type IdSets = Record<ConflictTable, Set<string>>
+const emptyIdSets = (): IdSets => ({ decks: new Set(), notes: new Set(), cards: new Set(), review_logs: new Set() })
+
+/**
+ * 這次推送的 id(以及它們參照的父列 id)裡,已經屬於別的空間的那些。
+ * 資料表以 id 當全部空間共用的主鍵,同一個 id 推進另一個空間,以前會把那一列從原本的空間「搬走」——
+ * 例如在另一台還原了某個空間的備份、再用新的金鑰開始同步,原本那個空間的牌組就整批不見。
+ * 現在不寫、回報給客戶端,由客戶端換一組新 id 再推(原本的空間原封不動)。
+ */
+async function findTaken(db: D1Database, space: string, want: IdSets): Promise<IdSets> {
+  const out = emptyIdSets()
+  const tables = CONFLICT_TABLES.filter((t) => want[t].size > 0)
+  if (tables.length === 0) return out
+  // 一個參數帶整串 id(json_each),不受 D1 每句 100 個綁定參數的限制
+  const results = await db.batch<{ id: string }>(tables.map((t) => db.prepare(
+    `SELECT id FROM ${t} WHERE id IN (SELECT value FROM json_each(?)) AND namespace != ?`,
+  ).bind(JSON.stringify([...want[t]]), space)))
+  tables.forEach((t, i) => { for (const r of results[i].results) out[t].add(r.id) })
+  return out
+}
+
 app.post('/api/sync', async (c) => {
   const body = await c.req.json<SyncPush>().catch(() => null)
   if (body === null || typeof body !== 'object') return c.json({ error: 'invalid body' }, 400)
   const space = c.req.header('x-sync-space') ?? ''
   const db = c.env.DB
-  const statements: D1PreparedStatement[] = []
   // 跳過的列會回報給客戶端,客戶端據此保留 dirty(資料沒被丟掉,只是沒存進去)
   const skipped: string[] = []
+  const rowsToWrite: { t: TableName; r: Record<string, unknown> }[] = []
   for (const t of ['decks', 'notes', 'cards', 'review_logs', 'settings'] as const) {
     const rows = body[t]
     if (rows === undefined || rows === null) continue
     if (!Array.isArray(rows)) return c.json({ error: `invalid ${t}` }, 400)
     for (const row of rows) {
-      const r = { ...(row as unknown as Record<string, unknown>), namespace: space }
+      const r: Record<string, unknown> = { ...(row as unknown as Record<string, unknown>), namespace: space }
       if (row === null || typeof row !== 'object' || !isStorableRow(t, r)) {
         skipped.push(typeof (row as { id?: unknown })?.id === 'string' ? (row as { id: string }).id : '')
         continue
       }
-      statements.push(...buildRowStatements(db, t, r))
+      if (t === 'settings') r.id = settingStorageId(space, r.id as string)
+      rowsToWrite.push({ t, r })
     }
   }
+
+  const want = emptyIdSets()
+  for (const { t, r } of rowsToWrite) {
+    if (t === 'settings') continue
+    want[t].add(r.id as string)
+    for (const [col, parent] of PARENT_REFS[t] ?? []) {
+      if (typeof r[col] === 'string') want[parent].add(r[col] as string)
+    }
+  }
+  const taken = await findTaken(db, space, want)
+  const conflictSets = emptyIdSets()
+  const statements: D1PreparedStatement[] = []
+  for (const { t, r } of rowsToWrite) {
+    if (t !== 'settings') {
+      const id = r.id as string
+      if (taken[t].has(id)) {
+        conflictSets[t].add(id)
+        skipped.push(id)
+        continue
+      }
+      const takenParents = (PARENT_REFS[t] ?? []).filter(([col, parent]) => taken[parent].has(r[col] as string))
+      if (takenParents.length > 0) {
+        // 父列也回報成衝突:就算它沒在這次推送裡(客戶端那邊沒改過),客戶端也會把它換 id、連同子列再推一次,
+        // 不然子列每次都被跳過,永遠卡在「還沒同步」
+        for (const [col, parent] of takenParents) conflictSets[parent].add(r[col] as string)
+        skipped.push(id)
+        continue
+      }
+    }
+    statements.push(...buildRowStatements(db, t, r))
+  }
+  const conflicts: Partial<Record<ConflictTable, string[]>> = {}
+  for (const t of CONFLICT_TABLES) if (conflictSets[t].size > 0) conflicts[t] = [...conflictSets[t]]
   for (let i = 0; i < statements.length; i += STATEMENTS_PER_BATCH) {
     await db.batch(statements.slice(i, i + STATEMENTS_PER_BATCH))
   }
-  return c.json({ ok: true, skipped })
+  const resp: SyncPushResponse = Object.keys(conflicts).length > 0 ? { ok: true, skipped, conflicts } : { ok: true, skipped }
+  return c.json(resp)
+})
+
+// 連上一組金鑰之前先看那個空間有沒有東西:連不上就什麼都不改,空的多半是金鑰打錯
+// (打錯一碼會連進一個全新的空間,看起來像資料全不見)。有金鑰的人本來就能拉下整個空間,這裡不多透露什麼。
+app.get('/api/sync/summary', async (c) => {
+  const space = c.req.header('x-sync-space') ?? ''
+  // decks:沒刪除的牌組數(「空間是空的嗎」)。ids:空間認得的每一副牌組(含刪掉的)——
+  // 帶著本機資料合併進來時,這些不是這台新帶進去的,不拿去併同名牌組
+  const { results } = await c.env.DB.prepare('SELECT id, deleted FROM decks WHERE namespace = ?')
+    .bind(space).all<{ id: string; deleted: number }>()
+  return c.json({ decks: results.filter((r) => !r.deleted).length, ids: results.map((r) => r.id) })
 })
 
 app.get('/api/sync', async (c) => {
@@ -176,7 +265,7 @@ app.get('/api/sync', async (c) => {
     notes: await pullTable<NoteRecord>('notes'),
     cards: await pullTable<CardRecord>('cards'),
     review_logs: await pullTable<ReviewLogRecord>('review_logs'),
-    settings: await pullTable<SettingRecord>('settings'),
+    settings: (await pullTable<SettingRecord>('settings')).map((s) => ({ ...s, id: settingClientId(space, s.id) })),
     seq: seqRow!.value,
   }
   return c.json(resp)
@@ -337,7 +426,7 @@ app.get('/import', async (c) => {
   const count = (JSON.parse(row.payload) as unknown[]).length
   const meta =
     `<meta property="og:title" content="${escapeHtml(row.name)} — 字卡牌組分享">` +
-    `<meta property="og:description" content="${count} 個單字,點開直接匯入">` +
+    `<meta property="og:description" content="${count} 個單字，點開直接匯入">` +
     `<meta property="og:type" content="website">`
   return new HTMLRewriter()
     .on('head', { element(el) { el.append(meta, { html: true }) } })
