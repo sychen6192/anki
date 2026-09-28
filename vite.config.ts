@@ -25,7 +25,7 @@ export default defineConfig({
         scope: '/',
         display: 'standalone',
         categories: ['education', 'productivity'],
-        theme_color: '#5b57d6',
+        theme_color: '#1a66e8',
         background_color: '#f2f2f7',
         icons: [
           { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
