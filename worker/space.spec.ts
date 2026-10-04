@@ -188,7 +188,9 @@ describe('一次推送的大小', () => {
       review_logs: [log({ card_id: 'c1' })],
     })
     expect(res.status).toBe(200)
-    expect(((await res.json()) as { skipped: string[] }).skipped.sort()).toEqual(['c1', 'l1', 'n1'])
+    const body = await res.json() as { skipped: string[]; held: string[] }
+    expect(body.skipped.sort()).toEqual(['c1', 'l1', 'n1'])
+    expect(body.held.sort()).toEqual(['c1', 'l1', 'n1'])
     expect(await countRows(K)).toBe(1) // 只有牌組
     // 以前存過的字,這次改成太長:字跳過,它的卡片照常更新(指向空間裡原本那一筆)
     await push(K, { ...empty, notes: [note({ id: 'n2' })], cards: [card({ id: 'c2', note_id: 'n2' })] })
@@ -196,15 +198,37 @@ describe('一次推送的大小', () => {
       ...empty, notes: [note({ id: 'n2', meaning: '長'.repeat(20_001), updated_at: 2000 })],
       cards: [card({ id: 'c2', note_id: 'n2', reps: 1, updated_at: 2000 })],
     })
-    expect(((await again.json()) as { skipped: string[] }).skipped).toEqual(['n2'])
+    // 字以前存過(空間裡有):不算 held,子列照常寫
+    expect(await again.json()).toEqual({ ok: true, skipped: ['n2'] })
     const out = await (await pull(K)).json() as { cards: { id: string; reps: number }[] }
     expect(out.cards.find((c) => c.id === 'c2')?.reps).toBe(1)
+  })
+
+  it('存不下、空間裡也沒有的列回報成 held(客戶端後面幾批的子列先留著);子列已經在空間裡的照常更新(刪除也傳得出去)', async () => {
+    const card = (over: Record<string, unknown>) => ({
+      id: 'c5', note_id: 'n5', deck_id: 'd1', direction: 'forward', due: 1, stability: 1, difficulty: 5,
+      elapsed_days: 0, scheduled_days: 0, learning_steps: 0, reps: 0, lapses: 0, state: 0, last_review: null,
+      suspended: 0, updated_at: 1000, deleted: 0, ...over,
+    })
+    const first = await push(K, { ...empty, decks: [deck()], notes: [note({ id: 'n5', meaning: '長'.repeat(20_001) })] })
+    expect(await first.json()).toEqual({ ok: true, skipped: ['n5'], held: ['n5'] })
+    // 舊版伺服器存進去的孤兒卡片(這裡直接塞)
+    await env.DB.prepare(`INSERT INTO cards (id, note_id, deck_id, direction, due, stability, difficulty, elapsed_days,
+      scheduled_days, learning_steps, reps, lapses, state, last_review, suspended, updated_at, deleted, namespace, server_seq)
+      VALUES ('c5', 'n5', 'd1', 'forward', 1, 1, 5, 0, 0, 0, 0, 0, 0, NULL, 0, 1000, 0, ?, 1)`).bind(K).run()
+    const second = await push(K, {
+      ...empty, notes: [note({ id: 'n5', meaning: '長'.repeat(20_001), deleted: 1, updated_at: 2000 })],
+      cards: [card({ deleted: 1, updated_at: 2000 })],
+    })
+    expect(await second.json()).toEqual({ ok: true, skipped: ['n5'], held: ['n5'] })
+    const out = await (await pull(K)).json() as { cards: { id: string; deleted: number }[] }
+    expect(out.cards.find((c) => c.id === 'c5')?.deleted).toBe(1)
   })
 
   it('欄位超過 2 萬字的那一列跳過並回報,同一批的其他列照常寫入', async () => {
     const res = await push(K, { ...empty, decks: [deck({ id: 'ok' }), deck({ id: 'huge', name: 'あ'.repeat(20_001) })] })
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ok: true, skipped: ['huge'] })
+    expect(await res.json()).toEqual({ ok: true, skipped: ['huge'], held: ['huge'] })
     expect(await countRows(K)).toBe(1)
   })
 })

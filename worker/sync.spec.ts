@@ -38,7 +38,8 @@ describe('/api/sync push 的輸入驗證', () => {
       decks: [deck({ id: 'good' }), deck({ id: 'bad', name: { nested: 'object' } })],
     }))
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ok: true, skipped: ['bad'] })
+    // 存不下、空間裡也沒有:回報 held,客戶端這次同步後面幾批的子列先留著
+    expect(await res.json()).toEqual({ ok: true, skipped: ['bad'], held: ['bad'] })
 
     const out = await pull(0)
     expect(out.decks.map((d: { id: string }) => d.id)).toEqual(['good'])
@@ -49,7 +50,7 @@ describe('/api/sync push 的輸入驗證', () => {
       ...empty,
       decks: [deck({ id: undefined }), deck({ id: 'x', updated_at: 'not-a-number' })],
     }))
-    expect(await res.json()).toEqual({ ok: true, skipped: ['', 'x'] })
+    expect(await res.json()).toEqual({ ok: true, skipped: ['', 'x'], held: ['x'] })
     expect((await pull(0)).decks).toHaveLength(0)
   })
 

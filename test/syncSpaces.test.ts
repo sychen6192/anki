@@ -54,8 +54,17 @@ function makeSpacesServer() {
       const skipped: string[] = []
       const conflictSets: Record<string, Set<string>> = {}
       const conflict = (t: string, id: string) => (conflictSets[t] ??= new Set()).add(id)
+      // 跟 worker 一樣:欄位太長的列存不下,空間裡沒有的父列存不下時子列一起跳過,回報 held
+      const rejected: Record<string, Set<string>> = Object.fromEntries(TABLES.map((t) => [t, new Set<string>()]))
+      const inSpace = (t: string, id: unknown) => tables[t].get(id as string)?.ns === space
       for (const t of TABLES) {
         for (const row of body[t] ?? []) {
+          if (Object.values(row).some((v) => typeof v === 'string' && v.length > 20_000)) {
+            skipped.push(row.id); rejected[t].add(row.id); continue
+          }
+          if (!inSpace(t, row.id) && (PARENTS[t] ?? []).some(([col, p]) => rejected[p].has(row[col]) && !inSpace(p, row[col]))) {
+            skipped.push(row.id); rejected[t].add(row.id); continue
+          }
           if (t !== 'settings') {
             if (taken(t, row.id)) { conflict(t, row.id); skipped.push(row.id); continue }
             const hits = (PARENTS[t] ?? []).filter(([col, p]) => taken(p, row[col]))
@@ -68,7 +77,10 @@ function makeSpacesServer() {
         }
       }
       const conflicts = Object.fromEntries(Object.entries(conflictSets).map(([t, ids]) => [t, [...ids]]))
-      return new Response(JSON.stringify(Object.keys(conflicts).length ? { ok: true, skipped, conflicts } : { ok: true, skipped }))
+      const held = TABLES.flatMap((t) => [...rejected[t]].filter((id) => !inSpace(t, id)))
+      return new Response(JSON.stringify({
+        ok: true, skipped, ...(Object.keys(conflicts).length ? { conflicts } : {}), ...(held.length ? { held } : {}),
+      }))
     }
     const since = Number(url.searchParams.get('since') ?? '0')
     const out: Row = { seq }
@@ -966,5 +978,94 @@ describe('推送分批', () => {
     expect(pushes.length).toBeGreaterThan(1)
     for (const p of pushes) expect(p.bytes).toBeLessThan(1_100_000)
     expect(server.inSpace('notes', 'aaaa-aaaa-aaaa')).toHaveLength(30)
+  })
+})
+
+describe('照空間裡已經用的那一套 id 合併', () => {
+  const K = 'kkkk-kkkk-kkkk'
+  const N = 'nnnn-nnnn-nnnn'
+  const snapshotDb = () => Promise.all([db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta].map((t) => (t as typeof db.meta).toArray()))
+  const restoreDb = async (snapshot: unknown[][]) => {
+    await db.delete(); await db.open()
+    const tables = [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta] as unknown as (typeof db.meta)[]
+    for (const [i, t] of tables.entries()) await t.bulkPut(snapshot[i] as never)
+  }
+
+  it('一台在舊空間還在時就換了 id 帶進新空間,另一台等舊空間刪了才合併:跟著換,複習紀錄不會變兩份', async () => {
+    const server = makeSpacesServer()
+    await setSyncSpace(K)
+    await addDeckWithWord('日文', '犬')
+    await addLog((await db.cards.toArray())[0].id)
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    const tablet = await snapshotDb()
+    // 手機:停止同步(K 還在),產生新金鑰 N → 換 id 帶上去
+    await leaveSyncSpace()
+    await dropDeletedLastSpace(server.fetchFn)
+    await adoptSyncSpace(N)
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    // 平板:刪掉 K 的雲端資料,再合併進 N
+    await restoreDb(tablet)
+    expect(await deleteCloudData(K, server.fetchFn)).toBe('ok')
+    const summary = await fetchSpaceSummary(N, server.fetchFn)
+    await dropDeletedLastSpace(server.fetchFn)
+    await adoptSyncSpace(N, knownIds(summary))
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    expect(server.inSpace('review_logs', N)).toHaveLength(1)
+    expect(server.inSpace('notes', N).filter((n) => !n.deleted)).toHaveLength(1)
+    expect(server.liveNames(N)).toEqual(['日文'])
+  })
+
+  it('之前停止同步過、問不到舊空間還在不在:新空間裡已經是原 id 的話照原 id,不會變兩份', async () => {
+    const server = makeSpacesServer()
+    await setSyncSpace('test')
+    await addDeckWithWord('日文', '犬')
+    await addLog((await db.cards.toArray())[0].id)
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    await leaveSyncSpace()
+    const c = await snapshotDb()
+    await db.delete(); await db.open()
+    await setSyncSpace('test')
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    const r = await replaceLegacyKey('test', server.fetchFn)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    await restoreDb(c)
+    // 問舊空間被限流:LAST_SPACE 留著
+    const limited = (async (input: any, init?: any) => (init?.headers?.['x-sync-space'] === 'test'
+      ? new Response('{"error":"too many requests"}', { status: 429 })
+      : server.fetchFn(input, init))) as typeof fetch
+    await dropDeletedLastSpace(limited)
+    expect(await getLastSyncSpace()).toBe('test')
+    await adoptSyncSpace(r.key, knownIds(await fetchSpaceSummary(r.key, server.fetchFn)))
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    expect(server.inSpace('review_logs', r.key)).toHaveLength(1)
+    expect(server.inSpace('notes', r.key).filter((n) => !n.deleted)).toHaveLength(1)
+  })
+})
+
+describe('伺服器存不下的字', () => {
+  it('它的卡片、複習紀錄就算排在後面幾批也先留著不推,別台不會拉到指向不存在的字的卡片', async () => {
+    const server = makeSpacesServer()
+    await setSyncSpace('aaaa-aaaa-aaaa')
+    const deck = await createDeck('很多字')
+    for (let i = 0; i < 250; i++) {
+      await createNote(deck.id, { expression: `語${i}`, reading: '', meaning: `意思${i}`, accent: '', reversed: false })
+    }
+    const bad = (await db.notes.toArray())[0]
+    await db.notes.update(bad.id, { meaning: '長'.repeat(20_001) }) // 舊資料:改版之前匯進來的
+    const badCard = (await db.cards.where('note_id').equals(bad.id).toArray())[0]
+    await addLog(badCard.id)
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    expect(server.posts.length).toBeGreaterThan(2) // 字和卡片分在不同批
+    const cards = server.inSpace('cards', 'aaaa-aaaa-aaaa')
+    expect(cards).toHaveLength(249)
+    expect(cards.some((c) => c.note_id === bad.id)).toBe(false)
+    expect(server.inSpace('review_logs', 'aaaa-aaaa-aaaa')).toHaveLength(0)
+    // 這台留著待上傳,字改短之後一起推上去
+    expect((await db.cards.get(badCard.id))?.dirty).toBe(1)
+    await db.notes.update(bad.id, { meaning: '短了', updated_at: Date.now(), dirty: 1 })
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    expect(server.inSpace('cards', 'aaaa-aaaa-aaaa')).toHaveLength(250)
+    expect(server.inSpace('review_logs', 'aaaa-aaaa-aaaa')).toHaveLength(1)
   })
 })

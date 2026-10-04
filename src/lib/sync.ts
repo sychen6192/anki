@@ -241,7 +241,28 @@ async function applyPushResponse(chunk: PushChunk, pushRes: SyncPushResponse | n
  */
 const MAX_PUSH_PASSES = 3
 
+/**
+ * 伺服器存不下的列(held,例如欄位太長)的子列先留著不推:子列常常排在下一批,伺服器那一批的連帶跳過管不到,
+ * 推上去就是別台拉到指向不存在的字的卡片。留著的列保持待上傳,字改短之後下次同步會一起推上去。
+ * 回傳去掉之後的這一批;留下的列記進 held(它們的子列也要留)
+ */
+function holdBack(chunk: PushChunk, held: Set<string>): PushChunk {
+  const keep = <T extends { id: string }>(rows: T[], parents: (r: T) => string[]): T[] =>
+    rows.filter((r) => {
+      if (!parents(r).some((p) => held.has(p))) return true
+      held.add(r.id)
+      return false
+    })
+  return {
+    ...chunk,
+    notes: keep(chunk.notes, (n) => [n.deck_id]),
+    cards: keep(chunk.cards, (c) => [c.note_id, c.deck_id]),
+    review_logs: keep(chunk.review_logs, (l) => [l.card_id]),
+  }
+}
+
 async function pushDirty(space: string, fetchFn: typeof fetch, holdLogsAfter?: number): Promise<void> {
+  const held = new Set<string>()
   for (let pass = 0; pass < MAX_PUSH_PASSES; pass++) {
     const dirty = await readDirty()
     if (holdLogsAfter !== undefined) dirty.review_logs = dirty.review_logs.filter((l) => l.reviewed_at <= holdLogsAfter)
@@ -252,7 +273,9 @@ async function pushDirty(space: string, fetchFn: typeof fetch, holdLogsAfter?: n
     // succeeds. If a later chunk's POST fails we stop (throw) — chunks already
     // cleared stay cleared, so the next syncNow resumes with just the remaining
     // dirty rows instead of resending everything from scratch.
-    for (const chunk of chunks) {
+    for (const full of chunks) {
+      const chunk = holdBack(full, held)
+      if (Object.values(chunk).every((rows) => rows.length === 0)) continue
       const res = await fetchWithRetry(fetchFn, '/api/sync', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-sync-space': space },
@@ -260,6 +283,7 @@ async function pushDirty(space: string, fetchFn: typeof fetch, holdLogsAfter?: n
       })
       if (!res.ok) throw await httpError('push', res)
       const pushRes = await res.json().catch(() => null) as SyncPushResponse | null
+      for (const id of pushRes?.held ?? []) held.add(id)
       if (await applyPushResponse(chunk, pushRes, space)) rekeyed = true
     }
     if (!rekeyed) return
@@ -435,8 +459,8 @@ export async function deleteCloudData(space: string, fetchFn: typeof fetch = fet
 
 /**
  * 停止同步前那個空間(LAST_SPACE)後來在別台被刪了嗎:刪了的話伺服器上那些 id 都空出來了,忘掉它,
- * 之後開始同步就照原 id 帶過去,跟其他從那個空間出來的裝置對得上(見 forgetDeletedSpace)。
- * 開始同步(adoptSyncSpace)之前呼叫;問不到就什麼都不改(照舊換 id,不會撞到別人)。
+ * 之後開始同步就照原 id 帶過去(見 forgetDeletedSpace)。開始同步(adoptSyncSpace)之前呼叫;
+ * 問不到就什麼都不改、照舊換 id —— 合併進已經有資料的空間時,adoptSyncSpace 會改照空間裡已經用的那一套 id。
  */
 export async function dropDeletedLastSpace(fetchFn: typeof fetch = fetch): Promise<void> {
   const last = await getLastSyncSpace()

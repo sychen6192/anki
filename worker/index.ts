@@ -375,21 +375,29 @@ app.post('/api/sync', limit('SYNC_LIMITER', 10), async (c) => {
     }
   }
   const taken = await findTaken(db, space, want)
-  // 跳過的父列以前就存過(這次只是改了之後存不下):子列照常寫,指向的是空間裡原本那一列
-  const rejectedParents = emptyIdSets()
+  // 跳過的父列以前就存過(這次只是改了之後存不下):子列照常寫,指向的是空間裡原本那一列。
+  // 子列自己已經在空間裡(例如之前那一批先存了)也照常寫:別台早就拉到了,擋下它的更新與墓碑只會讓它永遠清不掉。
+  // 這兩種都要問資料庫:把可能被連帶跳過的父列、子列(子列的子列也算,資料照 牌組 → 字 → 卡片 → 紀錄 的順序)一起查
+  const maybe = emptyIdSets()
+  for (const t of CONFLICT_TABLES) for (const id of rejected[t]) maybe[t].add(id)
+  const check = emptyIdSets()
   for (const { t, r } of rowsToWrite) {
-    for (const [col, parent] of PARENT_REFS[t as ConflictTable] ?? []) {
-      if (rejected[parent].has(r[col] as string)) rejectedParents[parent].add(r[col] as string)
+    if (t === 'settings') continue
+    for (const [col, parent] of PARENT_REFS[t] ?? []) {
+      if (!maybe[parent].has(r[col] as string)) continue
+      check[parent].add(r[col] as string)
+      check[t].add(r.id as string)
+      maybe[t].add(r.id as string)
     }
   }
-  const stored = await findIds(db, space, rejectedParents, '=')
+  const stored = await findIds(db, space, check, '=')
   const conflictSets = emptyIdSets()
   const statements: D1PreparedStatement[] = []
   for (const { t, r } of rowsToWrite) {
     if (t !== 'settings') {
       const id = r.id as string
-      // 父列這次存不下、空間裡也沒有:子列一起跳過(子列的子列也是,資料照 牌組 → 字 → 卡片 → 紀錄 的順序)
-      if ((PARENT_REFS[t] ?? []).some(([col, parent]) =>
+      // 父列這次存不下、空間裡也沒有:子列一起跳過(子列的子列也是)
+      if (!stored[t].has(id) && (PARENT_REFS[t] ?? []).some(([col, parent]) =>
         rejected[parent].has(r[col] as string) && !stored[parent].has(r[col] as string))) {
         rejected[t].add(id)
         skipped.push(id)
@@ -423,7 +431,15 @@ app.post('/api/sync', limit('SYNC_LIMITER', 10), async (c) => {
     await db.batch(purgeSpace(db, space))
     return c.json({ error: 'space deleted' }, 410)
   }
-  const resp: SyncPushResponse = Object.keys(conflicts).length > 0 ? { ok: true, skipped, conflicts } : { ok: true, skipped }
+  // 存不下、空間裡也沒有的列:回報給客戶端,這次同步後面幾批裡它們的子列先留著不推(子列常常在下一批,
+  // 這一批的連帶跳過管不到),免得別台拉到指向不存在的字的卡片
+  const rejectedIds = emptyIdSets()
+  for (const t of CONFLICT_TABLES) for (const id of rejected[t]) if (!stored[t].has(id)) rejectedIds[t].add(id)
+  const inSpace = await findIds(db, space, rejectedIds, '=')
+  const held = CONFLICT_TABLES.flatMap((t) => [...rejectedIds[t]].filter((id) => !inSpace[t].has(id)))
+  const resp: SyncPushResponse = {
+    ok: true, skipped, ...(Object.keys(conflicts).length > 0 ? { conflicts } : {}), ...(held.length > 0 ? { held } : {}),
+  }
   return c.json(resp)
 })
 

@@ -229,7 +229,12 @@ export async function adoptSyncSpace(key: string, knownDeckIds?: ReadonlySet<str
   const next = key.trim()
   await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
     const last = await db.meta.get(LAST_SPACE)
-    const otherSpace = typeof last?.value === 'string' && last.value !== '' && last.value !== next
+    const leftOther = typeof last?.value === 'string' && last.value !== '' && last.value !== next
+    // 合併進已經有東西的空間:照空間裡已經用的那一套 id。同一份資料從好幾台帶進同一個空間,有的照原 id
+    // (原本的空間刪掉了、id 空出來了),有的換過 id(原本的空間還在時就離開了,見 rekeyLocalRows);
+    // 跟著空間裡已經有的那一套,才不會變成兩份、複習紀錄算兩次。空間裡沒有這台的牌組才看 LAST_SPACE
+    const scheme = knownDeckIds === undefined || knownDeckIds.size === 0 ? null : await idSchemeIn(next, knownDeckIds)
+    const otherSpace = scheme === null ? leftOther : scheme === 'derived'
     // 回到同一個空間:上次合併還沒併完(推上去了、還沒拉回來就停止同步)記下的牌組照樣要併 ——
     // 那副已經在空間裡了,下面的「空間不認得的」算不到它
     const carried = otherSpace ? [] : await readPendingFold()
@@ -238,7 +243,9 @@ export async function adoptSyncSpace(key: string, knownDeckIds?: ReadonlySet<str
     // 同步成功、空間的牌組拉下來之後併進同名的那副(見 runPendingFold)。空間認得的不算這台的 ——
     // 停止同步後回到同一個空間時,共用的那副要是被當成「這台的」併掉,別台在那副的進度就沒了
     const live = (await db.decks.toArray()).filter((d) => !d.deleted).map((d) => d.id)
-    const fresh = knownDeckIds === undefined || knownDeckIds.size === 0 ? [] : live.filter((id) => !knownDeckIds.has(id))
+    // 換 id 之後才會對上的(推上去撞到、伺服器回報衝突再換,見 rekeyConflicts)也算空間認得的,不拿去併
+    const fresh = knownDeckIds === undefined || knownDeckIds.size === 0 ? []
+      : live.filter((id) => !knownDeckIds.has(id) && !knownDeckIds.has(derivedId(next, id)))
     const fold = [...new Set([...fresh, ...carried.filter((id) => live.includes(id))])]
     if (fold.length > 0) await db.meta.put({ key: PENDING_FOLD, value: JSON.stringify(fold) })
     else await db.meta.delete(PENDING_FOLD)
@@ -253,6 +260,14 @@ export async function adoptSyncSpace(key: string, knownDeckIds?: ReadonlySet<str
     await db.meta.put({ key: 'sync_space', value: next })
     await db.meta.put({ key: SYNC_SINCE, value: Date.now() })
   })
+}
+
+/** 空間認得這台的牌組時,用的是原 id 還是換過的 id(derivedId);都不認得是 null */
+async function idSchemeIn(space: string, known: ReadonlySet<string>): Promise<'original' | 'derived' | null> {
+  const ids = (await db.decks.toArray()).map((d) => d.id)
+  if (ids.some((id) => known.has(id))) return 'original'
+  if (ids.some((id) => known.has(derivedId(space, id)))) return 'derived'
+  return null
 }
 
 /** 排程欄位:同一個字兩邊都有、這台背得比較多時,整組抄到留下來的那張卡 */

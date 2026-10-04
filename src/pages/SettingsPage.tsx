@@ -151,8 +151,13 @@ export default function SettingsPage() {
     // busy 是推、拉都連上了,只是被別的同步搶先,不必再問
     if (!r.ok && r.reason !== 'busy') {
       const s = await fetchSpaceSummary(space)
-      if ('problem' in s) {
-        if (s.problem === 'deleted') { await forgetDeletedSpace(space, true); stoppedBecauseDeleted(action); return false }
+      if ('problem' in s && s.problem === 'deleted') {
+        await forgetDeletedSpace(space, true)
+        stoppedBecauseDeleted(action)
+        return false
+      }
+      // invalid:舊版自訂、雲端一列都沒有的金鑰(推不上去也拉不到)—— 雲端確定是空的,不是「不知道」,照舊往下
+      if ('problem' in s && s.problem !== 'invalid') {
         report(`沒有${action}：${spaceProblemText(s.problem)}`)
         return false
       }

@@ -61,4 +61,6 @@ export interface SyncPushResponse {
   ok: true
   skipped: string[]
   conflicts?: Partial<Record<ConflictTable, string[]>>
+  /** 存不下(例如欄位太長)、空間裡也沒有的列:這次同步後面幾批裡,它們的子列先留著不推 */
+  held?: string[]
 }
