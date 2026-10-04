@@ -2,8 +2,9 @@
 // 只含 單字/讀音/意思 —— 重音走既有匯入流程自動查 kanjium 字典(離線則留空,
 // 之後可在牌組頁「自動標註重音」補上)。
 //
-// csv 本體放在 ./mnn(約 115 KB),用動態 import 拉:匯入頁本身會被預先 prefetch,
-// 把單字表留在這裡會讓每個人一開 app 就多下載一份自己可能永遠不會匯入的資料。
+// 範本一律是本 App 自己整理的單字表,不放教材或別人分享的牌組:那些的收錄與編排、翻譯都有著作權,
+// 打包進 App 散布出去就是重製(App 要上架,這是會被檢舉下架的那一種)。
+// csv 本體放在 ./starter,用動態 import 拉:匯入頁本身會被預先 prefetch,單字表留到真的要匯入才下載。
 // 資料改動時記得跑 test/templates.test.ts(筆數、預覽、讀音、無重複都有驗)。
 
 export interface DeckTemplate {
@@ -19,19 +20,27 @@ export interface DeckTemplate {
 
 export const DECK_TEMPLATES: DeckTemplate[] = [
   {
-    id: 'mnn-shokyu-1',
-    name: '大家的日本語 初級 I',
-    description: '第 1～25 課的單字，依課次排序。從自我介紹、數字時間一路到動詞變化。',
-    count: 1408,
-    preview: '私、あなた、あの人（あの方）…',
-    loadCsv: () => import('./mnn').then((m) => m.MNN_1_CSV),
+    id: 'n5-verbs',
+    name: 'N5 動詞 50',
+    description: '吃、喝、去、來 —— 最常用的動詞，辭書形。',
+    count: 50,
+    preview: '食べる、飲む、行く…',
+    loadCsv: () => import('./starter').then((m) => m.N5_VERBS_CSV),
   },
   {
-    id: 'mnn-shokyu-2',
-    name: '大家的日本語 初級 II',
-    description: '第 26～50 課的單字，依課次排序。含敬語、擬聲擬態語與各類生活場景用字。',
-    count: 1440,
-    preview: '見ます（診ます）、探します（捜します）、「時間に」遅れます…',
-    loadCsv: () => import('./mnn').then((m) => m.MNN_2_CSV),
+    id: 'n5-adjectives',
+    name: 'N5 形容詞 45',
+    description: '大小、冷熱、顏色、心情，基本形容詞。',
+    count: 45,
+    preview: '大きい、小さい、新しい…',
+    loadCsv: () => import('./starter').then((m) => m.N5_ADJECTIVES_CSV),
+  },
+  {
+    id: 'numbers-time',
+    name: '數字與時間 40',
+    description: '數字、星期、今天明天。',
+    count: 40,
+    preview: '一、二、三…',
+    loadCsv: () => import('./starter').then((m) => m.NUMBERS_TIME_CSV),
   },
 ]

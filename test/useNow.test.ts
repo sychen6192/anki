@@ -36,10 +36,10 @@ describe('nextLearningDue(ahead):首頁在學習中的卡進入「提前複習�
 
 describe('sortDecks', () => {
   it('依名稱排,數字照數值(第 2 課在第 10 課前面)', () => {
-    const names = sortDecks([{ name: '第 10 課' }, { name: '大家的日本語' }, { name: 'N3 單字' }, { name: '第 2 課' }]).map((d) => d.name)
+    const names = sortDecks([{ name: '第 10 課' }, { name: '日語入門' }, { name: 'N3 單字' }, { name: '第 2 課' }]).map((d) => d.name)
     expect(names.indexOf('第 2 課')).toBeLessThan(names.indexOf('第 10 課'))
     // 同一組名字不管原本怎麼排,結果都一樣(不再跟著隨機 id 走)
-    expect(sortDecks([{ name: 'N3 單字' }, { name: '第 2 課' }, { name: '大家的日本語' }, { name: '第 10 課' }]).map((d) => d.name))
+    expect(sortDecks([{ name: 'N3 單字' }, { name: '第 2 課' }, { name: '日語入門' }, { name: '第 10 課' }]).map((d) => d.name))
       .toEqual(names)
   })
 })
