@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test'
 import { describe, it, expect } from 'vitest'
 import app, { rateLimitKey } from './index'
+import { derivedId } from '../shared/derivedId'
 
 const empty = { decks: [], notes: [], cards: [], review_logs: [], settings: [] }
 const K = 'kkkk-kkkk-kkkk'
@@ -292,5 +293,17 @@ describe('限流', { timeout: 20_000 }, () => {
     expect(rateLimitKey('2001:db8:aa:bb:cc::')).toBe('2001:db8:aa:bb::/64')
     expect(rateLimitKey('::1')).toBe('0:0:0:0::/64')
     expect(rateLimitKey('::ffff:198.51.100.1')).toBe('198.51.100.1')
+  })
+})
+
+describe('空間裡已經有換過 id 的那一筆', () => {
+  it('照原 id 推上來的回報成衝突(連同參照它的子列),客戶端換成同一個 derivedId 再推,不會變成兩份', async () => {
+    const twin = derivedId(K, 'd1')
+    await push(K, { ...empty, decks: [deck({ id: twin })] })
+    const res = await push(K, { ...empty, decks: [deck({ id: 'd1', updated_at: 2000 })], notes: [note({ id: 'n9', deck_id: 'd1' })] })
+    expect(await res.json()).toEqual({ ok: true, skipped: ['d1', 'n9'], conflicts: { decks: ['d1'] } })
+    expect(await countRows(K)).toBe(1)
+    // 沒有雙胞胎的照常寫
+    expect(await (await push(K, { ...empty, decks: [deck({ id: 'other' })] })).json()).toEqual({ ok: true, skipped: [] })
   })
 })

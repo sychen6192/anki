@@ -5,6 +5,7 @@ import type {
 } from '../shared/types'
 import { isStandardSyncKey } from '../shared/syncKey'
 import { MAX_FIELD_CHARS } from '../shared/limits'
+import { derivedId } from '../shared/derivedId'
 
 /** 限流器(wrangler.jsonc 的 ratelimits)。每一種的次數與時間窗不同,所以各自一個綁定 */
 type LimiterName =
@@ -231,13 +232,28 @@ type IdSets = Record<ConflictTable, Set<string>>
 const emptyIdSets = (): IdSets => ({ decks: new Set(), notes: new Set(), cards: new Set(), review_logs: new Set() })
 
 /**
- * 這次推送的 id(以及它們參照的父列 id)裡,已經屬於別的空間的那些。
- * 資料表以 id 當全部空間共用的主鍵,同一個 id 推進另一個空間,以前會把那一列從原本的空間「搬走」——
- * 例如在另一台還原了某個空間的備份、再用新的金鑰開始同步,原本那個空間的牌組就整批不見。
- * 現在不寫、回報給客戶端,由客戶端換一組新 id 再推(原本的空間原封不動)。
+ * 這次推送的 id(以及它們參照的父列 id)裡,要客戶端換 id 再推的那些:
+ * - 已經屬於別的空間:資料表以 id 當全部空間共用的主鍵,同一個 id 推進另一個空間,以前會把那一列從原本的空間
+ *   「搬走」—— 例如在另一台還原了某個空間的備份、再用新的金鑰開始同步,原本那個空間的牌組就整批不見。
+ * - 這個空間裡已經有換過 id 的那一筆(derivedId(空間, id)):別台帶著同一份資料進來時換過 id 了
+ *   (例如舊空間還在時就離開,見 src/lib/space.ts 的 rekeyLocalRows、rekeyConflicts)。照原 id 寫進去就變成兩份、
+ *   複習紀錄算兩次;客戶端換成同一個 derivedId 再推,就照 updated_at 跟那一筆合併。
+ * 這些都不寫、回報給客戶端,由客戶端換 id 再推(原本的空間原封不動)。
  */
 async function findTaken(db: D1Database, space: string, want: IdSets): Promise<IdSets> {
-  return findIds(db, space, want, '!=')
+  const out = await findIds(db, space, want, '!=')
+  const twins = emptyIdSets()
+  const original = new Map<string, string>()
+  for (const t of CONFLICT_TABLES) {
+    for (const id of want[t]) {
+      const twin = derivedId(space, id)
+      twins[t].add(twin)
+      original.set(`${t}\u0000${twin}`, id)
+    }
+  }
+  const present = await findIds(db, space, twins, '=')
+  for (const t of CONFLICT_TABLES) for (const twin of present[t]) out[t].add(original.get(`${t}\u0000${twin}`)!)
+  return out
 }
 
 /** want 裡哪些 id 在別的空間(!=)或這個空間(=)已經有了 */

@@ -1,6 +1,7 @@
 import type { Table } from 'dexie'
 import type { CardRecord, ConflictTable, NoteRecord } from '../../shared/types'
 import { SYNC_KEY_ALPHABET } from '../../shared/syncKey'
+import { derivedId } from '../../shared/derivedId'
 import { db, type Local } from '../db/db'
 
 /**
@@ -83,6 +84,8 @@ export const REKEYED = 'rekeyed_ids'
 /** 帶著本機資料合併進空間後,等同步成功再併進同名牌組的那幾副(JSON 的 id 陣列),見 runPendingFold */
 export const PENDING_FOLD = 'pending_fold'
 
+export { derivedId }
+
 /** 照換 id 的紀錄一路找到最後的 id:換過不只一次(舊 → 中間 → 新)時,只看一層會停在已經不存在的中間那個 */
 export function resolveRekeyed(map: Readonly<Record<string, string>>, id: string): string {
   let cur = id
@@ -101,33 +104,6 @@ export async function readRekeyed(): Promise<Record<string, string>> {
   }
 }
 
-/** bryc 的 cyrb128:簡單的 128 位元字串雜湊(非加密用途),同步算得出來,可以在 Dexie 交易裡用 */
-function cyrb128(str: string): [number, number, number, number] {
-  let h1 = 1779033703, h2 = 3144134277, h3 = 1013904242, h4 = 2773480762
-  for (let i = 0; i < str.length; i++) {
-    const k = str.charCodeAt(i)
-    h1 = h2 ^ Math.imul(h1 ^ k, 597399067)
-    h2 = h3 ^ Math.imul(h2 ^ k, 2869860233)
-    h3 = h4 ^ Math.imul(h3 ^ k, 951274213)
-    h4 = h1 ^ Math.imul(h4 ^ k, 2716044179)
-  }
-  h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067)
-  h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233)
-  h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213)
-  h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179)
-  h1 ^= h2 ^ h3 ^ h4; h2 ^= h1; h3 ^= h1; h4 ^= h1
-  return [h1 >>> 0, h2 >>> 0, h3 >>> 0, h4 >>> 0]
-}
-
-/**
- * 換 id 時的新 id:由(要進去的空間,舊 id)算出來,不是亂數。好幾台裝置把同一批別的空間的資料
- * (例如同一份備份)帶進同一個空間,換出來的 id 一樣,就會照 updated_at 合併成一份,而不是每台各一份。
- */
-export function derivedId(space: string, oldId: string): string {
-  const hex = cyrb128(`${space}\u0000${oldId}`).map((x) => x.toString(16).padStart(8, '0')).join('')
-  const variant = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16)
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`
-}
 
 /**
  * 伺服器回報「這些 id 已經是別的空間的」:換一組新 id,參照它們的列跟著改,全部標成待上傳。
@@ -230,11 +206,13 @@ export async function adoptSyncSpace(key: string, knownDeckIds?: ReadonlySet<str
   await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
     const last = await db.meta.get(LAST_SPACE)
     const leftOther = typeof last?.value === 'string' && last.value !== '' && last.value !== next
-    // 合併進已經有東西的空間:照空間裡已經用的那一套 id。同一份資料從好幾台帶進同一個空間,有的照原 id
-    // (原本的空間刪掉了、id 空出來了),有的換過 id(原本的空間還在時就離開了,見 rekeyLocalRows);
-    // 跟著空間裡已經有的那一套,才不會變成兩份、複習紀錄算兩次。空間裡沒有這台的牌組才看 LAST_SPACE
-    const scheme = knownDeckIds === undefined || knownDeckIds.size === 0 ? null : await idSchemeIn(next, knownDeckIds)
-    const otherSpace = scheme === null ? leftOther : scheme === 'derived'
+    // 空間已經認得這台牌組的原 id(原本的空間刪了、別台照原 id 帶進去了,或回到同一個空間):照原 id,不換 ——
+    // 就算 LAST_SPACE 還記著(問不到舊空間刪了沒)也一樣,換了反而跟空間裡那份對不上。
+    // 反過來空間裡是換過 id 的那一份時不必在這裡整份換:照原 id 推上去,伺服器認得出換過 id 的那一筆、
+    // 回報衝突,只有那幾筆換 id(見 rekeyConflicts、worker 的 findTaken),空間裡沒有的照原 id
+    const knowsOriginal = knownDeckIds !== undefined && knownDeckIds.size > 0
+      && (await db.decks.toArray()).some((d) => knownDeckIds.has(d.id))
+    const otherSpace = leftOther && !knowsOriginal
     // 回到同一個空間:上次合併還沒併完(推上去了、還沒拉回來就停止同步)記下的牌組照樣要併 ——
     // 那副已經在空間裡了,下面的「空間不認得的」算不到它
     const carried = otherSpace ? [] : await readPendingFold()
@@ -260,14 +238,6 @@ export async function adoptSyncSpace(key: string, knownDeckIds?: ReadonlySet<str
     await db.meta.put({ key: 'sync_space', value: next })
     await db.meta.put({ key: SYNC_SINCE, value: Date.now() })
   })
-}
-
-/** 空間認得這台的牌組時,用的是原 id 還是換過的 id(derivedId);都不認得是 null */
-async function idSchemeIn(space: string, known: ReadonlySet<string>): Promise<'original' | 'derived' | null> {
-  const ids = (await db.decks.toArray()).map((d) => d.id)
-  if (ids.some((id) => known.has(id))) return 'original'
-  if (ids.some((id) => known.has(derivedId(space, id)))) return 'derived'
-  return null
 }
 
 /** 排程欄位:同一個字兩邊都有、這台背得比較多時,整組抄到留下來的那張卡 */

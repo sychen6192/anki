@@ -6,7 +6,7 @@ import {
   deleteCloudData, dropDeletedLastSpace, fetchSpaceSummary, KEEPALIVE_BUDGET, replaceLegacyKey, MAX_SYNC_WAIT_MS, probeSyncKey, pushBeforeHidden, requestSync, syncNow,
 } from '../src/lib/sync'
 import {
-  adoptSyncSpace, clearLocalData, CLOUD_DELETED, foldIntoSameNameDecks, getLastSyncSpace, getSyncSpace, leaveSyncSpace, normalizeSyncKey, PENDING_FOLD, readRekeyed,
+  adoptSyncSpace, clearLocalData, CLOUD_DELETED, derivedId, foldIntoSameNameDecks, getLastSyncSpace, getSyncSpace, leaveSyncSpace, normalizeSyncKey, PENDING_FOLD, readRekeyed,
   rekeyConflicts, resolveRekeyed, setSyncSpace,
 } from '../src/lib/space'
 import { exportBackup, importBackup, pruneToBackup } from '../src/lib/backup'
@@ -47,9 +47,10 @@ function makeSpacesServer() {
     if (init?.method === 'POST') {
       const body = JSON.parse(String(init.body))
       posts.push({ space, bytes: new TextEncoder().encode(String(init.body)).length, keepalive: init.keepalive === true, body })
+      // 跟 worker 的 findTaken 一樣:別的空間的,或這個空間裡已經有換過 id 的那一筆
       const taken = (t: string, id: unknown) => {
         const ex = tables[t].get(id as string)
-        return ex !== undefined && ex.ns !== space
+        return (ex !== undefined && ex.ns !== space) || tables[t].get(derivedId(space, id as string))?.ns === space
       }
       const skipped: string[] = []
       const conflictSets: Record<string, Set<string>> = {}
@@ -1067,5 +1068,34 @@ describe('伺服器存不下的字', () => {
     expect((await syncNow(server.fetchFn)).ok).toBe(true)
     expect(server.inSpace('cards', 'aaaa-aaaa-aaaa')).toHaveLength(250)
     expect(server.inSpace('review_logs', 'aaaa-aaaa-aaaa')).toHaveLength(1)
+  })
+})
+
+describe('同一份備份(帶著還沒同步的東西)從兩台帶進同一個空間,舊空間還在', () => {
+  it('撞到舊空間的換 id、沒撞到的照原 id;第二台照空間裡的樣子對上,字與複習紀錄都不會變兩份', async () => {
+    const server = makeSpacesServer()
+    const S1 = 'zzzz-zzzz-zzzz'
+    const S2 = 'yyyy-yyyy-yyyy'
+    // O:同步過 犬,之後(沒再同步)背了一次、加了 猫,匯出備份
+    await setSyncSpace(S1)
+    const deck = await addDeckWithWord('日文', '犬')
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    await addLog((await db.cards.toArray())[0].id)
+    await createNote(deck.id, { expression: '猫', reading: 'ねこ', meaning: '貓', accent: '', reversed: false })
+    const backup = await exportBackup(Date.now())
+    // P:全新裝置還原備份,用 S2 開始同步(撞到 S1 的換 id)
+    await db.delete(); await db.open()
+    await importBackup(backup)
+    await adoptSyncSpace(S2)
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    // D:另一台全新裝置還原同一份備份,合併進 S2
+    await db.delete(); await db.open()
+    await importBackup(backup)
+    await adoptSyncSpace(S2, knownIds(await fetchSpaceSummary(S2, server.fetchFn)))
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    const words = server.inSpace('notes', S2).filter((n) => !n.deleted).map((n) => n.expression).sort()
+    expect(words).toEqual(['犬', '猫'])
+    expect(server.inSpace('review_logs', S2)).toHaveLength(1)
+    expect(server.liveNames(S2)).toEqual(['日文'])
   })
 })
