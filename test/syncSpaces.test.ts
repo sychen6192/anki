@@ -50,7 +50,7 @@ function makeSpacesServer() {
       // 跟 worker 的 findTaken 一樣:別的空間的,或這個空間裡已經有換過 id 的那一筆
       const taken = (t: string, id: unknown) => {
         const ex = tables[t].get(id as string)
-        return (ex !== undefined && ex.ns !== space) || tables[t].get(derivedId(space, id as string))?.ns === space
+        return (ex !== undefined && ex.ns !== space) || (ex === undefined && tables[t].get(derivedId(space, id as string))?.ns === space)
       }
       const skipped: string[] = []
       const conflictSets: Record<string, Set<string>> = {}

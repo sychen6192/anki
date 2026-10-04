@@ -306,4 +306,13 @@ describe('空間裡已經有換過 id 的那一筆', () => {
     // 沒有雙胞胎的照常寫
     expect(await (await push(K, { ...empty, decks: [deck({ id: 'other' })] })).json()).toEqual({ ok: true, skipped: [] })
   })
+
+  it('自己已經在空間裡、換過 id 的那一筆也在(兩份都在):照自己的 id 寫,改得動、刪得掉', async () => {
+    await push(K, { ...empty, decks: [deck()], notes: [note({ id: 'n9' })] })
+    await push(K, { ...empty, notes: [note({ id: derivedId(K, 'n9') })] })
+    const res = await push(K, { ...empty, notes: [note({ id: 'n9', deleted: 1, updated_at: 2000 })] })
+    expect(await res.json()).toEqual({ ok: true, skipped: [] })
+    const out = await (await pull(K)).json() as { notes: { id: string; deleted: number }[] }
+    expect(out.notes.find((n) => n.id === 'n9')?.deleted).toBe(1)
+  })
 })

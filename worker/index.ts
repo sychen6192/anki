@@ -241,11 +241,13 @@ const emptyIdSets = (): IdSets => ({ decks: new Set(), notes: new Set(), cards: 
  * 這些都不寫、回報給客戶端,由客戶端換 id 再推(原本的空間原封不動)。
  */
 async function findTaken(db: D1Database, space: string, want: IdSets): Promise<IdSets> {
-  const out = await findIds(db, space, want, '!=')
+  const [out, here] = await Promise.all([findIds(db, space, want, '!='), findIds(db, space, want, '=')])
   const twins = emptyIdSets()
   const original = new Map<string, string>()
   for (const t of CONFLICT_TABLES) {
     for (const id of want[t]) {
+      // 自己已經在這個空間:照自己的 id 寫(兩份都在的話,各自還是改得動、刪得掉);在別的空間的上面已經回報了
+      if (here[t].has(id) || out[t].has(id)) continue
       const twin = derivedId(space, id)
       twins[t].add(twin)
       original.set(`${t}\u0000${twin}`, id)
