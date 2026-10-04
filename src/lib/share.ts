@@ -1,4 +1,4 @@
-import type { ParsedRow } from './csv'
+import { usableRow, type ParsedRow } from './csv'
 import { isValidAccent, normalizeAccent } from './accent'
 
 /**
@@ -36,7 +36,7 @@ export function normalizeSharedRows(rows: unknown): ParsedRow[] {
     .map((r) => ({
       expression: str(r.expression), reading: str(r.reading), meaning: str(r.meaning), accent: accentOf(r.accent),
     }))
-    .filter((r) => r.expression !== '' && r.meaning !== '')
+    .filter(usableRow)
 }
 
 /** 上傳牌組內容,回傳分享碼。大牌組的 JSON 有幾十 KB,行動網路上行慢 —— 能壓就壓(約剩 1/3) */

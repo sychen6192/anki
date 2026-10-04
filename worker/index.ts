@@ -4,6 +4,7 @@ import type {
   SyncPushResponse,
 } from '../shared/types'
 import { isStandardSyncKey } from '../shared/syncKey'
+import { MAX_FIELD_CHARS } from '../shared/limits'
 
 /** 限流器(wrangler.jsonc 的 ratelimits)。每一種的次數與時間窗不同,所以各自一個綁定 */
 type LimiterName =
@@ -184,11 +185,8 @@ const STATEMENTS_PER_BATCH = 100
 // once at module load instead of re-deriving/trusting it at every call site.
 if (STATEMENTS_PER_BATCH % 2 !== 0) throw new Error('STATEMENTS_PER_BATCH must be even')
 
-/**
- * 一個欄位最長幾個字:單字、意思、設定都遠用不到,只是不讓一個請求塞進幾 MB(灌爆 D1)。
- * 超過的那一列跳過(回報給客戶端,客戶端留著 dirty),同一次推送的其他列照常存,不會整台卡住
- */
-const MAX_FIELD_CHARS = 20_000
+// 一個欄位最長 MAX_FIELD_CHARS 字(shared/limits.ts):不讓一個請求塞進幾 MB(灌爆 D1)。
+// 超過的那一列跳過(回報給客戶端,客戶端留著 dirty),同一次推送的其他列照常存,不會整台卡住
 /** 一次推送的上限:客戶端每批最多 200 列、約 1 MB(見 src/lib/sync.ts 的 PUSH_CHUNK_*),留好幾倍的餘裕 */
 const MAX_PUSH_BYTES = 4_000_000
 const MAX_PUSH_ROWS = 1_000
@@ -239,12 +237,17 @@ const emptyIdSets = (): IdSets => ({ decks: new Set(), notes: new Set(), cards: 
  * 現在不寫、回報給客戶端,由客戶端換一組新 id 再推(原本的空間原封不動)。
  */
 async function findTaken(db: D1Database, space: string, want: IdSets): Promise<IdSets> {
+  return findIds(db, space, want, '!=')
+}
+
+/** want 裡哪些 id 在別的空間(!=)或這個空間(=)已經有了 */
+async function findIds(db: D1Database, space: string, want: IdSets, op: '=' | '!='): Promise<IdSets> {
   const out = emptyIdSets()
   const tables = CONFLICT_TABLES.filter((t) => want[t].size > 0)
   if (tables.length === 0) return out
   // 一個參數帶整串 id(json_each),不受 D1 每句 100 個綁定參數的限制
   const results = await db.batch<{ id: string }>(tables.map((t) => db.prepare(
-    `SELECT id FROM ${t} WHERE id IN (SELECT value FROM json_each(?)) AND namespace != ?`,
+    `SELECT id FROM ${t} WHERE id IN (SELECT value FROM json_each(?)) AND namespace ${op} ?`,
   ).bind(JSON.stringify([...want[t]]), space)))
   tables.forEach((t, i) => { for (const r of results[i].results) out[t].add(r.id) })
   return out
@@ -343,6 +346,8 @@ app.post('/api/sync', limit('SYNC_LIMITER', 10), async (c) => {
   const db = c.env.DB
   // 跳過的列會回報給客戶端,客戶端據此保留 dirty(資料沒被丟掉,只是沒存進去)
   const skipped: string[] = []
+  // 存不下而跳過的列(例如欄位太長):它的子列也不能存,不然別台會拉到指向不存在的字的卡片
+  const rejected = emptyIdSets()
   const rowsToWrite: { t: TableName; r: Record<string, unknown> }[] = []
   for (const t of ['decks', 'notes', 'cards', 'review_logs', 'settings'] as const) {
     const rows = body[t]
@@ -351,7 +356,9 @@ app.post('/api/sync', limit('SYNC_LIMITER', 10), async (c) => {
     for (const row of rows) {
       const r: Record<string, unknown> = { ...(row as unknown as Record<string, unknown>), namespace: space }
       if (row === null || typeof row !== 'object' || !isStorableRow(t, r)) {
-        skipped.push(typeof (row as { id?: unknown })?.id === 'string' ? (row as { id: string }).id : '')
+        const id = typeof (row as { id?: unknown })?.id === 'string' ? (row as { id: string }).id : ''
+        skipped.push(id)
+        if (t !== 'settings' && id !== '') rejected[t].add(id)
         continue
       }
       if (t === 'settings') r.id = settingStorageId(space, r.id as string)
@@ -368,11 +375,26 @@ app.post('/api/sync', limit('SYNC_LIMITER', 10), async (c) => {
     }
   }
   const taken = await findTaken(db, space, want)
+  // 跳過的父列以前就存過(這次只是改了之後存不下):子列照常寫,指向的是空間裡原本那一列
+  const rejectedParents = emptyIdSets()
+  for (const { t, r } of rowsToWrite) {
+    for (const [col, parent] of PARENT_REFS[t as ConflictTable] ?? []) {
+      if (rejected[parent].has(r[col] as string)) rejectedParents[parent].add(r[col] as string)
+    }
+  }
+  const stored = await findIds(db, space, rejectedParents, '=')
   const conflictSets = emptyIdSets()
   const statements: D1PreparedStatement[] = []
   for (const { t, r } of rowsToWrite) {
     if (t !== 'settings') {
       const id = r.id as string
+      // 父列這次存不下、空間裡也沒有:子列一起跳過(子列的子列也是,資料照 牌組 → 字 → 卡片 → 紀錄 的順序)
+      if ((PARENT_REFS[t] ?? []).some(([col, parent]) =>
+        rejected[parent].has(r[col] as string) && !stored[parent].has(r[col] as string))) {
+        rejected[t].add(id)
+        skipped.push(id)
+        continue
+      }
       if (taken[t].has(id)) {
         conflictSets[t].add(id)
         skipped.push(id)

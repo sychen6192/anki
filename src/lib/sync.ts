@@ -4,7 +4,9 @@ import type {
   CardRecord, DeckRecord, NoteRecord, ReviewLogRecord, SettingRecord,
   SyncPush, SyncPullResponse, SyncPushResponse,
 } from '../../shared/types'
-import { adoptSyncSpace, forgetDeletedSpace, generateSyncKey, getSyncSpace, rekeyConflicts, runPendingFold } from './space'
+import {
+  adoptSyncSpace, forgetDeletedSpace, generateSyncKey, getLastSyncSpace, getSyncSpace, rekeyConflicts, runPendingFold,
+} from './space'
 import { fetchWithRetry } from './http'
 
 export interface SyncResult {
@@ -432,9 +434,22 @@ export async function deleteCloudData(space: string, fetchFn: typeof fetch = fet
 }
 
 /**
+ * 停止同步前那個空間(LAST_SPACE)後來在別台被刪了嗎:刪了的話伺服器上那些 id 都空出來了,忘掉它,
+ * 之後開始同步就照原 id 帶過去,跟其他從那個空間出來的裝置對得上(見 forgetDeletedSpace)。
+ * 開始同步(adoptSyncSpace)之前呼叫;問不到就什麼都不改(照舊換 id,不會撞到別人)。
+ */
+export async function dropDeletedLastSpace(fetchFn: typeof fetch = fetch): Promise<void> {
+  const last = await getLastSyncSpace()
+  if (last === '') return
+  const s = await fetchSpaceSummary(last, fetchFn)
+  if ('problem' in s && s.problem === 'deleted') await forgetDeletedSpace(last, false)
+}
+
+/**
  * 舊版自訂的金鑰(test、1234 這種,一猜就中)換成產生的:先同步一次(這台拿到空間裡的全部資料)、
- * 刪掉舊金鑰在雲端的資料,再用新金鑰把這台的資料整份帶上去(換一組 id,跟之後合併進來的其他舊金鑰裝置換出同一組,
- * 見 MOVED_FROM)。其他用舊金鑰的裝置下次同步會收到 410、停止同步並在首頁提醒,輸入新金鑰合併就接上。
+ * 刪掉舊金鑰在雲端的資料,再用新金鑰把這台的資料整份帶上去 —— 舊空間刪掉之後 id 就空出來了,照原 id 帶過去,
+ * 之後合併進來的其他舊金鑰裝置也照原 id(見 forgetDeletedSpace)。其他用舊金鑰的裝置下次同步會收到 410、
+ * 停止同步並在首頁提醒,輸入新金鑰合併就接上。
  * 刪之前失敗什麼都沒改(回失敗的原因);刪之後才失敗,資料都還在這台、新金鑰也記下了,之後的同步會補傳。
  */
 export async function replaceLegacyKey(old: string, fetchFn: typeof fetch = fetch): Promise<

@@ -3,10 +3,10 @@ import { beforeEach, describe, it, expect, vi, afterEach } from 'vitest'
 import { db } from '../src/db/db'
 import { createDeck, createNote } from '../src/db/repo'
 import {
-  deleteCloudData, fetchSpaceSummary, KEEPALIVE_BUDGET, replaceLegacyKey, MAX_SYNC_WAIT_MS, probeSyncKey, pushBeforeHidden, requestSync, syncNow,
+  deleteCloudData, dropDeletedLastSpace, fetchSpaceSummary, KEEPALIVE_BUDGET, replaceLegacyKey, MAX_SYNC_WAIT_MS, probeSyncKey, pushBeforeHidden, requestSync, syncNow,
 } from '../src/lib/sync'
 import {
-  adoptSyncSpace, clearLocalData, CLOUD_DELETED, derivedId, foldIntoSameNameDecks, getLastSyncSpace, getSyncSpace, leaveSyncSpace, normalizeSyncKey, PENDING_FOLD, readRekeyed,
+  adoptSyncSpace, clearLocalData, CLOUD_DELETED, foldIntoSameNameDecks, getLastSyncSpace, getSyncSpace, leaveSyncSpace, normalizeSyncKey, PENDING_FOLD, readRekeyed,
   rekeyConflicts, resolveRekeyed, setSyncSpace,
 } from '../src/lib/space'
 import { exportBackup, importBackup, pruneToBackup } from '../src/lib/backup'
@@ -769,8 +769,8 @@ describe('刪除雲端資料', () => {
     expect(await db.meta.get('sync_error')).toBeUndefined()
     expect(await db.notes.count()).toBe(2)
     expect(emptyOnServer(server, K)).toBe(true)
-    // 改用新的金鑰開始同步:提醒收掉,這台的資料整份換 id 帶上去(跟其他從 K 出來的裝置換出同一組)
-    const ids = (await db.notes.toArray()).map((n) => derivedId(N, n.id)).sort()
+    // 改用新的金鑰開始同步:提醒收掉,這台的資料照原 id 整份帶上去(K 刪掉了,id 都空出來了)
+    const ids = (await db.notes.toArray()).map((n) => n.id).sort()
     await adoptSyncSpace(N)
     expect(await db.meta.get(CLOUD_DELETED)).toBeUndefined()
     expect((await syncNow(server.fetchFn)).ok).toBe(true)
@@ -788,7 +788,7 @@ describe('刪除雲端資料', () => {
     expect(await getSyncSpace()).toBe(K)
   })
 
-  it('停止同步後刪之前那份:這台照舊只存在這台;之後再開同步照樣換 id', async () => {
+  it('停止同步後刪之前那份:這台照舊只存在這台;之後再開同步不必換 id', async () => {
     const server = makeSpacesServer()
     await setSyncSpace(K)
     await addDeckWithWord('日文', '犬')
@@ -799,7 +799,7 @@ describe('刪除雲端資料', () => {
     expect(await getLastSyncSpace()).toBe('')
     expect(await getSyncSpace()).toBe('')
     expect(emptyOnServer(server, K)).toBe(true)
-    const before = (await db.notes.toArray()).map((n) => derivedId(N, n.id))
+    const before = (await db.notes.toArray()).map((n) => n.id)
     await adoptSyncSpace(N)
     expect((await syncNow(server.fetchFn)).ok).toBe(true)
     expect((await db.notes.toArray()).map((n) => n.id)).toEqual(before)
@@ -808,7 +808,7 @@ describe('刪除雲端資料', () => {
 })
 
 describe('舊版自訂金鑰換成產生的', () => {
-  it('先同步、刪掉舊空間,再用新金鑰把資料整份換 id 帶上去;舊金鑰的其他裝置之後會收到 410', async () => {
+  it('先同步、刪掉舊空間,再用新金鑰把資料照原 id 帶上去;舊金鑰的其他裝置之後會收到 410', async () => {
     const server = makeSpacesServer()
     await setSyncSpace('test')
     const deck = await addDeckWithWord('日文', '犬')
@@ -825,12 +825,12 @@ describe('舊版自訂金鑰換成產生的', () => {
     expect(r.upload.ok).toBe(true)
     expect(await getSyncSpace()).toBe(r.key)
     expect(TABLES.every((t) => server.inSpace(t, 'test').length === 0)).toBe(true)
-    expect(server.inSpace('notes', r.key).map((n) => n.id).sort()).toEqual([...ids, 'other'].map((id) => derivedId(r.key, id)).sort())
+    expect(server.inSpace('notes', r.key).map((n) => n.id).sort()).toEqual([...ids, 'other'].sort())
     const stale = await server.fetchFn('/api/sync?since=0', { headers: { 'x-sync-space': 'test' } })
     expect(stale.status).toBe(410)
   })
 
-  it('別台換了新金鑰、這台之前停止同步過:合併進新金鑰,id 跟換金鑰那台一樣,複習紀錄不會變兩份', async () => {
+  it('別台換了新金鑰、這台之前停止同步過:開始同步前發現舊空間刪了,照原 id 合併,複習紀錄不會變兩份', async () => {
     const server = makeSpacesServer()
     await setSyncSpace('test')
     const deck = await addDeckWithWord('日文', '犬')
@@ -851,11 +851,58 @@ describe('舊版自訂金鑰換成產生的', () => {
     const tables = [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta] as unknown as (typeof db.meta)[]
     for (const [i, t] of tables.entries()) await t.bulkPut(snapshot[i] as never)
     const summary = await fetchSpaceSummary(r.key, server.fetchFn)
+    await dropDeletedLastSpace(server.fetchFn)
     await adoptSyncSpace(r.key, knownIds(summary))
     expect((await syncNow(server.fetchFn)).ok).toBe(true)
     expect(server.inSpace('review_logs', r.key)).toHaveLength(1)
     expect(server.inSpace('notes', r.key).filter((n) => !n.deleted)).toHaveLength(1)
-    expect(server.inSpace('decks', r.key).filter((d) => !d.deleted).map((d) => d.id)).toEqual([derivedId(r.key, deck.id)])
+    expect(server.inSpace('decks', r.key).filter((d) => !d.deleted).map((d) => d.id)).toEqual([deck.id])
+  })
+
+  it('換金鑰之前做的備份,換完再還原:id 對得上,複習紀錄不會變兩份', async () => {
+    const server = makeSpacesServer()
+    await setSyncSpace('test')
+    await addDeckWithWord('日文', '犬')
+    await addLog((await db.cards.toArray())[0].id)
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    const backup = await exportBackup(Date.now())
+    const r = await replaceLegacyKey('test', server.fetchFn)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    await importBackup(backup)
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    await pruneToBackup(backup)
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    expect(server.inSpace('review_logs', r.key)).toHaveLength(1)
+    expect(server.inSpace('notes', r.key).filter((n) => !n.deleted)).toHaveLength(1)
+  })
+
+  it('換金鑰之前在那台刪掉的牌組,別台(收到 410)合併進新金鑰後不會復活', async () => {
+    const server = makeSpacesServer()
+    await setSyncSpace('test')
+    await addDeckWithWord('日文', '犬')
+    const doomed = await addDeckWithWord('要刪的', '猫')
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    const snapshot = await Promise.all([db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta].map((t) => (t as typeof db.meta).toArray()))
+    // A:刪掉那副,同步,換新金鑰
+    const t = Date.now() + 1000
+    await db.decks.update(doomed.id, { deleted: 1, updated_at: t, dirty: 1 })
+    await db.notes.where('deck_id').equals(doomed.id).modify({ deleted: 1, updated_at: t, dirty: 1 })
+    await db.cards.where('deck_id').equals(doomed.id).modify({ deleted: 1, updated_at: t, dirty: 1 })
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    const r = await replaceLegacyKey('test', server.fetchFn)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    // B:還是舊的樣子,同步收到 410,再合併進新金鑰
+    await db.delete(); await db.open()
+    const tables = [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta] as unknown as (typeof db.meta)[]
+    for (const [i, tb] of tables.entries()) await tb.bulkPut(snapshot[i] as never)
+    expect((await syncNow(server.fetchFn)).reason).toBe('deleted')
+    const summary = await fetchSpaceSummary(r.key, server.fetchFn)
+    await dropDeletedLastSpace(server.fetchFn)
+    await adoptSyncSpace(r.key, knownIds(summary))
+    expect((await syncNow(server.fetchFn)).ok).toBe(true)
+    expect(server.liveNames(r.key)).toEqual(['日文'])
   })
 
   it('雲端還沒有資料的舊金鑰(伺服器不讓它開空間):不刪,直接換新金鑰上傳', async () => {

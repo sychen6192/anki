@@ -1,6 +1,7 @@
 import Papa from 'papaparse'
 import type { NoteRecord } from '../../shared/types'
 import { isValidAccent, normalizeAccent } from './accent'
+import { MAX_FIELD_CHARS } from '../../shared/limits'
 
 export interface CsvMapping { expression: number; reading: number | null; meaning: number; accent: number | null }
 export interface ParsedRow { expression: string; reading: string; meaning: string; accent: string }
@@ -51,7 +52,16 @@ export function mapRows(rows: string[][], mapping: CsvMapping): ParsedRow[] {
         accent: isValidAccent(accent) ? accent : '',
       }
     })
-    .filter((r) => r.expression !== '' && r.meaning !== '')
+    .filter(usableRow)
+}
+
+/**
+ * 能匯入的列:有單字也有意思,而且每一格都不超過 MAX_FIELD_CHARS 字。超長的多半是 CSV 少了一個引號、
+ * 後面整份被當成同一格 —— 這種列伺服器存不下,匯進來只會永遠卡在「還沒同步」。CSV、apkg、分享共用
+ */
+export function usableRow(r: ParsedRow): boolean {
+  return r.expression !== '' && r.meaning !== ''
+    && [r.expression, r.reading, r.meaning, r.accent].every((v) => v.length <= MAX_FIELD_CHARS)
 }
 
 export const noteKey = (expression: string, reading: string): string => `${expression}\u0000${reading}`

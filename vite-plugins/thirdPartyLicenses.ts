@@ -36,10 +36,11 @@ export const SW_PACKAGES: readonly (readonly string[])[] = [
 
 /**
  * fsrs-browser 的 wasm 靜態連結了一整串 Rust crate,npm 套件裡只附了 fsrs-browser 自己的授權。
- * 這份清單照 fsrs-browser 6.6.0 整理:fsrs 6.6.0 加上 wasm-bindgen、js-sys、serde、serde-wasm-bindgen、
- * console_error_panic_hook、wasm-bindgen-rayon,用
+ * 這份清單照 fsrs-browser 6.6.0 整理:fsrs 6.6.0 加上它的直接相依 console_error_panic_hook、console_log、getrandom、
+ * log、rayon、serde-wasm-bindgen、wasm-bindgen、wasm-bindgen-rayon,用
  *   cargo tree --target wasm32-unknown-unknown -e normal,no-proc-macro --prefix none --format "{p}|{l}"
- * 解出來(只在編譯時跑的 proc-macro 不算),再加上 Rust 標準函式庫;授權全文取自各 crate 的原始碼,放在 WASM_LICENSE_DIR。
+ * 解出來(只在編譯時跑的 proc-macro 不算),再加上 Rust 標準函式庫(fsrs-browser 用 nightly 的 -Zbuild-std 重新編,
+ * 連結進來的 compiler_builtins 帶著只以 MIT 授權的 libm 數學函式,另外列);授權全文取自各 crate 的原始碼,放在 WASM_LICENSE_DIR。
  * 寧可多列:被連結器丟掉、實際沒進 wasm 的也列著。fsrs-browser 換版本時建置會失敗(checkWasmCrates),
  * 照上面的方法重新整理之後,再改 WASM_AUDITED.version。
  */
@@ -62,12 +63,15 @@ interface WasmNotice {
   files: readonly string[]
 }
 
-/** 標準函式庫:core、alloc、std,以及它在 WebAssembly 上用到的 crate(wasm 裡看得到 dlmalloc、hashbrown 的路徑) */
-const RUST_STD = ['core', 'alloc', 'std', 'dlmalloc', 'hashbrown', 'compiler_builtins']
+/**
+ * 標準函式庫:core、alloc、std,以及它在 WebAssembly 上用到的 crate(wasm 裡看得到 dlmalloc、hashbrown 的路徑)。
+ * compiler_builtins 授權不一樣,另外列
+ */
+const RUST_STD = ['core', 'alloc', 'std', 'dlmalloc', 'hashbrown']
 
 /** 「MIT OR Apache-2.0」雙授權的 crate(Cargo.toml 寫成 MIT/Apache-2.0、Apache-2.0 OR MIT 的也是) */
 const DUAL_LICENSED = [
-  'cfg-if', 'chacha20', 'console_error_panic_hook', 'crossbeam-channel', 'crossbeam-deque', 'crossbeam-epoch',
+  'cfg-if', 'chacha20', 'console_error_panic_hook', 'console_log', 'crossbeam-channel', 'crossbeam-deque', 'crossbeam-epoch',
   'crossbeam-utils', 'either', 'equivalent', 'futures-core', 'futures-task', 'futures-util', 'getrandom', 'indexmap',
   'itertools', 'js-sys', 'log', 'matrixmultiply', 'ndarray', 'num-complex', 'num-integer', 'num-traits', 'once_cell',
   'pin-project-lite', 'rand', 'rand_core', 'rawpointer', 'rayon', 'rayon-core', 'serde', 'serde_core', 'snafu',
@@ -86,6 +90,14 @@ export const WASM_NOTICES: readonly WasmNotice[] = [
       + 'crossbeam-channel 引用的第三方程式碼的授權附在最後）：\n\n'
       + `Rust 標準函式庫（${RUST_STD.join('、')}）\n\n${DUAL_LICENSED.join('、')}`,
     files: ['apache-2.0.txt', 'crossbeam-channel-third-party.txt'],
+  },
+  {
+    name: 'compiler_builtins', license: 'MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0)',
+    url: 'https://github.com/rust-lang/compiler-builtins', crates: ['compiler_builtins', 'libm'],
+    intro: 'Rust 標準函式庫在 WebAssembly 上連結的底層函式。其中 powf、expf、logf 等數學函式出自 libm，只以 MIT 授權'
+      + '（源自 musl 與 FreeBSD msun，署名見下）；源自 LLVM compiler-rt 的部分依 MIT 與 Apache-2.0 WITH LLVM-exception。'
+      + '以下依序是 compiler_builtins 與 libm 的授權檔：',
+    files: ['compiler-builtins.txt', 'libm.txt'],
   },
   {
     name: 'priority-queue', version: '2.7.0', license: 'LGPL-3.0-or-later OR MPL-2.0',

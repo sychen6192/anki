@@ -177,6 +177,30 @@ describe('一次推送的大小', () => {
     expect(await countRows(K)).toBe(0)
   })
 
+  it('存不下的字(欄位太長)連同它的卡片、複習紀錄一起跳過,別台不會拉到指向不存在的字的卡片', async () => {
+    const card = (over: Record<string, unknown>) => ({
+      id: 'c1', note_id: 'n1', deck_id: 'd1', direction: 'forward', due: 1, stability: 1, difficulty: 5,
+      elapsed_days: 0, scheduled_days: 0, learning_steps: 0, reps: 0, lapses: 0, state: 0, last_review: null,
+      suspended: 0, updated_at: 1000, deleted: 0, ...over,
+    })
+    const res = await push(K, {
+      ...empty, decks: [deck()], notes: [note({ meaning: '長'.repeat(20_001) })], cards: [card({})],
+      review_logs: [log({ card_id: 'c1' })],
+    })
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { skipped: string[] }).skipped.sort()).toEqual(['c1', 'l1', 'n1'])
+    expect(await countRows(K)).toBe(1) // 只有牌組
+    // 以前存過的字,這次改成太長:字跳過,它的卡片照常更新(指向空間裡原本那一筆)
+    await push(K, { ...empty, notes: [note({ id: 'n2' })], cards: [card({ id: 'c2', note_id: 'n2' })] })
+    const again = await push(K, {
+      ...empty, notes: [note({ id: 'n2', meaning: '長'.repeat(20_001), updated_at: 2000 })],
+      cards: [card({ id: 'c2', note_id: 'n2', reps: 1, updated_at: 2000 })],
+    })
+    expect(((await again.json()) as { skipped: string[] }).skipped).toEqual(['n2'])
+    const out = await (await pull(K)).json() as { cards: { id: string; reps: number }[] }
+    expect(out.cards.find((c) => c.id === 'c2')?.reps).toBe(1)
+  })
+
   it('欄位超過 2 萬字的那一列跳過並回報,同一批的其他列照常寫入', async () => {
     const res = await push(K, { ...empty, decks: [deck({ id: 'ok' }), deck({ id: 'huge', name: 'あ'.repeat(20_001) })] })
     expect(res.status).toBe(200)

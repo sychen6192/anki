@@ -10,7 +10,7 @@ import { streakDays } from '../lib/stats'
 import { adoptSyncSpace, CLOUD_DELETED, generateSyncKey, getSyncSpace, SYNC_SINCE } from '../lib/space'
 import { humanizeSyncError, syncMessage } from '../lib/syncText'
 import { isStandaloneApp, isTouchDevice, storageSeparateFromApp } from '../lib/share'
-import { syncNow } from '../lib/sync'
+import { dropDeletedLastSpace, syncNow } from '../lib/sync'
 import { useBusy } from '../lib/useBusy'
 import { Loading } from '../components/Loading'
 import { PageHeader } from '../components/PageHeader'
@@ -251,6 +251,7 @@ export default function DeckList() {
             <button className="link" disabled={enabling} onClick={() => void runEnable(async () => {
               // 純本機開始同步:本機資料整份帶過去(adoptSyncSpace 不清本機)
               const key = generateSyncKey()
+              await dropDeletedLastSpace()
               await adoptSyncSpace(key)
               setNewKey(key)
               await syncNow()

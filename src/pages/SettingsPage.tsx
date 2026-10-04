@@ -5,10 +5,12 @@ import Dexie, { type ObservabilitySet } from 'dexie'
 import { db } from '../db/db'
 import { describeBackup, exportBackup, importBackup, pruneToBackup, type BackupSummary } from '../lib/backup'
 import { download } from '../lib/download'
-import { deleteCloudData, fetchSpaceSummary, probeSyncKey, replaceLegacyKey, requestSync, syncNow } from '../lib/sync'
 import {
-  adoptSyncSpace, clearLocalData, countLocalContents, countUnsynced, generateSyncKey, getLastSyncSpace, getSyncSpace,
-  hasLocalData, leaveSyncSpace, normalizeSyncKey, setSyncSpace,
+  deleteCloudData, dropDeletedLastSpace, fetchSpaceSummary, probeSyncKey, replaceLegacyKey, requestSync, syncNow,
+} from '../lib/sync'
+import {
+  adoptSyncSpace, clearLocalData, countLocalContents, countUnsynced, forgetDeletedSpace, generateSyncKey, getLastSyncSpace,
+  getSyncSpace, hasLocalData, leaveSyncSpace, normalizeSyncKey, setSyncSpace,
 } from '../lib/space'
 import { isStandardSyncKey } from '../../shared/syncKey'
 import { cloudDeleteText, errorText, humanizeSyncError, spaceProblemText, syncMessage } from '../lib/syncText'
@@ -138,12 +140,24 @@ export default function SettingsPage() {
 
   /**
    * 離開目前的空間(清空這台、換金鑰)之前:先同步一次 —— 沒推上去的先推,也確認雲端那份還在
-   * (別台刪了的話只有連上才知道,不能先把這台清掉)。推不上去就明講會遺失幾筆,讓人決定。false = 不要繼續
+   * (別台刪了的話只有連上才知道,不能先把這台清掉)。推不上去就明講會遺失幾筆,讓人決定。false = 不要繼續。
+   * report:停下來的原因寫在哪裡(預設寫在同步區;雲端那份被刪的一律寫在同步區,這台已經變成只存在這台)
    */
-  const safeToLeaveSpace = async (action: string): Promise<boolean> => {
+  const safeToLeaveSpace = async (action: string, report: (m: string) => void = setMsg): Promise<boolean> => {
     const space = await getSyncSpace()
     const r = await syncNow()
     if (r.reason === 'deleted' || await getSyncSpace() !== space) { stoppedBecauseDeleted(action); return false }
+    // 沒同步成功(離線、伺服器出錯、被限流):不知道雲端那份還在不在,清掉這台之後可能什麼都下載不回來 —— 再問一次。
+    // busy 是推、拉都連上了,只是被別的同步搶先,不必再問
+    if (!r.ok && r.reason !== 'busy') {
+      const s = await fetchSpaceSummary(space)
+      if ('problem' in s) {
+        if (s.problem === 'deleted') { await forgetDeletedSpace(space, true); stoppedBecauseDeleted(action); return false }
+        report(`沒有${action}：${spaceProblemText(s.problem)}`)
+        return false
+      }
+      // 連得上、空間也還在(例如這台有推不上去的資料):照舊往下,讓人決定要不要丟掉沒同步的
+    }
     const left = await countUnsynced()
     if (left === 0) return true
     return confirm({
@@ -157,6 +171,7 @@ export default function SettingsPage() {
   /** 純本機 → 產生新金鑰:本機資料整份帶過去 */
   const startNewSync = () => run(async () => {
     const key = generateSyncKey()
+    await dropDeletedLastSpace()
     await adoptSyncSpace(key)
     setShowKey(true)
     setMsg('已開始同步，上傳中…')
@@ -209,6 +224,7 @@ export default function SettingsPage() {
     const summary = await fetchSpaceSummary(key)
     if ('problem' in summary) { setMsg(spaceProblemText(summary.problem)); return }
     setKeyInput('')
+    await dropDeletedLastSpace()
     await adoptSyncSpace(key, summary.ids === null ? undefined : new Set(summary.ids))
     const r = await syncNow()
     setMsg(syncMessage(r, r.folded
@@ -330,7 +346,7 @@ export default function SettingsPage() {
 
   const doClearLocal = () => run(async () => {
     const space = currentSpace ?? ''
-    if (!await safeToLeaveSpace('清空')) return
+    if (!await safeToLeaveSpace('清空', setResetMsg)) return
     if (!await confirm({
       title: '清空這台的資料？',
       message: '牌組、卡片與複習紀錄會從這台刪除，再用目前的金鑰從雲端重新下載。',
