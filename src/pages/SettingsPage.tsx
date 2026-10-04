@@ -5,12 +5,13 @@ import Dexie, { type ObservabilitySet } from 'dexie'
 import { db } from '../db/db'
 import { describeBackup, exportBackup, importBackup, pruneToBackup, type BackupSummary } from '../lib/backup'
 import { download } from '../lib/download'
-import { fetchSpaceSummary, probeSyncKey, requestSync, syncNow } from '../lib/sync'
+import { deleteCloudData, fetchSpaceSummary, probeSyncKey, replaceLegacyKey, requestSync, syncNow } from '../lib/sync'
 import {
-  adoptSyncSpace, clearLocalData, countLocalContents, countUnsynced, generateSyncKey, getSyncSpace,
+  adoptSyncSpace, clearLocalData, countLocalContents, countUnsynced, generateSyncKey, getLastSyncSpace, getSyncSpace,
   hasLocalData, leaveSyncSpace, normalizeSyncKey, setSyncSpace,
 } from '../lib/space'
-import { errorText, humanizeSyncError, syncMessage } from '../lib/syncText'
+import { isStandardSyncKey } from '../../shared/syncKey'
+import { cloudDeleteText, errorText, humanizeSyncError, spaceProblemText, syncMessage } from '../lib/syncText'
 import { isTouchDevice } from '../lib/share'
 import { getThemePref, setThemePref, type ThemePref } from '../lib/theme'
 import { applyFsrsSettings } from '../lib/fsrs'
@@ -41,6 +42,8 @@ export default function SettingsPage() {
   const lastSync = useLiveQuery(() => db.meta.get('last_sync_at'), [])
   const syncError = useLiveQuery(() => db.meta.get('sync_error'), [])
   const currentSpace = useLiveQuery(() => getSyncSpace(), [])
+  // 停止同步後還留在雲端的那份(可以從這裡刪掉)
+  const lastSpace = useLiveQuery(() => getLastSyncSpace(), [])
   const [msg, setMsg] = useState('')
   const [keyOpen, setKeyOpen] = useState(false)
   const [keyInput, setKeyInput] = useState('')
@@ -72,6 +75,8 @@ export default function SettingsPage() {
   }, [searchParams, setSearchParams])
 
   const localOnly = currentSpace === ''
+  // 舊版自訂的金鑰(test、1234 這種):一猜就中,建議換成產生的
+  const legacyKey = currentSpace !== undefined && currentSpace !== '' && !isStandardSyncKey(currentSpace)
   // 打的就是目前這組(照正規化或照原樣比:舊版自訂的金鑰是原樣存的)
   const isCurrentKey = (input: string) => input.trim() !== ''
     && (normalizeSyncKey(input).key === currentSpace || input.trim() === currentSpace)
@@ -158,8 +163,8 @@ export default function SettingsPage() {
     if (key === '') return null
     setMsg('確認金鑰…')
     const probe = await probeSyncKey(input, key)
-    if (probe === null) {
-      setMsg('連不上伺服器，這台什麼都沒改；連上網路後再試一次')
+    if ('problem' in probe) {
+      setMsg(spaceProblemText(probe.problem))
       return null
     }
     setMsg('')
@@ -191,7 +196,7 @@ export default function SettingsPage() {
     setMsg('同步中…')
     // 空間認得哪些牌組:那些不是這台新帶進去的,不拿去併(停止同步後回到同一個空間時,共用的那副不能被併掉)
     const summary = await fetchSpaceSummary(key)
-    if (summary === null) { setMsg('連不上伺服器，這台什麼都沒改；連上網路後再試一次'); return }
+    if ('problem' in summary) { setMsg(spaceProblemText(summary.problem)); return }
     setKeyInput('')
     await adoptSyncSpace(key, summary.ids === null ? undefined : new Set(summary.ids))
     const r = await syncNow()
@@ -262,6 +267,44 @@ export default function SettingsPage() {
     await leaveSyncSpace()
     setMsg('已停止同步，資料只存在這台')
     setKeyOpen(false)
+  })
+
+  /**
+   * 刪除雲端資料:那組金鑰在雲端的牌組、卡片、複習紀錄全部刪掉,這台的資料留著。
+   * current:刪的是目前在同步的這組(刪完這台改成只存在這台,其他裝置下次同步也會停下來);
+   * 否則是停止同步前那組、還留在雲端的那份。
+   */
+  const deleteCloud = (space: string, current: boolean) => run(async () => {
+    if (space === '') return
+    if (!await confirm({
+      title: '刪除雲端資料？',
+      message: current
+        ? '雲端上這組金鑰的牌組、卡片和複習紀錄會全部刪掉，不能復原。\n\n這台的資料留著，改成只存在這台；用同一組金鑰的其他裝置也會停止同步，各自的資料一樣留著。這組金鑰之後不能再用。'
+        : `停止同步時留在雲端的那份（金鑰 ${space}）會全部刪掉，不能復原。這台的資料不受影響。`,
+      confirmLabel: '刪除雲端資料',
+      destructive: true,
+    })) return
+    setMsg('刪除中…')
+    const r = await deleteCloudData(space)
+    if (r !== 'ok') { setMsg(cloudDeleteText(r)); return }
+    setShowKey(false)
+    setMsg(current ? '✓ 雲端資料已刪除。這台的資料還在，改成只存在這台' : '✓ 雲端那份已刪除')
+  })
+
+  /** 舊版自訂的金鑰換成產生的(做法見 replaceLegacyKey) */
+  const upgradeKey = () => run(async () => {
+    const old = currentSpace ?? ''
+    if (old === '' || isStandardSyncKey(old)) return
+    if (!await confirm({
+      title: '換成新產生的金鑰？',
+      message: '舊版自訂的金鑰容易被猜到。會產生一組新金鑰、把資料搬過去，再刪掉舊金鑰在雲端的資料。\n\n其他用舊金鑰的裝置會停止同步：在那台輸入新金鑰、選「一起帶過去」就能接上。',
+      confirmLabel: '換成新金鑰',
+    })) return
+    setMsg('換金鑰中…')
+    const r = await replaceLegacyKey(old)
+    if (!r.ok) { setMsg('sync' in r ? syncMessage(r.sync, '') : cloudDeleteText(r.deleted)); return }
+    setShowKey(true)
+    setMsg(syncMessage(r.upload, '✓ 已換成新金鑰。先把上面的新金鑰抄下來，其他裝置要重新輸入這組'))
   })
 
   const doClearLocal = () => run(async () => {
@@ -404,6 +447,13 @@ export default function SettingsPage() {
           <span className="row-value">{localOnly ? '未設定' : currentSpace ? maskKey(currentSpace) : '…'}</span>
           <span className="row-chevron"><ChevronRightIcon /></span>
         </button>
+        {legacyKey && (
+          <button type="button" className="row" onClick={() => { setKeyInput(''); setAdoptChoice(null); setKeyOpen(true) }}>
+            <span className="row-icon danger" aria-hidden="true">!</span>
+            <span className="row-main"><span className="row-subtitle err">這組是舊版自訂的金鑰，容易被猜到，建議換一組</span></span>
+            <span className="row-chevron"><ChevronRightIcon /></span>
+          </button>
+        )}
       </ListSection>
 
       <ListSection header="學習" footer={
@@ -544,6 +594,12 @@ export default function SettingsPage() {
               <button type="submit" className="btn lg tinted" disabled={busy || keyInput.trim() === ''}>使用這組金鑰</button>
             </form>
             {msg && <p className="hint" role="status">{msg}</p>}
+            {lastSpace ? (
+              <ListSection footer="停止同步時，雲端還留著一份。不需要的話可以刪掉，這台的資料不受影響。">
+                <button type="button" className="row destructive" disabled={busy}
+                  onClick={() => void deleteCloud(lastSpace, false)}>刪除之前的雲端資料</button>
+              </ListSection>
+            ) : null}
           </div>
         ) : (
           <div className="key-sheet">
@@ -555,6 +611,11 @@ export default function SettingsPage() {
               </div>
             </ListSection>
             {msg && <p className="hint key-msg" role="status">{msg}</p>}
+            {legacyKey && (
+              <ListSection footer="舊版可以自訂金鑰，像這組這樣的字很容易被猜到，猜中的人就能看到、改掉你的牌組。換成產生的金鑰後，舊金鑰在雲端的資料會刪掉。">
+                <button type="button" className="row accent" disabled={busy} onClick={() => void upgradeKey()}>換成新產生的金鑰</button>
+              </ListSection>
+            )}
             <ListSection header="換成另一組金鑰" footer="這台會先清空，再下載那個空間的資料；目前空間的資料留在雲端。">
               <div className="row">
                 <input value={keyInput} onChange={(e) => setKeyInput(e.target.value)} placeholder="輸入另一組金鑰"
@@ -567,6 +628,10 @@ export default function SettingsPage() {
             </ListSection>
             <ListSection footer="停止後這台的資料留著，只是不再同步；雲端那份也還在。">
               <button type="button" className="row destructive" disabled={busy} onClick={() => void stopSync()}>停止同步</button>
+            </ListSection>
+            <ListSection footer="雲端上這組金鑰的資料會全部刪掉，這台的資料留著、改成只存在這台；其他裝置也會停止同步。分享出去的牌組連結不受影響，180 天後自動失效。">
+              <button type="button" className="row destructive" disabled={busy}
+                onClick={() => void deleteCloud(currentSpace ?? '', true)}>刪除雲端資料</button>
             </ListSection>
           </div>
         )}

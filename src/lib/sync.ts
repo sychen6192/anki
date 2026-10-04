@@ -4,13 +4,17 @@ import type {
   CardRecord, DeckRecord, NoteRecord, ReviewLogRecord, SettingRecord,
   SyncPush, SyncPullResponse, SyncPushResponse,
 } from '../../shared/types'
-import { getSyncSpace, rekeyConflicts, runPendingFold } from './space'
+import { adoptSyncSpace, forgetDeletedSpace, generateSyncKey, getSyncSpace, rekeyConflicts, runPendingFold } from './space'
+import { fetchWithRetry } from './http'
 
 export interface SyncResult {
   ok: boolean
   skipped?: boolean
-  /** skipped 的原因:沒設金鑰(純本機)/ 離線 / 同步中被換了空間 / 一直被別的同步搶先(下次再拉) */
-  reason?: 'local-only' | 'offline' | 'switched' | 'busy'
+  /**
+   * skipped 的原因:沒設金鑰(純本機)/ 離線 / 同步中被換了空間 / 一直被別的同步搶先(下次再拉)/
+   * 這組金鑰的雲端資料已經刪除(這台因此停止同步,資料留著)
+   */
+  reason?: 'local-only' | 'offline' | 'switched' | 'busy' | 'deleted'
   error?: string
   /** 這次同步順便把合併時等著的同名牌組併掉了幾副(見 runPendingFold) */
   folded?: number
@@ -20,6 +24,22 @@ export interface SyncResult {
 // 869-note deck) can't blow past Cloudflare's per-invocation subrequest limit —
 // see worker/index.ts for the matching server-side db.batch() chunking.
 const PUSH_CHUNK_SIZE = 200
+
+/** 伺服器說這組金鑰的雲端資料已經刪掉了(410):這台或別台按了「刪除雲端資料」 */
+export class SpaceDeletedError extends Error {}
+
+/**
+ * 推或拉失敗時的錯誤。訊息保留 `push failed: 500` 這種形狀(syncText 靠它翻成人話),
+ * 伺服器有說原因就附在後面(例如舊版自訂金鑰開不了新空間的 `(invalid space)`)。
+ */
+async function httpError(what: 'push' | 'pull', res: Response): Promise<Error> {
+  if (res.status === 410) return new SpaceDeletedError(`${what} failed: 410`)
+  const reason = await res.json().then(
+    (d: { error?: unknown } | null) => (typeof d?.error === 'string' ? ` (${d.error})` : ''),
+    () => '',
+  )
+  return new Error(`${what} failed: ${res.status}${reason}`)
+}
 
 interface PushChunk {
   decks: Local<DeckRecord>[]; notes: Local<NoteRecord>[]
@@ -217,12 +237,12 @@ async function pushDirty(space: string, fetchFn: typeof fetch, holdLogsAfter?: n
     // cleared stay cleared, so the next syncNow resumes with just the remaining
     // dirty rows instead of resending everything from scratch.
     for (const chunk of chunks) {
-      const res = await fetchFn('/api/sync', {
+      const res = await fetchWithRetry(fetchFn, '/api/sync', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-sync-space': space },
         body: JSON.stringify(chunkBody(chunk)),
       })
-      if (!res.ok) throw new Error(`push failed: ${res.status}`)
+      if (!res.ok) throw await httpError('push', res)
       const pushRes = await res.json().catch(() => null) as SyncPushResponse | null
       if (await applyPushResponse(chunk, pushRes, space)) rekeyed = true
     }
@@ -239,8 +259,11 @@ type PullOutcome = 'merged' | 'switched' | 'moved'
  */
 async function pullOnce(space: string, fetchFn: typeof fetch): Promise<PullOutcome> {
   const since = (await db.meta.get('sync_cursor'))?.value ?? 0
-  const res = await fetchFn(`/api/sync?since=${since}`, { headers: { 'x-sync-space': space } })
-  if (!res.ok) throw new Error(`pull failed: ${res.status}`)
+  // 不同空間是同一個網址:不能讓瀏覽器拿快取回答(伺服器也回 no-store,這裡再保險一次)
+  const res = await fetchWithRetry(fetchFn, `/api/sync?since=${since}`, {
+    headers: { 'x-sync-space': space }, cache: 'no-store',
+  })
+  if (!res.ok) throw await httpError('pull', res)
   const data: SyncPullResponse = await res.json()
   let outcome: PullOutcome = 'merged'
   await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
@@ -299,6 +322,11 @@ export async function syncNow(fetchFn: typeof fetch = fetch, opts?: { holdRecent
     if (folded > 0) await pushDirty(space, fetchFn, holdLogsAfter)
     return folded > 0 ? { ok: true, folded } : { ok: true }
   } catch (e) {
+    if (e instanceof SpaceDeletedError) {
+      // 別台刪了雲端資料(這台自己刪的話,金鑰早就清掉、不會走到這裡):停止同步、資料留著,首頁提醒
+      await forgetDeletedSpace(space, true)
+      return { ok: false, skipped: true, reason: 'deleted' }
+    }
     const message = e instanceof Error ? e.message : String(e)
     // 背景同步的失敗沒有畫面可報,寫進 meta 讓導覽列紅點/牌組頁橫幅撿去顯示
     await db.meta.put({ key: 'sync_error', value: message }).catch(() => {})
@@ -306,54 +334,111 @@ export async function syncNow(fetchFn: typeof fetch = fetch, opts?: { holdRecent
   }
 }
 
+/** 問不到空間概況的原因:連不上 / 這組金鑰的雲端資料已經刪除 / 不是產生器的格式(又不是在用的舊空間)/ 問太多次被限流 */
+export type SpaceProblem = 'offline' | 'deleted' | 'invalid' | 'busy'
+
 /**
- * 連上一組金鑰之前的確認:用哪一個金鑰、那個空間有幾副牌組。連不上回 null(什麼都不要改)。
+ * 連上一組金鑰之前的確認:用哪一個金鑰、那個空間有幾副牌組。問不到就回原因(什麼都不要改)。
  * 舊版可以自訂金鑰,大小寫有差、原樣存下來;正規化後剛好像產生器格式的舊金鑰(例如 JapanN3Study)
  * 會被改寫成另一個空間 —— 正規化後的空間是空的、照原樣打的那個有東西,就用原樣的。
+ * 不是產生器格式的金鑰只能連已經有資料的舊空間(伺服器不讓它開新空間,回 invalid)。
  */
 export async function probeSyncKey(
   input: string, normalized: string, fetchFn: typeof fetch = fetch,
-): Promise<{ key: string; decks: number } | null> {
-  const decks = await countSpaceDecks(normalized, fetchFn)
-  if (decks === null) return null
+): Promise<{ key: string; decks: number } | { problem: SpaceProblem }> {
+  const first = await fetchSpaceSummary(normalized, fetchFn)
+  // invalid 只代表「正規化的那個不能用」,照原樣的還有機會是舊空間
+  if ('problem' in first && first.problem !== 'invalid') return first
+  const decks = 'problem' in first ? null : first.decks
+  const fallback = decks === null ? { problem: 'invalid' as const } : { key: normalized, decks }
   const raw = input.trim()
-  if (decks > 0 || raw === '' || raw === normalized) return { key: normalized, decks }
+  if ((decks !== null && decks > 0) || raw === '' || raw === normalized) return fallback
   // 照原樣的只試放得進 header 的(舊版存得下來、也真的同步過的):全形字、長音符號這類放不進去
   try {
     new Headers({ 'x-sync-space': raw })
   } catch {
-    return { key: normalized, decks }
+    return fallback
   }
-  const rawDecks = await countSpaceDecks(raw, fetchFn)
-  // 第二個沒問到就當連不上:「沒問到」不能當成「空的」,讓人以為打錯、或連進正規化那個空的空間
-  if (rawDecks === null) return null
-  if (rawDecks > 0) return { key: raw, decks: rawDecks }
-  return { key: normalized, decks }
+  const second = await fetchSpaceSummary(raw, fetchFn)
+  if ('problem' in second) {
+    // 照原樣的不是舊空間:就是正規化的那個。其他問題(沒問到)不能當成「空的」,
+    // 讓人以為打錯、或連進正規化那個空的空間
+    return second.problem === 'invalid' ? fallback : second
+  }
+  if (second.decks > 0) return { key: raw, decks: second.decks }
+  return fallback
 }
 
 /**
  * 空間的概況:沒刪除的牌組數,與空間認得的每一副牌組的 id(含刪掉的;舊版伺服器沒有,是 null)。
- * 連不上、或伺服器還是舊版沒有這個端點,回 null —— 呼叫端就什麼都不改,等連上網路再試。
+ * 問不到回原因 —— 呼叫端就什麼都不改。伺服器還是舊版沒有這個端點(404)也算連不上,等更新後再試。
  */
 export async function fetchSpaceSummary(
   space: string, fetchFn: typeof fetch = fetch,
-): Promise<{ decks: number; ids: string[] | null } | null> {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return null
+): Promise<{ decks: number; ids: string[] | null } | { problem: SpaceProblem }> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return { problem: 'offline' }
   try {
-    const res = await fetchFn('/api/sync/summary', { headers: { 'x-sync-space': space } })
-    if (!res.ok) return null
+    const res = await fetchFn('/api/sync/summary', { headers: { 'x-sync-space': space }, cache: 'no-store' })
+    if (res.status === 410) return { problem: 'deleted' }
+    if (res.status === 429) return { problem: 'busy' }
+    if (res.status === 400) {
+      const data = await res.json().catch(() => null) as { error?: unknown } | null
+      return { problem: data?.error === 'invalid space' ? 'invalid' : 'offline' }
+    }
+    if (!res.ok) return { problem: 'offline' }
     const data = await res.json() as { decks?: unknown; ids?: unknown }
-    if (typeof data.decks !== 'number') return null
+    if (typeof data.decks !== 'number') return { problem: 'offline' }
     const ids = Array.isArray(data.ids) ? data.ids.filter((x): x is string => typeof x === 'string') : null
     return { decks: data.decks, ids }
   } catch {
-    return null
+    return { problem: 'offline' }
   }
 }
 
-/** 連上一組金鑰之前先看那個空間有幾副牌組(不含已刪除的);連不上回 null */
-export async function countSpaceDecks(space: string, fetchFn: typeof fetch = fetch): Promise<number | null> {
-  return (await fetchSpaceSummary(space, fetchFn))?.decks ?? null
+/** 刪除雲端資料的結果:成功(本來就刪過也算)/ 連不上 / 被限流 / 伺服器出錯 */
+export type CloudDeleteResult = 'ok' | 'offline' | 'busy' | 'failed'
+
+/**
+ * 刪除這組金鑰在雲端的所有資料(牌組、卡片、複習紀錄、設定),成功後這台停止同步、資料留著
+ * (目前的金鑰是它的話;刪的是停止同步前那個空間也行)。沒成功就什麼都不改。
+ * 這組金鑰之後不能再用:還在用它的其他裝置下次同步會收到 410,同樣停止同步並在首頁提醒。
+ */
+export async function deleteCloudData(space: string, fetchFn: typeof fetch = fetch): Promise<CloudDeleteResult> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'offline'
+  let res: Response
+  try {
+    res = await fetchFn('/api/sync', { method: 'DELETE', headers: { 'x-sync-space': space } })
+  } catch {
+    return 'offline'
+  }
+  if (res.status === 429) return 'busy'
+  if (!res.ok) return 'failed'
+  await forgetDeletedSpace(space, false)
+  return 'ok'
+}
+
+/**
+ * 舊版自訂的金鑰(test、1234 這種,一猜就中)換成產生的:先同步一次(這台拿到空間裡的全部資料)、
+ * 刪掉舊金鑰在雲端的資料,再用新金鑰把這台的資料整份帶上去 —— 舊空間刪掉之後 id 就空出來了,
+ * 照原 id 帶過去不會撞到。其他用舊金鑰的裝置下次同步會收到 410、停止同步並在首頁提醒,輸入新金鑰合併就接上。
+ * 刪之前失敗什麼都沒改(回失敗的原因);刪之後才失敗,資料都還在這台、新金鑰也記下了,之後的同步會補傳。
+ */
+export async function replaceLegacyKey(old: string, fetchFn: typeof fetch = fetch): Promise<
+  | { ok: true; key: string; upload: SyncResult }
+  | { ok: false; sync: SyncResult }
+  | { ok: false; deleted: Exclude<CloudDeleteResult, 'ok'> }
+> {
+  const first = await syncNow(fetchFn)
+  // 雲端還沒有資料的舊金鑰同步不了(伺服器不讓它開新空間):沒有東西要先拉、也沒有要刪的
+  const nothingThere = !first.ok && (first.error ?? '').includes('(invalid space)')
+  if (!first.ok && !nothingThere) return { ok: false, sync: first }
+  if (!nothingThere) {
+    const d = await deleteCloudData(old, fetchFn)
+    if (d !== 'ok') return { ok: false, deleted: d }
+  }
+  const key = generateSyncKey()
+  await adoptSyncSpace(key)
+  return { ok: true, key, upload: await syncNow(fetchFn) }
 }
 
 let pendingSync: ReturnType<typeof setTimeout> | undefined

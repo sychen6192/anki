@@ -51,6 +51,7 @@ export async function createShare(
     headers['x-body-gzip'] = '1'
   }
   const res = await fetchFn('/api/share', { method: 'POST', headers, body })
+  if (res.status === 429) throw new Error('分享得太頻繁了，等一分鐘再試')
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   const data = await res.json() as { code?: unknown }
   if (typeof data.code !== 'string' || data.code === '') throw new Error('伺服器沒有回傳分享碼')
@@ -64,6 +65,7 @@ export class ShareNotFoundError extends Error {}
 export async function fetchShare(code: string, fetchFn: typeof fetch = fetch): Promise<SharedDeck> {
   const res = await fetchFn(`/api/share/${encodeURIComponent(code)}`)
   if (res.status === 404) throw new ShareNotFoundError('找不到這個分享，連結可能貼錯了或已經過期')
+  if (res.status === 429) throw new Error('開啟得太頻繁了，等一分鐘再試')
   if (!res.ok) throw new Error(`讀取分享失敗（HTTP ${res.status}）`)
   const data = await res.json() as { name?: unknown; rows?: unknown }
   return {

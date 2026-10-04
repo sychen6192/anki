@@ -4,6 +4,11 @@ import app from './index'
 
 const empty = { decks: [], notes: [], cards: [], review_logs: [] }
 
+/** 沒特別指定空間的測試都推進這一個(產生器格式的金鑰:伺服器只讓這種格式開新空間) */
+const SPACE = 'test-test-test'
+const A = 'aaaa-aaaa-aaaa'
+const B = 'bbbb-bbbb-bbbb'
+
 const deck = (over: Record<string, unknown> = {}) => ({
   id: 'd1', name: '日文', new_per_day: 20, updated_at: 1000, deleted: 0, ...over,
 })
@@ -11,20 +16,20 @@ const deck = (over: Record<string, unknown> = {}) => ({
 async function push(body: unknown) {
   const res = await app.request('/api/sync', {
     method: 'POST', body: JSON.stringify(body),
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-sync-space': SPACE },
   }, env)
   expect(res.status).toBe(200)
 }
 
 async function pull(since = 0): Promise<any> {
-  const res = await app.request(`/api/sync?since=${since}`, {}, env)
+  const res = await app.request(`/api/sync?since=${since}`, { headers: { 'x-sync-space': SPACE } }, env)
   expect(res.status).toBe(200)
   return res.json()
 }
 
 describe('/api/sync push 的輸入驗證', () => {
   const pushRaw = (body: string) => app.request('/api/sync', {
-    method: 'POST', body, headers: { 'content-type': 'application/json' },
+    method: 'POST', body, headers: { 'content-type': 'application/json', 'x-sync-space': SPACE },
   }, env)
 
   it('無法 bind 的壞資料被跳過並回報,同批的好資料照常寫入', async () => {
@@ -159,31 +164,38 @@ describe('/api/sync', () => {
     return res.json()
   }
 
-  it('namespace 隔離:A 空間 push 的資料,B 空間與預設空間都看不到', async () => {
-    await pushNs('spaceA', { ...empty, decks: [deck({ id: 'da', name: 'A的牌組' })] })
-    await pushNs('spaceB', { ...empty, decks: [deck({ id: 'db', name: 'B的牌組' })] })
+  it('namespace 隔離:A 空間 push 的資料,B 空間看不到;沒帶金鑰(以前的公用預設空間)一律 400', async () => {
+    await pushNs(A, { ...empty, decks: [deck({ id: 'da', name: 'A的牌組' })] })
+    await pushNs(B, { ...empty, decks: [deck({ id: 'db', name: 'B的牌組' })] })
 
-    const outA = await pullNs('spaceA')
-    const outB = await pullNs('spaceB')
-    const outDefault = await pull(0) // 無 header = 預設空間 ''
+    const outA = await pullNs(A)
+    const outB = await pullNs(B)
 
     expect(outA.decks.map((d: { id: string }) => d.id)).toEqual(['da'])
     expect(outB.decks.map((d: { id: string }) => d.id)).toEqual(['db'])
-    expect(outDefault.decks).toHaveLength(0)
+    for (const res of [
+      await app.request('/api/sync?since=0', {}, env),
+      await app.request('/api/sync/summary', {}, env),
+      await app.request('/api/sync', { method: 'POST', body: JSON.stringify(empty) }, env),
+      await app.request('/api/sync', { method: 'DELETE' }, env),
+    ]) {
+      expect(res.status).toBe(400)
+      expect(await res.json()).toEqual({ error: 'missing space' })
+    }
   })
 
   it('pull 回傳的列不含 namespace(內部欄位不外洩)', async () => {
-    await pushNs('spaceA', { ...empty, decks: [deck({ id: 'da' })] })
-    const outA = await pullNs('spaceA')
+    await pushNs(A, { ...empty, decks: [deck({ id: 'da' })] })
+    const outA = await pullNs(A)
     expect(outA.decks[0].namespace).toBeUndefined()
     expect(outA.decks[0].server_seq).toBeUndefined()
   })
 
   it('同一 namespace 內 LWW 仍正確', async () => {
-    await pushNs('spaceA', { ...empty, decks: [deck({ id: 'da', updated_at: 1000, name: 'old' })] })
-    await pushNs('spaceA', { ...empty, decks: [deck({ id: 'da', updated_at: 2000, name: 'new' })] })
-    await pushNs('spaceA', { ...empty, decks: [deck({ id: 'da', updated_at: 1500, name: 'stale' })] })
-    const outA = await pullNs('spaceA')
+    await pushNs(A, { ...empty, decks: [deck({ id: 'da', updated_at: 1000, name: 'old' })] })
+    await pushNs(A, { ...empty, decks: [deck({ id: 'da', updated_at: 2000, name: 'new' })] })
+    await pushNs(A, { ...empty, decks: [deck({ id: 'da', updated_at: 1500, name: 'stale' })] })
+    const outA = await pullNs(A)
     expect(outA.decks).toHaveLength(1)
     expect(outA.decks[0].name).toBe('new')
   })
@@ -191,30 +203,30 @@ describe('/api/sync', () => {
   it('settings 表:LWW round-trip、namespace 隔離、舊 client 沒送 settings 也沒事', async () => {
     const setting = (over: Record<string, unknown> = {}) =>
       ({ id: 'fsrs', value: '{"w":null}', updated_at: 1000, deleted: 0, ...over })
-    await pushNs('spaceA', { ...empty, settings: [setting()] })
-    await pushNs('spaceA', { ...empty, settings: [setting({ value: '{"w":[1]}', updated_at: 2000 })] })
-    await pushNs('spaceA', { ...empty, settings: [setting({ value: 'stale', updated_at: 1500 })] })
-    const outA = await pullNs('spaceA')
+    await pushNs(A, { ...empty, settings: [setting()] })
+    await pushNs(A, { ...empty, settings: [setting({ value: '{"w":[1]}', updated_at: 2000 })] })
+    await pushNs(A, { ...empty, settings: [setting({ value: 'stale', updated_at: 1500 })] })
+    const outA = await pullNs(A)
     expect(outA.settings).toHaveLength(1)
     expect(outA.settings[0]).toMatchObject({ id: 'fsrs', value: '{"w":[1]}' })
     expect(outA.settings[0].namespace).toBeUndefined()
-    expect((await pullNs('spaceB')).settings).toHaveLength(0)
-    await pushNs('spaceA', empty) // 舊 client 的 body 沒有 settings 這個 key
-    expect((await pullNs('spaceA')).settings).toHaveLength(1)
+    expect((await pullNs(B)).settings).toHaveLength(0)
+    await pushNs(A, empty) // 舊 client 的 body 沒有 settings 這個 key
+    expect((await pullNs(A)).settings).toHaveLength(1)
   })
 
   it('settings:兩個空間各有自己的 fsrs 設定,不會互相搶走(設定的 id 是固定名稱,不是 UUID)', async () => {
     const setting = (value: string, updated_at: number) => ({ id: 'fsrs', value, updated_at, deleted: 0 })
-    await pushNs('spaceA', { ...empty, settings: [setting('A 的參數', 1000)] })
-    await pushNs('spaceB', { ...empty, settings: [setting('B 的參數', 2000)] }) // B 比較新
-    const a = (await pullNs('spaceA')).settings
-    const b = (await pullNs('spaceB')).settings
+    await pushNs(A, { ...empty, settings: [setting('A 的參數', 1000)] })
+    await pushNs(B, { ...empty, settings: [setting('B 的參數', 2000)] }) // B 比較新
+    const a = (await pullNs(A)).settings
+    const b = (await pullNs(B)).settings
     expect(a).toHaveLength(1)
     expect(a[0]).toMatchObject({ id: 'fsrs', value: 'A 的參數' })
     expect(b[0]).toMatchObject({ id: 'fsrs', value: 'B 的參數' })
     // A 之後再改:照樣存得進去(以前會因為 B 的時間比較新而被擋掉)
-    await pushNs('spaceA', { ...empty, settings: [setting('A 改過', 1500)] })
-    expect((await pullNs('spaceA')).settings[0].value).toBe('A 改過')
+    await pushNs(A, { ...empty, settings: [setting('A 改過', 1500)] })
+    expect((await pullNs(A)).settings[0].value).toBe('A 改過')
   })
 
   it('settings:以前存的沒前綴的列照樣拉得到', async () => {
@@ -226,21 +238,21 @@ describe('/api/sync', () => {
   })
 
   it('push 忽略 client 送的 namespace,一律以 header 為準', async () => {
-    await pushNs('real', { ...empty, decks: [deck({ id: 'dx', namespace: 'spoofed' })] })
-    expect((await pullNs('real')).decks.map((d: { id: string }) => d.id)).toEqual(['dx'])
-    expect((await pullNs('spoofed')).decks).toHaveLength(0)
+    await pushNs('rrrr-rrrr-rrrr', { ...empty, decks: [deck({ id: 'dx', namespace: 'ssss-ssss-ssss' })] })
+    expect((await pullNs('rrrr-rrrr-rrrr')).decks.map((d: { id: string }) => d.id)).toEqual(['dx'])
+    expect((await pullNs('ssss-ssss-ssss')).decks).toHaveLength(0)
   })
 
   // id 是全表共用的主鍵。以前同一個 id 以較新時間戳推進另一個空間,會把那一列從原本的空間搬走
   // (例如在另一台還原了這個空間的備份,再用新的金鑰開始同步)。現在不搬、回報給客戶端換新 id。
   it('id 已經是別的空間的:不搬走,回報 conflicts,原本的空間原封不動', async () => {
-    await pushNs('A', { ...empty, decks: [deck({ id: 'shared', updated_at: 1000, name: 'A 的' })] })
-    const res = await pushNs('B', { ...empty, decks: [deck({ id: 'shared', updated_at: 2000, name: 'B 的' })] })
+    await pushNs(A, { ...empty, decks: [deck({ id: 'shared', updated_at: 1000, name: 'A 的' })] })
+    const res = await pushNs(B, { ...empty, decks: [deck({ id: 'shared', updated_at: 2000, name: 'B 的' })] })
     expect(res).toEqual({ ok: true, skipped: ['shared'], conflicts: { decks: ['shared'] } })
-    const a = (await pullNs('A')).decks
+    const a = (await pullNs(A)).decks
     expect(a).toHaveLength(1)
     expect(a[0]).toMatchObject({ id: 'shared', name: 'A 的', updated_at: 1000 })
-    expect((await pullNs('B')).decks).toHaveLength(0)
+    expect((await pullNs(B)).decks).toHaveLength(0)
   })
 
   it('參照了別的空間的列(牌組/字/卡片)也不存,同一次推送的其他列照常寫入', async () => {
@@ -257,11 +269,11 @@ describe('/api/sync', () => {
       id: 'l', card_id: 'c', rating: 3, state: 0, due: 1, stability: 1, difficulty: 5,
       elapsed_days: 0, last_elapsed_days: 0, scheduled_days: 1, reviewed_at: 999, ...over,
     })
-    await pushNs('A', {
+    await pushNs(A, {
       decks: [deck({ id: 'dA' })], notes: [note({ id: 'nA', deck_id: 'dA' })],
       cards: [card({ id: 'cA', note_id: 'nA', deck_id: 'dA' })], review_logs: [log({ id: 'lA', card_id: 'cA' })],
     })
-    const res = await pushNs('B', {
+    const res = await pushNs(B, {
       decks: [deck({ id: 'dA', updated_at: 5000 }), deck({ id: 'dB' })],
       notes: [note({ id: 'nNew', deck_id: 'dA' }), note({ id: 'nB', deck_id: 'dB' })],
       cards: [card({ id: 'cNew', note_id: 'nA', deck_id: 'dB' }), card({ id: 'cB', note_id: 'nB', deck_id: 'dB' })],
@@ -271,12 +283,12 @@ describe('/api/sync', () => {
     expect(res.conflicts).toEqual({ decks: ['dA'], notes: ['nA'], cards: ['cA'], review_logs: ['lA'] })
     expect([...res.skipped].sort()).toEqual(['cNew', 'dA', 'lA', 'lNew', 'nNew'])
     const ids = (rows: { id: string }[]) => rows.map((r) => r.id).sort()
-    const b = await pullNs('B')
+    const b = await pullNs(B)
     expect(ids(b.decks)).toEqual(['dB'])
     expect(ids(b.notes)).toEqual(['nB'])
     expect(ids(b.cards)).toEqual(['cB'])
     expect(b.review_logs).toHaveLength(0)
-    const a = await pullNs('A')
+    const a = await pullNs(A)
     expect(a.decks[0]).toMatchObject({ id: 'dA', updated_at: 1000 })
     expect(ids(a.notes)).toEqual(['nA'])
     expect(ids(a.cards)).toEqual(['cA'])
@@ -286,20 +298,20 @@ describe('/api/sync', () => {
   it('summary:空間裡沒刪除的牌組數與認得的牌組 id,別的空間不算', async () => {
     const summary = async (space: string) =>
       (await app.request('/api/sync/summary', { headers: { 'x-sync-space': space } }, env)).json()
-    expect(await summary('A')).toEqual({ decks: 0, ids: [] })
-    await pushNs('A', { ...empty, decks: [deck({ id: 'a1' }), deck({ id: 'a2' }), deck({ id: 'a3', deleted: 1 })] })
-    await pushNs('B', { ...empty, decks: [deck({ id: 'b1' })] })
-    const a = await summary('A') as { decks: number; ids: string[] }
+    expect(await summary(A)).toEqual({ decks: 0, ids: [] })
+    await pushNs(A, { ...empty, decks: [deck({ id: 'a1' }), deck({ id: 'a2' }), deck({ id: 'a3', deleted: 1 })] })
+    await pushNs(B, { ...empty, decks: [deck({ id: 'b1' })] })
+    const a = await summary(A) as { decks: number; ids: string[] }
     expect(a.decks).toBe(2)
     expect([...a.ids].sort()).toEqual(['a1', 'a2', 'a3']) // 刪掉的也算空間認得的
-    expect(await summary('B')).toEqual({ decks: 1, ids: ['b1'] })
-    expect(await summary('C')).toEqual({ decks: 0, ids: [] })
+    expect(await summary(B)).toEqual({ decks: 1, ids: ['b1'] })
+    expect(await summary('cccc-cccc-cccc')).toEqual({ decks: 0, ids: [] })
   })
 
   it('同一個空間裡重推自己的列不算衝突', async () => {
-    await pushNs('A', { ...empty, decks: [deck({ id: 'mine', updated_at: 1000 })] })
-    const res = await pushNs('A', { ...empty, decks: [deck({ id: 'mine', updated_at: 2000, name: '改過' })] })
+    await pushNs(A, { ...empty, decks: [deck({ id: 'mine', updated_at: 1000 })] })
+    const res = await pushNs(A, { ...empty, decks: [deck({ id: 'mine', updated_at: 2000, name: '改過' })] })
     expect(res).toEqual({ ok: true, skipped: [] })
-    expect((await pullNs('A')).decks[0].name).toBe('改過')
+    expect((await pullNs(A)).decks[0].name).toBe('改過')
   })
 })

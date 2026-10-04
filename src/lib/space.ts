@@ -1,17 +1,18 @@
 import type { Table } from 'dexie'
 import type { CardRecord, ConflictTable, NoteRecord } from '../../shared/types'
+import { SYNC_KEY_ALPHABET } from '../../shared/syncKey'
 import { db, type Local } from '../db/db'
 
 /**
  * 產生一組好唸好抄的隨機金鑰(xxxx-xxxx-xxxx)。
  * 字母表拿掉易混淆的 i/l/o/0/1;12 字 × 31 種 ≈ 2^59,以「網址+金鑰」的
  * 威脅模型來說足夠 —— 真要上鎖走 SYNC_TOKEN(見 README)。
+ * 伺服器只讓這個格式開新空間(見 shared/syncKey.ts)。
  */
 export function generateSyncKey(): string {
-  const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'
   const bytes = new Uint8Array(12)
   crypto.getRandomValues(bytes)
-  const chars = Array.from(bytes, (b) => alphabet[b % alphabet.length])
+  const chars = Array.from(bytes, (b) => SYNC_KEY_ALPHABET[b % SYNC_KEY_ALPHABET.length])
   return `${chars.slice(0, 4).join('')}-${chars.slice(4, 8).join('')}-${chars.slice(8, 12).join('')}`
 }
 
@@ -58,13 +59,17 @@ export async function setSyncSpace(key: string): Promise<void> {
     await db.meta.delete(LAST_SPACE) // 本機清空了,沒有哪一列還屬於之前的空間
     await db.meta.delete(REKEYED)
     await db.meta.delete(PENDING_FOLD)
+    await db.meta.delete(CLOUD_DELETED)
     await db.meta.put({ key: 'sync_space', value: next })
     await db.meta.put({ key: SYNC_SINCE, value: Date.now() })
   })
 }
 
-/** 停止同步時記下原本的空間:這台的資料列在伺服器上屬於它(見 adoptSyncSpace) */
-const LAST_SPACE = 'last_sync_space'
+/** 停止同步時記下原本的空間:這台的資料列在伺服器上屬於它(見 adoptSyncSpace);設定頁也靠它提供「刪除之前的雲端資料」 */
+export const LAST_SPACE = 'last_sync_space'
+
+/** 雲端那份在別台被刪掉、這台同步時才發現(見 forgetDeletedSpace):首頁提醒用,值是發現的時間 */
+export const CLOUD_DELETED = 'cloud_deleted'
 
 /**
  * 這台開始同步目前這組金鑰的時間。首頁「超過一天沒同步成功」從上次成功或這個時間算起 ——
@@ -244,6 +249,7 @@ export async function adoptSyncSpace(key: string, knownDeckIds?: ReadonlySet<str
     await db.settings.toCollection().modify({ dirty: 1, updated_at: 0 })
     await db.meta.delete('sync_cursor')
     await db.meta.delete(LAST_SPACE)
+    await db.meta.delete(CLOUD_DELETED)
     await db.meta.put({ key: 'sync_space', value: next })
     await db.meta.put({ key: SYNC_SINCE, value: Date.now() })
   })
@@ -401,6 +407,37 @@ export async function leaveSyncSpace(): Promise<void> {
   })
 }
 
+const BARE_KEY = new RegExp(`^[${SYNC_KEY_ALPHABET}]{12}$`)
+
+/**
+ * 雲端那份已經刪掉了(這台按的「刪除雲端資料」,或別台刪的、這台同步時才收到 410):停止同步,**保留**這台的資料。
+ * 跟 leaveSyncSpace 不同:不記 LAST_SPACE —— 伺服器上已經沒有屬於那個空間的列,之後改用別組金鑰開始同步,
+ * 這台的列照原 id 帶過去就好,不必換 id。那組金鑰本身也不能再用了(伺服器一律回 410)。
+ * 只在目前的金鑰還是 space 時才停:同步到一半換了金鑰的話,不能把新的那組清掉。
+ * fromElsewhere:別台刪的 —— 記下來讓首頁提醒,不然只會覺得同步默默停了。
+ */
+export async function forgetDeletedSpace(space: string, fromElsewhere: boolean): Promise<void> {
+  await db.transaction('rw', [db.meta], async () => {
+    const cur = await db.meta.get('sync_space')
+    if (cur?.value === space) {
+      await db.meta.put({ key: 'sync_space', value: '' })
+      await db.meta.delete('sync_cursor')
+      await db.meta.delete(PENDING_FOLD)
+      // 不再連線,上次的同步錯誤也不再成立(不然導覽列紅點會一直掛著)
+      await db.meta.delete('sync_error')
+      if (fromElsewhere) await db.meta.put({ key: CLOUD_DELETED, value: Date.now() })
+    }
+    // 停止同步後才刪(刪的是之前那個空間):換 id 的理由也一起沒了
+    if ((await db.meta.get(LAST_SPACE))?.value === space) await db.meta.delete(LAST_SPACE)
+  })
+}
+
+/** 停止同步後還留在雲端的那份是哪一組金鑰(沒有回空字串):設定頁的「刪除之前的雲端資料」用 */
+export async function getLastSyncSpace(): Promise<string> {
+  const row = await db.meta.get(LAST_SPACE)
+  return typeof row?.value === 'string' ? row.value : ''
+}
+
 /**
  * 手打或貼上的金鑰先正規化:全形轉半形、去掉空白、轉小寫;去掉分隔符號後剛好是
  * 12 個產生器會用的字元,就補回「xxxx-xxxx-xxxx」。抄成「BVJ6 AM4P AD9Q」也連得上同一個空間。
@@ -408,7 +445,7 @@ export async function leaveSyncSpace(): Promise<void> {
  */
 export function normalizeSyncKey(input: string): { key: string; standard: boolean } {
   const bare = input.normalize('NFKC').replace(/[\s\-‐‑–—ー_]+/g, '').toLowerCase()
-  if (/^[abcdefghjkmnpqrstuvwxyz23456789]{12}$/.test(bare)) {
+  if (BARE_KEY.test(bare)) {
     return { key: `${bare.slice(0, 4)}-${bare.slice(4, 8)}-${bare.slice(8)}`, standard: true }
   }
   return { key: input.trim(), standard: false }

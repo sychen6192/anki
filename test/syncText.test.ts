@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { errorText, humanizeSyncError, syncMessage } from '../src/lib/syncText'
+import { cloudDeleteText, errorText, humanizeSyncError, spaceProblemText, syncMessage } from '../src/lib/syncText'
 import { normalizeSyncKey } from '../src/lib/space'
 
 describe('humanizeSyncError', () => {
@@ -41,5 +41,25 @@ describe('errorText(同步以外的錯誤)', () => {
     expect(errorText(new TypeError('Load failed'))).toBe('連不上伺服器，確認網路後再試一次')
     expect(errorText(new Error('分享的牌組不存在'))).toBe('分享的牌組不存在')
     expect(errorText('oops')).toBe('oops')
+  })
+})
+
+describe('金鑰、刪除與限流的訊息', () => {
+  it('舊版自訂金鑰開不了空間、被限流:講人話,並說資料還在', () => {
+    expect(humanizeSyncError('push failed: 400 (invalid space)')).toMatch(/舊版自訂.*換一組新的.*資料都還在這台/)
+    expect(humanizeSyncError('pull failed: 429 (too many requests)')).toMatch(/太頻繁.*資料都還在這台/)
+    expect(humanizeSyncError('push failed: 400 (missing space)')).toContain('代碼 400')
+  })
+
+  it('別台刪了雲端資料:這台停止同步,資料都還在', () => {
+    expect(syncMessage({ ok: false, skipped: true, reason: 'deleted' }, '')).toMatch(/雲端資料已經刪除.*資料都還在/)
+  })
+
+  it('連上之前問不到空間、刪除沒成功:各有說法,都說什麼都沒改', () => {
+    expect(spaceProblemText('deleted')).toContain('已經刪除')
+    expect(spaceProblemText('invalid')).toContain('abcd-efgh-jkmn')
+    expect(spaceProblemText('busy')).toContain('等一分鐘')
+    expect(spaceProblemText('offline')).toMatch(/^連不上伺服器/)
+    for (const r of ['busy', 'failed', 'offline'] as const) expect(cloudDeleteText(r)).toMatch(/還在|沒有刪掉/)
   })
 })

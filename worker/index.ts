@@ -1,10 +1,19 @@
-import { Hono } from 'hono'
+import { Hono, type Context, type MiddlewareHandler } from 'hono'
 import type {
   CardRecord, ConflictTable, DeckRecord, NoteRecord, ReviewLogRecord, SettingRecord, SyncPush, SyncPullResponse,
   SyncPushResponse,
 } from '../shared/types'
+import { isStandardSyncKey } from '../shared/syncKey'
 
-export type Env = { DB: D1Database; ASSETS: Fetcher }
+/** 限流器(wrangler.jsonc 的 ratelimits)。每一種的次數與時間窗不同,所以各自一個綁定 */
+type LimiterName = 'SYNC_LIMITER' | 'SUMMARY_LIMITER' | 'SHARE_CREATE_LIMITER' | 'SHARE_READ_LIMITER' | 'ACCENT_LIMITER'
+
+export type Env = {
+  DB: D1Database
+  ASSETS: Fetcher
+} & Partial<Record<LimiterName, RateLimit>>
+
+type AppContext = Context<{ Bindings: Env }>
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -25,7 +34,61 @@ app.onError((err, c) => {
 //   await next()
 // })
 
+// API 的回應一律不快取:同一個網址(/api/sync/summary、/api/sync?since=0)依 x-sync-space 是不同空間的資料,
+// 而 410 這類狀態碼瀏覽器預設可以快取 —— 實測 Chrome 會拿刪過的金鑰收到的 410 去回答下一組金鑰的請求
+app.use('/api/*', async (c, next) => {
+  await next()
+  c.header('Cache-Control', 'no-store')
+})
+
 app.get('/api/health', (c) => c.json({ ok: true }))
+
+// ---------- 限流 ----------
+// API 不用登入,誰都能打:沒有限流的話,一支腳本就能猜金鑰、把 D1 灌爆(帳單)、拿分享當免費的檔案空間。
+// 依來源 IP 計數(Cloudflare 的 Rate Limiting binding,計數在各機房、最終一致:是煞車不是精確的配額)。
+// 各端點的量見 wrangler.jsonc;正常使用碰不到 —— 用戶端遇到 429 會照 Retry-After 等一下再送(見 src/lib/sync.ts)。
+
+/**
+ * 計數用的 key:IPv4 用整個位址;IPv6 只取前 64 位元 —— 一般一戶分到一整段 /64,
+ * 用完整位址的話換個尾碼就是新的一份額度。
+ */
+export function rateLimitKey(ip: string): string {
+  if (!ip.includes(':')) return ip
+  // 寫成 IPv6 的 IPv4(::ffff:1.2.3.4):照 IPv4 算,不然全部擠進同一個 0:0:0:0 的額度
+  if (ip.includes('.')) return ip.slice(ip.lastIndexOf(':') + 1)
+  const [head, tail = ''] = ip.toLowerCase().split('::')
+  const left = head === '' ? [] : head.split(':')
+  const right = ip.includes('::') && tail !== '' ? tail.split(':') : []
+  const groups = ip.includes('::')
+    ? [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill('0'), ...right]
+    : left
+  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, '')).join(':') + '::/64'
+}
+
+/**
+ * 這個請求超過額度了嗎。沒有綁定(本機開發、測試)或拿不到來源 IP 時不限 ——
+ * 線上一定有 cf-connecting-ip。限流器自己出錯也放行:它壞掉不該連同步一起擋掉。
+ */
+async function overLimit(c: AppContext, name: LimiterName): Promise<boolean> {
+  const limiter = c.env[name]
+  const ip = c.req.header('cf-connecting-ip')
+  if (limiter === undefined || ip === undefined || ip === '') return false
+  try {
+    return !(await limiter.limit({ key: rateLimitKey(ip) })).success
+  } catch (err) {
+    console.error(JSON.stringify({ level: 'error', path: c.req.path, message: `rate limiter: ${String(err)}` }))
+    return false
+  }
+}
+
+/** 超過額度回 429,帶 Retry-After(秒,與該限流器的時間窗一致) */
+const limit = (name: LimiterName, retryAfterSec: number): MiddlewareHandler<{ Bindings: Env }> => async (c, next) => {
+  if (await overLimit(c, name)) {
+    c.header('Retry-After', String(retryAfterSec))
+    return c.json({ error: 'too many requests' }, 429)
+  }
+  await next()
+}
 
 const TABLE_COLS = {
   decks: ['id', 'name', 'new_per_day', 'updated_at', 'deleted', 'namespace'],
@@ -176,10 +239,74 @@ async function findTaken(db: D1Database, space: string, want: IdSets): Promise<I
   return out
 }
 
-app.post('/api/sync', async (c) => {
+// ---------- 同步空間的檢查與刪除 ----------
+
+const SPACE_TABLES = ['decks', 'notes', 'cards', 'review_logs', 'settings'] as const
+
+/** 刪除過的空間只記金鑰的雜湊:資料庫外洩也拿不到金鑰本身 */
+async function spaceHash(space: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(space))
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** 這個空間在伺服器上有沒有任何一列(舊版自訂的金鑰只能繼續用已經有資料的空間) */
+async function spaceHasRows(db: D1Database, space: string): Promise<boolean> {
+  const row = await db.prepare(
+    `SELECT ${SPACE_TABLES.map((t) => `EXISTS (SELECT 1 FROM ${t} WHERE namespace = ?1)`).join(' OR ')} AS found`,
+  ).bind(space).first<{ found: number }>()
+  return row !== null && row.found !== 0
+}
+
+const purgeSpace = (db: D1Database, space: string): D1PreparedStatement[] =>
+  SPACE_TABLES.map((t) => db.prepare(`DELETE FROM ${t} WHERE namespace = ?`).bind(space))
+
+/**
+ * 同步端點共用的金鑰檢查(x-sync-space)。不過關就回 Response,過關回空間名稱:
+ * - 沒帶金鑰:400。以前沒帶的會落在公用的預設空間 '',等於大家共寫一份;現在的用戶端沒金鑰就不連線。
+ * - 刪除過的空間:410,順手把刪除之後才寫進來的列清掉 —— 刪除的同時另一台正好推到一半,
+ *   那幾列會在刪除之後才寫進去;那台下一個請求(推完緊接著就是拉)就會走到這裡把它們清掉。
+ * - 不是產生器格式、空間裡又沒東西:400。舊版可以自訂金鑰(test、1234 這種一猜就中),
+ *   已經在用的照舊能用(用戶端會建議換新的),但不能再拿來開新空間。
+ */
+async function checkSpace(c: AppContext): Promise<string | Response> {
+  const space = c.req.header('x-sync-space') ?? ''
+  if (space === '') return c.json({ error: 'missing space' }, 400)
+  const db = c.env.DB
+  const deleted = await db.prepare('SELECT 1 AS x FROM deleted_spaces WHERE space_hash = ?')
+    .bind(await spaceHash(space)).first()
+  if (deleted !== null) {
+    await db.batch(purgeSpace(db, space))
+    return c.json({ error: 'space deleted' }, 410)
+  }
+  if (!isStandardSyncKey(space) && !(await spaceHasRows(db, space))) return c.json({ error: 'invalid space' }, 400)
+  return space
+}
+
+/**
+ * 刪除雲端資料:空間裡五張表的列全部刪掉,並記下這組金鑰已經刪除(之後同步一律 410,見 checkSpace)。
+ * 同一個 batch = 同一個交易,不會刪到一半。重送(例如回應在路上掉了)照樣回成功。
+ * 一鍵分享的牌組不在空間裡(誰拿到連結誰就能匯入),不受影響,180 天後自動清掉。
+ */
+app.delete('/api/sync', limit('SYNC_LIMITER', 10), async (c) => {
+  const space = c.req.header('x-sync-space') ?? ''
+  if (space === '') return c.json({ error: 'missing space' }, 400)
+  const db = c.env.DB
+  // 舊版自訂、雲端又沒東西的金鑰:沒有可刪的,這種金鑰本來也開不了新空間,不必記
+  if (!isStandardSyncKey(space) && !(await spaceHasRows(db, space))) return c.json({ ok: true })
+  await db.batch([
+    db.prepare('INSERT OR IGNORE INTO deleted_spaces (space_hash, deleted_at) VALUES (?, ?)')
+      .bind(await spaceHash(space), Date.now()),
+    ...purgeSpace(db, space),
+  ])
+  return c.json({ ok: true })
+})
+
+app.post('/api/sync', limit('SYNC_LIMITER', 10), async (c) => {
+  const checked = await checkSpace(c)
+  if (checked instanceof Response) return checked
+  const space = checked
   const body = await c.req.json<SyncPush>().catch(() => null)
   if (body === null || typeof body !== 'object') return c.json({ error: 'invalid body' }, 400)
-  const space = c.req.header('x-sync-space') ?? ''
   const db = c.env.DB
   // 跳過的列會回報給客戶端,客戶端據此保留 dirty(資料沒被丟掉,只是沒存進去)
   const skipped: string[] = []
@@ -240,8 +367,10 @@ app.post('/api/sync', async (c) => {
 
 // 連上一組金鑰之前先看那個空間有沒有東西:連不上就什麼都不改,空的多半是金鑰打錯
 // (打錯一碼會連進一個全新的空間,看起來像資料全不見)。有金鑰的人本來就能拉下整個空間,這裡不多透露什麼。
-app.get('/api/sync/summary', async (c) => {
-  const space = c.req.header('x-sync-space') ?? ''
+app.get('/api/sync/summary', limit('SUMMARY_LIMITER', 60), async (c) => {
+  const checked = await checkSpace(c)
+  if (checked instanceof Response) return checked
+  const space = checked
   // decks:沒刪除的牌組數(「空間是空的嗎」)。ids:空間認得的每一副牌組(含刪掉的)——
   // 帶著本機資料合併進來時,這些不是這台新帶進去的,不拿去併同名牌組
   const { results } = await c.env.DB.prepare('SELECT id, deleted FROM decks WHERE namespace = ?')
@@ -249,10 +378,12 @@ app.get('/api/sync/summary', async (c) => {
   return c.json({ decks: results.filter((r) => !r.deleted).length, ids: results.map((r) => r.id) })
 })
 
-app.get('/api/sync', async (c) => {
+app.get('/api/sync', limit('SYNC_LIMITER', 10), async (c) => {
   const since = Number(c.req.query('since') ?? '0')
   if (Number.isNaN(since) || since < 0) return c.json({ error: 'invalid since' }, 400)
-  const space = c.req.header('x-sync-space') ?? ''
+  const checked = await checkSpace(c)
+  if (checked instanceof Response) return checked
+  const space = checked
   const db = c.env.DB
   const pullTable = async <T>(table: TableName): Promise<T[]> => {
     const res = await db.prepare(`SELECT * FROM ${table} WHERE namespace = ? AND server_seq > ?`)
@@ -338,7 +469,7 @@ async function lookupAccents(db: D1Database, items: Pair[]): Promise<(string | n
   return out
 }
 
-app.post('/api/accent/lookup', async (c) => {
+app.post('/api/accent/lookup', limit('ACCENT_LIMITER', 10), async (c) => {
   const body = await c.req.json<{ items?: unknown }>().catch(() => ({}))
   const items = (body as { items?: unknown }).items
   if (!Array.isArray(items)) return c.json({ error: 'items must be an array' }, 400)
@@ -367,7 +498,7 @@ function genShareCode(): string {
 
 interface ShareRow { expression: string; reading: string; meaning: string; accent: string }
 
-app.post('/api/share', async (c) => {
+app.post('/api/share', limit('SHARE_CREATE_LIMITER', 60), async (c) => {
   // 大牌組的 JSON 上傳可觀(869 筆約 57KB),客戶端會 gzip(約剩 1/3)再送
   let body: { name?: unknown; rows?: unknown } | null = null
   try {
@@ -420,6 +551,8 @@ app.get('/import', async (c) => {
   const shell = await c.env.ASSETS.fetch(new URL('/', c.req.url))
   const code = c.req.query('share')
   if (code === undefined || code === '') return shell
+  // 打開分享連結是一般的換頁,超過額度不回 429 錯誤頁:照樣給頁面,只是不查預覽(頁面自己讀分享時才會被擋)
+  if (await overLimit(c, 'SHARE_READ_LIMITER')) return shell
   const row = await c.env.DB.prepare('SELECT name, payload FROM shares WHERE code = ?')
     .bind(code).first<{ name: string; payload: string }>().catch(() => null)
   if (row === null) return shell
@@ -433,7 +566,7 @@ app.get('/import', async (c) => {
     .transform(shell)
 })
 
-app.get('/api/share/:code', async (c) => {
+app.get('/api/share/:code', limit('SHARE_READ_LIMITER', 60), async (c) => {
   const row = await c.env.DB.prepare('SELECT name, payload FROM shares WHERE code = ?')
     .bind(c.req.param('code')).first<{ name: string; payload: string }>()
   if (row === null) return c.json({ error: 'not found' }, 404)

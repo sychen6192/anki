@@ -7,7 +7,7 @@ import { createDeck } from '../db/repo'
 import { deckQueue, LEARN_AHEAD_MS, splitCounts, startOfToday, todayCards } from '../lib/queue'
 import { nextLearningDue, useNow } from '../lib/useNow'
 import { streakDays } from '../lib/stats'
-import { adoptSyncSpace, generateSyncKey, getSyncSpace, SYNC_SINCE } from '../lib/space'
+import { adoptSyncSpace, CLOUD_DELETED, generateSyncKey, getSyncSpace, SYNC_SINCE } from '../lib/space'
 import { humanizeSyncError, syncMessage } from '../lib/syncText'
 import { isStandaloneApp, isTouchDevice, storageSeparateFromApp } from '../lib/share'
 import { syncNow } from '../lib/sync'
@@ -120,6 +120,8 @@ export default function DeckList() {
   const syncError = useLiveQuery(() => db.meta.get('sync_error'), [])
   const lastSyncAt = useLiveQuery(() => db.meta.get('last_sync_at'), [])
   const syncSince = useLiveQuery(() => db.meta.get(SYNC_SINCE), [])
+  // 別台刪了雲端資料、這台同步時才發現(見 forgetDeletedSpace):講一聲,不然只會覺得同步默默停了
+  const cloudDeleted = useLiveQuery(() => db.meta.get(CLOUD_DELETED), [])
   const [keyHintDismissed, setKeyHintDismissed] = useState(
     () => localStorage.getItem(KEY_HINT_DISMISSED) === '1',
   )
@@ -154,8 +156,9 @@ export default function DeckList() {
   const totalWords = [...wordCount.values()].reduce((a, b) => a + b, 0)
   // 同步的提示等真的背過(有複習紀錄)再出現:第一次打開就問金鑰只會擋路。
   // 在瀏覽器裡(資料和裝好的 App 分開存)就早點提醒,不然之後裝到主畫面會以為資料不見了
+  const showCloudDeleted = cloudDeleted !== undefined && space === ''
   const showKeyHint = newKey === null && space === '' && !keyHintDismissed && decks.length > 0
-    && (stamps.length > 0 || inBrowser)
+    && (stamps.length > 0 || inBrowser) && !showCloudDeleted
   // 偶爾一次同步失敗(捷運、電梯)不必嚇人:導覽列的小紅點就夠。超過一天沒同步成功才在首頁提醒
   // 從上次成功、或開始同步這組金鑰的時候算起(剛開啟同步第一次就失敗,不是「超過一天」)
   const stamp = (row: { value: number | string } | undefined) => (typeof row?.value === 'number' ? row.value : 0)
@@ -227,6 +230,15 @@ export default function DeckList() {
               // 還是失敗(或離線)也要有回應,不然會以為沒按到、一直按
               toast.show(syncMessage(r, '同步完成'))
             })}>{retrying ? '同步中…' : '重試'}</button>
+          </span>
+        </div>
+      )}
+      {showCloudDeleted && (
+        <div className="notice" role="status">
+          <span className="notice-text">這組金鑰的雲端資料已經刪除了（可能是在另一台裝置刪的），這台停止同步；資料都還在這台。</span>
+          <span className="notice-actions">
+            <Link className="link" to="/settings?key=1">重新設定同步</Link>
+            <button className="link" onClick={() => void db.meta.delete(CLOUD_DELETED)}>知道了</button>
           </span>
         </div>
       )}

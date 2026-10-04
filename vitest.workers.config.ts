@@ -14,6 +14,15 @@ export default defineWorkersConfig(async () => {
             compatibilityDate: '2026-07-01',
             d1Databases: ['DB'],
             bindings: { TEST_MIGRATIONS: migrations },
+            // 與 wrangler.jsonc 的 ratelimits 同樣的量。沒帶 cf-connecting-ip 的請求不限(既有測試都沒帶),
+            // 限流的測試自己帶一個測試專用的 IP
+            ratelimits: {
+              SYNC_LIMITER: { simple: { limit: 60, period: 10 } },
+              SUMMARY_LIMITER: { simple: { limit: 20, period: 60 } },
+              SHARE_CREATE_LIMITER: { simple: { limit: 10, period: 60 } },
+              SHARE_READ_LIMITER: { simple: { limit: 60, period: 60 } },
+              ACCENT_LIMITER: { simple: { limit: 60, period: 10 } },
+            },
           },
         },
       },
