@@ -19,6 +19,7 @@ export default defineWorkersConfig(async () => {
             ratelimits: {
               SYNC_LIMITER: { simple: { limit: 60, period: 10 } },
               SUMMARY_LIMITER: { simple: { limit: 20, period: 60 } },
+              LEGACY_KEY_LIMITER: { simple: { limit: 30, period: 60 } },
               SHARE_CREATE_LIMITER: { simple: { limit: 10, period: 60 } },
               SHARE_READ_LIMITER: { simple: { limit: 60, period: 60 } },
               ACCENT_LIMITER: { simple: { limit: 60, period: 10 } },

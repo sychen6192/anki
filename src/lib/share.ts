@@ -52,6 +52,10 @@ export async function createShare(
   }
   const res = await fetchFn('/api/share', { method: 'POST', headers, body })
   if (res.status === 429) throw new Error('分享得太頻繁了，等一分鐘再試')
+  if (res.status === 400) {
+    const reason = await res.json().then((d: { error?: unknown }) => d?.error, () => undefined)
+    if (reason === 'payload too large' || reason === 'rows must be 1..5000') throw new Error('這副牌組太大了，沒辦法分享；分成幾副再分享')
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   const data = await res.json() as { code?: unknown }
   if (typeof data.code !== 'string' || data.code === '') throw new Error('伺服器沒有回傳分享碼')

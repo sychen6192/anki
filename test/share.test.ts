@@ -86,6 +86,15 @@ describe('createShare', () => {
     const noCode = (async () => new Response('{}')) as typeof fetch
     await expect(createShare('A', rows, noCode)).rejects.toThrow('分享碼')
   })
+
+  it('太大、太頻繁:講人話', async () => {
+    const reply = (status: number, error: string) =>
+      (async () => new Response(JSON.stringify({ error }), { status })) as typeof fetch
+    await expect(createShare('A', rows, reply(400, 'payload too large'))).rejects.toThrow('太大')
+    await expect(createShare('A', rows, reply(400, 'rows must be 1..5000'))).rejects.toThrow('太大')
+    await expect(createShare('A', rows, reply(429, 'too many requests'))).rejects.toThrow('太頻繁')
+    await expect(createShare('A', rows, reply(400, 'name is required'))).rejects.toThrow('HTTP 400')
+  })
 })
 
 describe('fetchShare', () => {

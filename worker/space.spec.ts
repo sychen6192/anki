@@ -82,6 +82,35 @@ describe('刪除雲端資料(DELETE /api/sync)', () => {
     expect(await countRows(K)).toBe(0)
   })
 
+  it('推送檢查過空間之後、寫進去之前剛好被刪:寫完再查一次,自己清掉並回 410(切到背景的補推沒有下一個請求來清)', async () => {
+    await push(K, { ...empty, decks: [deck({ id: 'a' })] })
+    let fired = false
+    const db = new Proxy(env.DB, {
+      get(target, prop) {
+        if (prop === 'batch') {
+          return async (stmts: D1PreparedStatement[]) => {
+            // 第一批寫入(每列兩句:先 UPDATE meta 推進 seq,再寫列)送出之前,另一台按了刪除
+            const sql = (stmts[0] as unknown as { statement?: string } | undefined)?.statement ?? ''
+            if (!fired && sql.includes('UPDATE meta')) {
+              fired = true
+              expect((await del(K)).status).toBe(200)
+            }
+            return target.batch(stmts)
+          }
+        }
+        const v = Reflect.get(target, prop, target)
+        return typeof v === 'function' ? v.bind(target) : v
+      },
+    })
+    const res = await app.request('/api/sync', {
+      method: 'POST', body: JSON.stringify({ ...empty, decks: [deck({ id: 'b' }), deck({ id: 'c' })] }),
+      headers: { 'content-type': 'application/json', 'x-sync-space': K },
+    }, { ...env, DB: db })
+    expect(fired).toBe(true)
+    expect(res.status).toBe(410)
+    expect(await countRows(K)).toBe(0)
+  })
+
   it('雲端沒東西的舊版自訂金鑰:沒有可刪的,回成功、不記', async () => {
     expect((await del('mykey')).status).toBe(200)
     expect((await env.DB.prepare('SELECT COUNT(*) AS n FROM deleted_spaces').first<{ n: number }>())!.n).toBe(0)
@@ -138,6 +167,24 @@ async function freshWindow(periodSec: number): Promise<void> {
   if (left < 5000) await new Promise((r) => setTimeout(r, left + 50))
 }
 
+describe('一次推送的大小', () => {
+  it('超過 4 MB 或超過 1000 列:413,什麼都沒寫', async () => {
+    const big = 'x'.repeat(4_100_000)
+    const tooBig = await req('/api/sync', K, { method: 'POST', body: JSON.stringify({ ...empty, decks: [deck({ name: big })] }) })
+    expect(tooBig.status).toBe(413)
+    const many = Array.from({ length: 1001 }, (_, i) => deck({ id: `d${i}` }))
+    expect((await push(K, { ...empty, decks: many })).status).toBe(413)
+    expect(await countRows(K)).toBe(0)
+  })
+
+  it('欄位超過 2 萬字的那一列跳過並回報,同一批的其他列照常寫入', async () => {
+    const res = await push(K, { ...empty, decks: [deck({ id: 'ok' }), deck({ id: 'huge', name: 'あ'.repeat(20_001) })] })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, skipped: ['huge'] })
+    expect(await countRows(K)).toBe(1)
+  })
+})
+
 describe('限流', { timeout: 20_000 }, () => {
   it('同一個 IP 查空間超過 20 次/分鐘:429 帶 Retry-After;別的 IP、沒有 IP(本機)不受影響', async () => {
     const ip = '203.0.113.7'
@@ -169,6 +216,25 @@ describe('限流', { timeout: 20_000 }, () => {
     await freshWindow(60)
     for (let i = 0; i < 10; i++) expect((await share()).status).toBe(200)
     expect((await share()).status).toBe(429)
+  })
+
+  it('舊版自訂金鑰:不管打哪個同步端點都算同一份很緊的額度(30 次/分),不能拿推、拉來快速猜', async () => {
+    const ip = '198.51.100.77'
+    await freshWindow(60)
+    for (let i = 0; i < 30; i++) {
+      const res = await req(i % 2 === 0 ? '/api/sync?since=0' : '/api/sync/summary', `guess${i}`, {}, ip)
+      expect(res.status).toBe(400) // invalid space,沒被限流
+    }
+    const limited = await req('/api/sync?since=0', 'guess-next', {}, ip)
+    expect(limited.status).toBe(429)
+    expect(limited.headers.get('retry-after')).toBe('60')
+    // 產生的金鑰不受這份額度影響
+    expect((await req('/api/sync?since=0', K, {}, ip)).status).toBe(200)
+  })
+
+  it('本機(127.0.0.1、::1)不限:wrangler dev 把所有本機請求都算成 127.0.0.1', async () => {
+    for (let i = 0; i < 25; i++) expect((await req('/api/sync/summary', K, {}, '127.0.0.1')).status).toBe(200)
+    expect((await req('/api/sync/summary', K, {}, '::1')).status).toBe(200)
   })
 
   it('rateLimitKey:IPv4 整個位址;IPv6 取前 64 位元(各種寫法同一段算同一個)', () => {

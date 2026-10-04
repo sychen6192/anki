@@ -24,6 +24,9 @@ export interface SyncResult {
 // 869-note deck) can't blow past Cloudflare's per-invocation subrequest limit —
 // see worker/index.ts for the matching server-side db.batch() chunking.
 const PUSH_CHUNK_SIZE = 200
+// 也照大小切:伺服器一次推送最多收 4 MB(MAX_PUSH_BYTES),超過整批回 413、這台每次重試都卡在同一批。
+// 一般 200 列只有幾十 KB,只有欄位特別長(例如匯入的長篇解說)才會先碰到這條
+const PUSH_CHUNK_BYTES = 1_000_000
 
 /** 伺服器說這組金鑰的雲端資料已經刪掉了(410):這台或別台按了「刪除雲端資料」 */
 export class SpaceDeletedError extends Error {}
@@ -90,13 +93,24 @@ function addToChunk(chunk: PushChunk, item: TaggedRow): void {
 // original Local<T> rows around (not just the stripped-of-dirty wire shape) so the
 // caller can clear dirty flags per-chunk after a successful POST.
 function buildPushChunks(d: DirtyRows): PushChunk[] {
-  const tagged = tagRows(d)
   const chunks: PushChunk[] = []
-  for (let i = 0; i < tagged.length; i += PUSH_CHUNK_SIZE) {
-    const chunk = emptyChunk()
-    for (const item of tagged.slice(i, i + PUSH_CHUNK_SIZE)) addToChunk(chunk, item)
-    chunks.push(chunk)
+  let chunk = emptyChunk()
+  let rows = 0
+  let bytes = 0
+  for (const item of tagRows(d)) {
+    // 大概的大小就夠(中文字照 3 bytes 算):只是要離伺服器的上限遠一點
+    const size = JSON.stringify(item.row).length * 3
+    if (rows > 0 && (rows >= PUSH_CHUNK_SIZE || bytes + size > PUSH_CHUNK_BYTES)) {
+      chunks.push(chunk)
+      chunk = emptyChunk()
+      rows = 0
+      bytes = 0
+    }
+    addToChunk(chunk, item)
+    rows++
+    bytes += size
   }
+  if (rows > 0) chunks.push(chunk)
   return chunks
 }
 
@@ -419,8 +433,8 @@ export async function deleteCloudData(space: string, fetchFn: typeof fetch = fet
 
 /**
  * 舊版自訂的金鑰(test、1234 這種,一猜就中)換成產生的:先同步一次(這台拿到空間裡的全部資料)、
- * 刪掉舊金鑰在雲端的資料,再用新金鑰把這台的資料整份帶上去 —— 舊空間刪掉之後 id 就空出來了,
- * 照原 id 帶過去不會撞到。其他用舊金鑰的裝置下次同步會收到 410、停止同步並在首頁提醒,輸入新金鑰合併就接上。
+ * 刪掉舊金鑰在雲端的資料,再用新金鑰把這台的資料整份帶上去(換一組 id,跟之後合併進來的其他舊金鑰裝置換出同一組,
+ * 見 MOVED_FROM)。其他用舊金鑰的裝置下次同步會收到 410、停止同步並在首頁提醒,輸入新金鑰合併就接上。
  * 刪之前失敗什麼都沒改(回失敗的原因);刪之後才失敗,資料都還在這台、新金鑰也記下了,之後的同步會補傳。
  */
 export async function replaceLegacyKey(old: string, fetchFn: typeof fetch = fetch): Promise<

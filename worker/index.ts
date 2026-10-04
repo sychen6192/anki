@@ -6,7 +6,8 @@ import type {
 import { isStandardSyncKey } from '../shared/syncKey'
 
 /** 限流器(wrangler.jsonc 的 ratelimits)。每一種的次數與時間窗不同,所以各自一個綁定 */
-type LimiterName = 'SYNC_LIMITER' | 'SUMMARY_LIMITER' | 'SHARE_CREATE_LIMITER' | 'SHARE_READ_LIMITER' | 'ACCENT_LIMITER'
+type LimiterName =
+  | 'SYNC_LIMITER' | 'SUMMARY_LIMITER' | 'LEGACY_KEY_LIMITER' | 'SHARE_CREATE_LIMITER' | 'SHARE_READ_LIMITER' | 'ACCENT_LIMITER'
 
 export type Env = {
   DB: D1Database
@@ -66,13 +67,14 @@ export function rateLimitKey(ip: string): string {
 }
 
 /**
- * 這個請求超過額度了嗎。沒有綁定(本機開發、測試)或拿不到來源 IP 時不限 ——
- * 線上一定有 cf-connecting-ip。限流器自己出錯也放行:它壞掉不該連同步一起擋掉。
+ * 這個請求超過額度了嗎。沒有綁定、拿不到來源 IP(worker 測試)或來源是本機時不限:
+ * 線上一定有 cf-connecting-ip,也不會是 127.0.0.1;wrangler dev 會模擬限流器、把所有本機請求都算成 127.0.0.1,
+ * 不跳過的話,本機測試一分鐘輸入金鑰超過 20 次就被擋。限流器自己出錯也放行:它壞掉不該連同步一起擋掉。
  */
 async function overLimit(c: AppContext, name: LimiterName): Promise<boolean> {
   const limiter = c.env[name]
   const ip = c.req.header('cf-connecting-ip')
-  if (limiter === undefined || ip === undefined || ip === '') return false
+  if (limiter === undefined || ip === undefined || ip === '' || ip === '127.0.0.1' || ip === '::1') return false
   try {
     return !(await limiter.limit({ key: rateLimitKey(ip) })).success
   } catch (err) {
@@ -183,6 +185,15 @@ const STATEMENTS_PER_BATCH = 100
 if (STATEMENTS_PER_BATCH % 2 !== 0) throw new Error('STATEMENTS_PER_BATCH must be even')
 
 /**
+ * 一個欄位最長幾個字:單字、意思、設定都遠用不到,只是不讓一個請求塞進幾 MB(灌爆 D1)。
+ * 超過的那一列跳過(回報給客戶端,客戶端留著 dirty),同一次推送的其他列照常存,不會整台卡住
+ */
+const MAX_FIELD_CHARS = 20_000
+/** 一次推送的上限:客戶端每批最多 200 列、約 1 MB(見 src/lib/sync.ts 的 PUSH_CHUNK_*),留好幾倍的餘裕 */
+const MAX_PUSH_BYTES = 4_000_000
+const MAX_PUSH_ROWS = 1_000
+
+/**
  * 只放行能安全 bind 進 D1 的資料:每個欄位必須是字串/數字/null。
  * 一筆壞掉的資料(欄位是物件或陣列)會讓 .bind() 當場拋錯,整個 push 失敗;
  * 而客戶端的 push 迴圈一失敗就不會走到 pull,那台裝置的同步會**永久卡住**,
@@ -194,7 +205,7 @@ function isStorableRow(table: TableName, row: Record<string, unknown>): boolean 
   if (typeof stamp !== 'number' || !Number.isFinite(stamp)) return false
   return TABLE_COLS[table].every((col) => {
     const v = row[col]
-    return v === undefined || v === null || typeof v === 'string'
+    return v === undefined || v === null || (typeof v === 'string' && v.length <= MAX_FIELD_CHARS)
       || (typeof v === 'number' && Number.isFinite(v))
   })
 }
@@ -260,21 +271,34 @@ async function spaceHasRows(db: D1Database, space: string): Promise<boolean> {
 const purgeSpace = (db: D1Database, space: string): D1PreparedStatement[] =>
   SPACE_TABLES.map((t) => db.prepare(`DELETE FROM ${t} WHERE namespace = ?`).bind(space))
 
+const isDeleted = async (db: D1Database, space: string): Promise<boolean> =>
+  await db.prepare('SELECT 1 AS x FROM deleted_spaces WHERE space_hash = ?').bind(await spaceHash(space)).first() !== null
+
+/**
+ * 不是產生器格式的金鑰(舊版自訂的 test、1234…):每個同步端點都會透露「這個空間在不在」,拉的還會整份給出去,
+ * 所以不管打哪個端點都算進同一份很緊的額度 —— 不然查空間的額度再緊,拿 GET /api/sync 一樣能快速猜。
+ * 產生的金鑰猜不到,不受這個限制。超過回 429 的 Response,沒超過回 null
+ */
+async function overLegacyLimit(c: AppContext, space: string): Promise<Response | null> {
+  if (isStandardSyncKey(space) || !await overLimit(c, 'LEGACY_KEY_LIMITER')) return null
+  c.header('Retry-After', '60')
+  return c.json({ error: 'too many requests' }, 429)
+}
+
 /**
  * 同步端點共用的金鑰檢查(x-sync-space)。不過關就回 Response,過關回空間名稱:
  * - 沒帶金鑰:400。以前沒帶的會落在公用的預設空間 '',等於大家共寫一份;現在的用戶端沒金鑰就不連線。
- * - 刪除過的空間:410,順手把刪除之後才寫進來的列清掉 —— 刪除的同時另一台正好推到一半,
- *   那幾列會在刪除之後才寫進去;那台下一個請求(推完緊接著就是拉)就會走到這裡把它們清掉。
+ * - 刪除過的空間:410(順手再清一次;推送那邊寫完也會再查一次,見 POST /api/sync)。
  * - 不是產生器格式、空間裡又沒東西:400。舊版可以自訂金鑰(test、1234 這種一猜就中),
  *   已經在用的照舊能用(用戶端會建議換新的),但不能再拿來開新空間。
  */
 async function checkSpace(c: AppContext): Promise<string | Response> {
   const space = c.req.header('x-sync-space') ?? ''
   if (space === '') return c.json({ error: 'missing space' }, 400)
+  const legacyLimited = await overLegacyLimit(c, space)
+  if (legacyLimited) return legacyLimited
   const db = c.env.DB
-  const deleted = await db.prepare('SELECT 1 AS x FROM deleted_spaces WHERE space_hash = ?')
-    .bind(await spaceHash(space)).first()
-  if (deleted !== null) {
+  if (await isDeleted(db, space)) {
     await db.batch(purgeSpace(db, space))
     return c.json({ error: 'space deleted' }, 410)
   }
@@ -290,6 +314,8 @@ async function checkSpace(c: AppContext): Promise<string | Response> {
 app.delete('/api/sync', limit('SYNC_LIMITER', 10), async (c) => {
   const space = c.req.header('x-sync-space') ?? ''
   if (space === '') return c.json({ error: 'missing space' }, 400)
+  const legacyLimited = await overLegacyLimit(c, space)
+  if (legacyLimited) return legacyLimited
   const db = c.env.DB
   // 舊版自訂、雲端又沒東西的金鑰:沒有可刪的,這種金鑰本來也開不了新空間,不必記
   if (!isStandardSyncKey(space) && !(await spaceHasRows(db, space))) return c.json({ ok: true })
@@ -305,8 +331,15 @@ app.post('/api/sync', limit('SYNC_LIMITER', 10), async (c) => {
   const checked = await checkSpace(c)
   if (checked instanceof Response) return checked
   const space = checked
-  const body = await c.req.json<SyncPush>().catch(() => null)
+  if (Number(c.req.header('content-length') ?? 0) > MAX_PUSH_BYTES) return c.json({ error: 'payload too large' }, 413)
+  const raw = await c.req.text()
+  // 沒帶 Content-Length(分塊傳送)的也要擋:讀完再量一次
+  if (raw.length > MAX_PUSH_BYTES) return c.json({ error: 'payload too large' }, 413)
+  let body: SyncPush | null = null
+  try { body = JSON.parse(raw) as SyncPush } catch { body = null }
   if (body === null || typeof body !== 'object') return c.json({ error: 'invalid body' }, 400)
+  const rowCount = SPACE_TABLES.reduce((n, t) => n + (Array.isArray(body[t]) ? (body[t] as unknown[]).length : 0), 0)
+  if (rowCount > MAX_PUSH_ROWS) return c.json({ error: 'too many rows' }, 413)
   const db = c.env.DB
   // 跳過的列會回報給客戶端,客戶端據此保留 dirty(資料沒被丟掉,只是沒存進去)
   const skipped: string[] = []
@@ -360,6 +393,13 @@ app.post('/api/sync', limit('SYNC_LIMITER', 10), async (c) => {
   for (const t of CONFLICT_TABLES) if (conflictSets[t].size > 0) conflicts[t] = [...conflictSets[t]]
   for (let i = 0; i < statements.length; i += STATEMENTS_PER_BATCH) {
     await db.batch(statements.slice(i, i + STATEMENTS_PER_BATCH))
+  }
+  // 開頭檢查過之後、寫進去之前,剛好有人刪了這個空間(例如另一台按了刪除,這台在背景補推):這批寫進了刪掉的空間。
+  // D1 的寫入一個一個排隊:刪除要嘛在這次查詢之前就生效(這裡查得到、自己清掉),要嘛在最後一批寫入之後
+  // (刪除自己會清掉),兩種都不會留下東西 —— 不能指望這台還有下一個請求來清(切到背景的補推就只有這一次)
+  if (statements.length > 0 && await isDeleted(db, space)) {
+    await db.batch(purgeSpace(db, space))
+    return c.json({ error: 'space deleted' }, 410)
   }
   const resp: SyncPushResponse = Object.keys(conflicts).length > 0 ? { ok: true, skipped, conflicts } : { ok: true, skipped }
   return c.json(resp)
@@ -512,6 +552,7 @@ app.post('/api/share', limit('SHARE_CREATE_LIMITER', 60), async (c) => {
   if (body === null || typeof body.name !== 'string' || body.name.trim() === '') {
     return c.json({ error: 'name is required' }, 400)
   }
+  if (body.name.length > 200) return c.json({ error: 'name too long' }, 400)
   if (!Array.isArray(body.rows) || body.rows.length === 0 || body.rows.length > SHARE_MAX_ROWS) {
     return c.json({ error: `rows must be 1..${SHARE_MAX_ROWS}` }, 400)
   }
@@ -530,7 +571,8 @@ app.post('/api/share', limit('SHARE_CREATE_LIMITER', 60), async (c) => {
     })
   }
   const payload = JSON.stringify(rows)
-  if (payload.length > 1_000_000) return c.json({ error: 'payload too large' }, 400)
+  // 869 個字的牌組約 57 KB:600 KB 放得下 SHARE_MAX_ROWS 個字,又不讓分享變成免費的檔案空間
+  if (payload.length > 600_000) return c.json({ error: 'payload too large' }, 400)
   const code = genShareCode()
   // 順手清掉半年前的舊分享,表才不會被匿名寫入無限養大
   const cutoff = Date.now() - 180 * 86400_000

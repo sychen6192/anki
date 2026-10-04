@@ -48,7 +48,8 @@ export default function SettingsPage() {
   const [keyOpen, setKeyOpen] = useState(false)
   const [keyInput, setKeyInput] = useState('')
   const [showKey, setShowKey] = useState(false)
-  const [keyCopied, setKeyCopied] = useState(false)
+  // 複製的是哪一組:換了金鑰之後,按鈕不能還停在「已複製」(剪貼簿裡是舊的那組)
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
   // 純本機的人輸入別台的金鑰:本機又有資料時,要問「帶過去」還是「捨棄」
   const [adoptChoice, setAdoptChoice] = useState<string | null>(null)
   const [autoSpeak, setAutoSpeak] = useState(readAutoSpeak)
@@ -130,9 +131,19 @@ export default function SettingsPage() {
     setMsg(syncMessage(r, '✓ 同步完成'))
   })
 
-  /** 本機還有沒推上去的東西時,先試著推;推不上去就明講會遺失幾筆,讓人決定 */
+  /** 雲端那份在別台被刪掉了:這台已經改成只存在這台,清空或換掉就什麼都不剩 —— 停下來,講清楚接下來怎麼接上新金鑰 */
+  const stoppedBecauseDeleted = (action: string) =>
+    setMsg(`這組金鑰的雲端資料已經刪除了（可能是在另一台裝置刪的），這台改成只存在這台；沒有${action}，資料都還在。`
+      + '要接上新的金鑰，在「同步金鑰」輸入、選「一起帶過去」')
+
+  /**
+   * 離開目前的空間(清空這台、換金鑰)之前:先同步一次 —— 沒推上去的先推,也確認雲端那份還在
+   * (別台刪了的話只有連上才知道,不能先把這台清掉)。推不上去就明講會遺失幾筆,讓人決定。false = 不要繼續
+   */
   const safeToLeaveSpace = async (action: string): Promise<boolean> => {
-    if (await countUnsynced() > 0) await syncNow()
+    const space = await getSyncSpace()
+    const r = await syncNow()
+    if (r.reason === 'deleted' || await getSyncSpace() !== space) { stoppedBecauseDeleted(action); return false }
     const left = await countUnsynced()
     if (left === 0) return true
     return confirm({
@@ -250,6 +261,8 @@ export default function SettingsPage() {
       confirmLabel: '換金鑰',
       destructive: true,
     })) return
+    // 確認框開著的時候,背景同步可能剛發現雲端那份被刪了(這台已經改成只存在這台):不能再清掉
+    if (await getSyncSpace() !== previous) { stoppedBecauseDeleted('換金鑰'); return }
     await setSyncSpace(key)
     setKeyInput('')
     setShowKey(false)
@@ -280,7 +293,8 @@ export default function SettingsPage() {
       title: '刪除雲端資料？',
       message: current
         ? '雲端上這組金鑰的牌組、卡片和複習紀錄會全部刪掉，不能復原。\n\n這台的資料留著，改成只存在這台；用同一組金鑰的其他裝置也會停止同步，各自的資料一樣留著。這組金鑰之後不能再用。'
-        : `停止同步時留在雲端的那份（金鑰 ${space}）會全部刪掉，不能復原。這台的資料不受影響。`,
+        : `雲端上金鑰 ${space} 的牌組、卡片和複習紀錄會全部刪掉，不能復原。這台的資料不受影響。\n\n`
+          + '還在用這組金鑰的其他裝置也會停止同步，各自的資料留著；這組金鑰之後不能再用。',
       confirmLabel: '刪除雲端資料',
       destructive: true,
     })) return
@@ -302,12 +316,20 @@ export default function SettingsPage() {
     })) return
     setMsg('換金鑰中…')
     const r = await replaceLegacyKey(old)
-    if (!r.ok) { setMsg('sync' in r ? syncMessage(r.sync, '') : cloudDeleteText(r.deleted)); return }
+    if (!r.ok) {
+      // 雲端那份已經在別台刪掉了:這台改成只存在這台,syncMessage 講的就是這件事
+      if ('sync' in r && r.sync.reason === 'deleted') { setMsg(syncMessage(r.sync, '')); return }
+      const why = 'sync' in r ? syncMessage(r.sync, '') : cloudDeleteText(r.deleted)
+      setMsg(`金鑰沒有換，還是原本那組（${why}）。要換的話，再按一次「換成新產生的金鑰」`)
+      return
+    }
     setShowKey(true)
-    setMsg(syncMessage(r.upload, '✓ 已換成新金鑰。先把上面的新金鑰抄下來，其他裝置要重新輸入這組'))
+    const done = '✓ 已換成新金鑰。先把上面的新金鑰抄下來，其他裝置要重新輸入這組'
+    setMsg(r.upload.ok ? done : `${done}。資料還沒傳上去：${syncMessage(r.upload, '')}`)
   })
 
   const doClearLocal = () => run(async () => {
+    const space = currentSpace ?? ''
     if (!await safeToLeaveSpace('清空')) return
     if (!await confirm({
       title: '清空這台的資料？',
@@ -315,6 +337,7 @@ export default function SettingsPage() {
       confirmLabel: '清空並重新下載',
       destructive: true,
     })) return
+    if (await getSyncSpace() !== space) { stoppedBecauseDeleted('清空'); return }
     await clearLocalData()
     setResetMsg('本機已清空，重新同步中…')
     const r = await syncNow()
@@ -414,7 +437,8 @@ export default function SettingsPage() {
 
   const copyKey = () => {
     if (!currentSpace) return
-    void navigator.clipboard?.writeText(currentSpace).then(() => setKeyCopied(true), () => setShowKey(true))
+    const key = currentSpace
+    void navigator.clipboard?.writeText(key).then(() => setCopiedKey(key), () => setShowKey(true))
   }
 
   return (
@@ -600,7 +624,7 @@ export default function SettingsPage() {
             </form>
             {msg && <p className="hint" role="status">{msg}</p>}
             {lastSpace ? (
-              <ListSection footer="停止同步時，雲端還留著一份。不需要的話可以刪掉，這台的資料不受影響。">
+              <ListSection footer="停止同步時，雲端還留著一份，還在用這組金鑰的其他裝置同步的也是這份。刪掉之後這台的資料不受影響，但那些裝置會停止同步，這組金鑰也不能再用。">
                 <button type="button" className="row destructive" disabled={busy}
                   onClick={() => void deleteCloud(lastSpace, false)}>刪除之前的雲端資料</button>
               </ListSection>
@@ -612,7 +636,7 @@ export default function SettingsPage() {
               <div className="row key-row">
                 <code className="key-code">{showKey ? currentSpace : maskKey(currentSpace ?? '')}</code>
                 <button type="button" className="link" onClick={() => setShowKey(!showKey)}>{showKey ? '隱藏' : '顯示'}</button>
-                <button type="button" className="link" onClick={copyKey}>{keyCopied ? '已複製' : '複製'}</button>
+                <button type="button" className="link" onClick={copyKey}>{copiedKey !== null && copiedKey === currentSpace ? '已複製' : '複製'}</button>
               </div>
             </ListSection>
             {msg && <p className="hint key-msg" role="status">{msg}</p>}

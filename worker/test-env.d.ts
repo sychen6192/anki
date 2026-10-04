@@ -6,6 +6,7 @@ declare module 'cloudflare:test' {
     TEST_MIGRATIONS: D1Migration[]
     SYNC_LIMITER: RateLimit
     SUMMARY_LIMITER: RateLimit
+    LEGACY_KEY_LIMITER: RateLimit
     SHARE_CREATE_LIMITER: RateLimit
     SHARE_READ_LIMITER: RateLimit
     ACCENT_LIMITER: RateLimit

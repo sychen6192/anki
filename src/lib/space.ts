@@ -60,6 +60,7 @@ export async function setSyncSpace(key: string): Promise<void> {
     await db.meta.delete(REKEYED)
     await db.meta.delete(PENDING_FOLD)
     await db.meta.delete(CLOUD_DELETED)
+    await db.meta.delete(MOVED_FROM)
     await db.meta.put({ key: 'sync_space', value: next })
     await db.meta.put({ key: SYNC_SINCE, value: Date.now() })
   })
@@ -70,6 +71,13 @@ export const LAST_SPACE = 'last_sync_space'
 
 /** 雲端那份在別台被刪掉、這台同步時才發現(見 forgetDeletedSpace):首頁提醒用,值是發現的時間 */
 export const CLOUD_DELETED = 'cloud_deleted'
+
+/**
+ * 這台的資料原本屬於一個已經刪掉的空間(值是那組金鑰):之後帶進別的空間時,跟 LAST_SPACE 一樣整份換 id。
+ * 同一份資料從好幾台帶進同一個新空間(例如舊版金鑰換成新的,別台再合併進來),每台換出來的 id 才會一樣
+ * (見 derivedId),不會一台照原 id、一台換過 id,變成兩份、複習紀錄算兩次。
+ */
+export const MOVED_FROM = 'moved_from_space'
 
 /**
  * 這台開始同步目前這組金鑰的時間。首頁「超過一天沒同步成功」從上次成功或這個時間算起 ——
@@ -229,7 +237,8 @@ export async function adoptSyncSpace(key: string, knownDeckIds?: ReadonlySet<str
   const next = key.trim()
   await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
     const last = await db.meta.get(LAST_SPACE)
-    const otherSpace = typeof last?.value === 'string' && last.value !== '' && last.value !== next
+    const otherSpace = (typeof last?.value === 'string' && last.value !== '' && last.value !== next)
+      || (await db.meta.get(MOVED_FROM)) !== undefined
     // 回到同一個空間:上次合併還沒併完(推上去了、還沒拉回來就停止同步)記下的牌組照樣要併 ——
     // 那副已經在空間裡了,下面的「空間不認得的」算不到它
     const carried = otherSpace ? [] : await readPendingFold()
@@ -250,6 +259,7 @@ export async function adoptSyncSpace(key: string, knownDeckIds?: ReadonlySet<str
     await db.meta.delete('sync_cursor')
     await db.meta.delete(LAST_SPACE)
     await db.meta.delete(CLOUD_DELETED)
+    await db.meta.delete(MOVED_FROM)
     await db.meta.put({ key: 'sync_space', value: next })
     await db.meta.put({ key: SYNC_SINCE, value: Date.now() })
   })
@@ -411,8 +421,9 @@ const BARE_KEY = new RegExp(`^[${SYNC_KEY_ALPHABET}]{12}$`)
 
 /**
  * 雲端那份已經刪掉了(這台按的「刪除雲端資料」,或別台刪的、這台同步時才收到 410):停止同步,**保留**這台的資料。
- * 跟 leaveSyncSpace 不同:不記 LAST_SPACE —— 伺服器上已經沒有屬於那個空間的列,之後改用別組金鑰開始同步,
- * 這台的列照原 id 帶過去就好,不必換 id。那組金鑰本身也不能再用了(伺服器一律回 410)。
+ * 跟 leaveSyncSpace 不同:不記 LAST_SPACE(設定頁不再出現「刪除之前的雲端資料」),改記 MOVED_FROM ——
+ * 之後帶進別的空間時照樣整份換 id,跟其他也從這個空間出來的裝置(停止同步過的、收到 410 的)換出同一組 id。
+ * 那組金鑰本身不能再用了(伺服器一律回 410)。
  * 只在目前的金鑰還是 space 時才停:同步到一半換了金鑰的話,不能把新的那組清掉。
  * fromElsewhere:別台刪的 —— 記下來讓首頁提醒,不然只會覺得同步默默停了。
  */
@@ -425,10 +436,14 @@ export async function forgetDeletedSpace(space: string, fromElsewhere: boolean):
       await db.meta.delete(PENDING_FOLD)
       // 不再連線,上次的同步錯誤也不再成立(不然導覽列紅點會一直掛著)
       await db.meta.delete('sync_error')
+      await db.meta.put({ key: MOVED_FROM, value: space })
       if (fromElsewhere) await db.meta.put({ key: CLOUD_DELETED, value: Date.now() })
     }
-    // 停止同步後才刪(刪的是之前那個空間):換 id 的理由也一起沒了
-    if ((await db.meta.get(LAST_SPACE))?.value === space) await db.meta.delete(LAST_SPACE)
+    // 停止同步後才刪(刪的是之前那個空間)
+    if ((await db.meta.get(LAST_SPACE))?.value === space) {
+      await db.meta.delete(LAST_SPACE)
+      await db.meta.put({ key: MOVED_FROM, value: space })
+    }
   })
 }
 
