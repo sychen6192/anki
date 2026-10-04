@@ -20,12 +20,14 @@ const loadImportPage = () => import('./pages/ImportPage')
 const loadStatsPage = () => import('./pages/StatsPage')
 const loadSettingsPage = () => import('./pages/SettingsPage')
 const loadGuidePage = () => import('./pages/GuidePage')
+const loadLicensesPage = () => import('./pages/LicensesPage')
 
 const DeckDetail = lazyRoute(loadDeckDetail)
 const ImportPage = lazyRoute(loadImportPage)
 const StatsPage = lazyRoute(loadStatsPage)
 const SettingsPage = lazyRoute(loadSettingsPage)
 const GuidePage = lazyRoute(loadGuidePage)
+const LicensesPage = lazyRoute(loadLicensesPage)
 
 // 三個分頁:每天用的「牌組」、偶爾看的「統計」、很少動的「設定」。
 // 匯入從「牌組」右上的 + 進去,說明在設定裡 —— 一年用幾次的東西不佔分頁
@@ -37,7 +39,8 @@ const TABS: Tab[] = [
   { to: '/stats', label: '統計', icon: <ChartIcon />, match: (p) => p.startsWith('/stats'), prefetch: loadStatsPage },
   {
     to: '/settings', label: '設定', icon: <GearIcon />,
-    match: (p) => p.startsWith('/settings') || p.startsWith('/guide'), prefetch: loadSettingsPage,
+    match: (p) => p.startsWith('/settings') || p.startsWith('/guide') || p.startsWith('/licenses'),
+    prefetch: loadSettingsPage,
   },
 ]
 
@@ -137,6 +140,7 @@ function Shell() {
                 <Route path="/stats" element={<StatsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/guide" element={<GuidePage />} />
+                <Route path="/licenses" element={<LicensesPage />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>

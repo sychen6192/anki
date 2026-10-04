@@ -1,10 +1,16 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { thirdPartyLicenses } from './vite-plugins/thirdPartyLicenses'
+import { LICENSES_FILE } from './src/lib/licenses'
+
+// 「授權與資料來源」頁的套件清單:照主程式、web worker 實際打包的模組產生(見 vite-plugins/thirdPartyLicenses.ts)
+const licenses = thirdPartyLicenses()
 
 export default defineConfig({
   plugins: [
     react(),
+    licenses.main,
     VitePWA({
       // prompt:新版不自動接管,而是等使用者按「更新」才 skipWaiting。
       // 這也順帶解掉分割 chunk 的問題 —— 更新前舊 SW 一直供舊 chunk,
@@ -36,6 +42,8 @@ export default defineConfig({
       workbox: {
         // 關鍵:API 請求不可被 SPA fallback 攔截,否則離線時 sync 錯誤會被 sw 吃掉
         navigateFallbackDenylist: [/^\/api\//],
+        // 預設的 js/css/html 之外,授權頁讀的套件清單也要預先快取,離線打開授權頁才看得到
+        globPatterns: ['**/*.{js,css,html}', LICENSES_FILE],
         // sql.js 的 wasm 約 1.2MB,只有匯入 .apkg 才用得到 — 不進 precache,
         // 改成第一次用到時才抓、抓過就留著(之後離線也能匯入)
         globIgnores: ['**/*.wasm'],
@@ -50,6 +58,7 @@ export default defineConfig({
   server: { proxy: { '/api': 'http://localhost:8787' } },
   // fsrs-browser 的 worker 裡有動態 import 與 new Worker(new URL(..., import.meta.url)):
   // 只有 ES 格式的 worker 輸出撐得住;dev 時也別讓 esbuild 預打包它(會弄壞 import.meta.url)
-  worker: { format: 'es' },
+  // worker 另外打包,主程式的外掛管不到:套件清單要另外收它用到的模組
+  worker: { format: 'es', plugins: () => [licenses.worker()] },
   optimizeDeps: { exclude: ['fsrs-browser'] },
 })

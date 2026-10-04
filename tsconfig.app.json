@@ -5,5 +5,5 @@
     "strict": true, "noEmit": false, "emitDeclarationOnly": true, "outDir": "node_modules/.tsbuild/app",
     "skipLibCheck": true, "types": ["vite/client"]
   },
-  "include": ["src", "shared", "test"]
+  "include": ["src", "shared", "test", "vite-plugins"]
 }

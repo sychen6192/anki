@@ -21,6 +21,7 @@
 - 同步金鑰:同一部署上以金鑰切分獨立資料空間,可分給不同人各自使用
 - 統計頁(複習量、到期預測、卡片狀態)
 - PWA(可安裝、離線快取)
+- 授權與資料來源頁(`/licenses`,在設定頁裡):重音資料、圖示與打包進 App 的開放原始碼套件的出處與授權全文
 
 ## 本地開發
 
@@ -204,7 +205,9 @@ id,漢字,拼音,中文翻譯
 
 ## 日文重音字典
 
-重音由開源字典 [kanjium](https://github.com/mifunetoshiro/kanjium)(mifunetoshiro/kanjium)提供,存於 D1 表 `accent_dict`。建置與載入:
+重音由開源字典 [kanjium](https://github.com/mifunetoshiro/kanjium)(mifunetoshiro/kanjium,作者 Uros O.)提供,
+授權為 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)(可商用,需標示出處;改作後的資料也以同樣授權提供),
+轉換後存於 D1 表 `accent_dict`。出處與授權寫在 App 的「設定」→「授權與資料來源」。建置與載入:
 
 ```bash
 curl -sL -o scripts/accents.txt https://raw.githubusercontent.com/mifunetoshiro/kanjium/master/data/source_files/raw/accents.txt
@@ -292,6 +295,18 @@ npx wrangler d1 execute anki-pwa --remote --file=scripts/accent-dict.sql
 
 3. 前端 `syncNow`(`src/lib/sync.ts`)呼叫 `fetch` 時,在 headers 加上 `x-sync-token: <同一組密鑰>`
 4. 推到 main 讓 CI 部署(或本機 `npm run deploy`)
+
+## 授權與資料來源
+
+上架前要附上用到的第三方程式與資料的授權,集中在「設定」→「授權與資料來源」(`src/pages/LicensesPage.tsx`):
+
+- **開放原始碼套件**:建置時由 `vite-plugins/thirdPartyLicenses.ts` 照實際打包的模組產生 `dist/third-party-licenses.json`
+  (主程式與 web worker 的 chunk、wasm 資源檔、Vite / Rolldown 塞進去的 helper),附上各套件的 LICENSE / NOTICE 全文,
+  service worker 有預先快取,離線也看得到。只有伺服器或建置時用到的套件(hono、wrangler…)不會列進去。
+  `npm run dev` 時沒有打包結果,頁面只列 `package.json` 的直接相依並註明不完整。
+- **service worker** 是 workbox-build 另外打包的,看不到模組,用到的套件寫在外掛裡的 `SW_PACKAGES`;
+  建置完會比對 `dist/workbox-*.js` 的模組標記,改了 workbox 設定而多用到沒列的模組時,建置會失敗並說要加哪個
+- **不是 npm 套件的**(kanjium 重音資料、Feather / Lucide 圖示、範本)直接寫在頁面裡;改了資料來源或轉換方式要一併更新
 
 ## 已知限制
 

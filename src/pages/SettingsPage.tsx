@@ -23,7 +23,7 @@ import { PageHeader } from '../components/PageHeader'
 import { ListSection, Segmented, Switch } from '../components/controls'
 import { ActionSheet, Sheet } from '../components/Sheet'
 import { useConfirm } from '../components/Confirm'
-import { BookIcon, ChevronRightIcon, DownloadIcon, SyncIcon, UploadIcon } from '../components/icons'
+import { BookIcon, ChevronRightIcon, DownloadIcon, FileIcon, SyncIcon, UploadIcon } from '../components/icons'
 import './settings.css'
 
 const THEME_OPTIONS = [['system', '跟隨系統'], ['light', '淺色'], ['dark', '深色']] as const
@@ -558,6 +558,11 @@ export default function SettingsPage() {
         <Link to="/guide" className="row">
           <span className="row-icon"><BookIcon size={17} /></span>
           <span className="row-main"><span className="row-title">使用說明</span></span>
+          <span className="row-chevron"><ChevronRightIcon /></span>
+        </Link>
+        <Link to="/licenses" className="row">
+          <span className="row-icon"><FileIcon size={17} /></span>
+          <span className="row-main"><span className="row-title">授權與資料來源</span></span>
           <span className="row-chevron"><ChevronRightIcon /></span>
         </Link>
       </ListSection>

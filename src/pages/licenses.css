@@ -1,0 +1,34 @@
+/* ---------- 授權與資料來源 ---------- */
+.inline-link { color: var(--accent); text-decoration: none; font-weight: 500; }
+
+/* 資料來源:一列是一段說明,不是單行的列 */
+.row.source-row { flex-direction: column; align-items: stretch; gap: 6px; }
+.source-row .row-title { font-weight: 600; }
+.source-row p { font-size: var(--fs-subhead); color: var(--text-2); line-height: 1.6; overflow-wrap: anywhere; }
+.source-row .source-quote { font-style: italic; }
+/* 「CC BY-SA 4.0」這種短連結不要斷在中間 */
+.source-row .inline-link { white-space: nowrap; }
+
+/* 可以點開的授權:<summary> 裡包一個 .row(Safari 的 summary 不一定吃 display: flex) */
+.license-item { position: relative; }
+.list > .license-item + .license-item::before {
+  content: ''; position: absolute; top: 0; right: 0; left: 16px;
+  border-top: 0.5px solid var(--separator);
+}
+.license-item > summary { display: block; list-style: none; cursor: pointer; }
+.license-item > summary::-webkit-details-marker { display: none; }
+.license-item > summary:active .row { background: var(--fill-2); }
+@media (hover: hover) { .license-item > summary:hover .row { background: var(--fill-2); } }
+.license-item > summary:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--accent); }
+.license-item .row-chevron svg { transition: transform .15s ease; }
+.license-item[open] .row-chevron svg { transform: rotate(180deg); }
+.license-body { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 0 16px 14px; }
+/* 長網址照樣斷行,不撐寬頁面 */
+.license-body .inline-link { font-size: var(--fs-footnote); overflow-wrap: anywhere; }
+/* 條款全文:自動換行,長網址也斷開,窄螢幕不會橫向捲動 */
+.license-text {
+  align-self: stretch; margin: 0; padding: 12px; border-radius: var(--radius-sm);
+  background: var(--fill-2); color: var(--text-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-caption); line-height: 1.5;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
