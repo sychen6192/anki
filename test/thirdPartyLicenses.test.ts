@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
-  SW_PACKAGES, checkServiceWorker, collectNotices, leadingComment, licenseFiles, licenseId, locatePackage,
-  noticeFiles, personName, projectUrl, repoUrl, resolveChain, snippetCrate, virtualSource, workboxModules,
+  SW_PACKAGES, WASM_AUDITED, WASM_NOTICES, checkServiceWorker, checkWasmCrates, collectNotices, leadingComment,
+  licenseFiles, licenseId, locatePackage, noticeFiles, personName, projectUrl, repoUrl, resolveChain, snippetCrate,
+  thirdPartyLicenses, virtualSource, wasmCrates, workboxModules,
 } from '../vite-plugins/thirdPartyLicenses'
 import { reflow } from '../src/lib/licenses'
 
@@ -209,6 +210,82 @@ describe('實際的套件', () => {
   })
 })
 
+describe('fsrs-browser 的 wasm 裡的 Rust crate', () => {
+  it('從 wasm 留下的原始碼路徑讀出 crate 名稱(名字裡有連字號、Windows 路徑也認得)', () => {
+    const bin = '\0/home/u/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/crossbeam-channel-0.5.15/src/flavors/array.rs\0'
+      + 'C:\\Users\\u\\.cargo\\registry\\src\\index.crates.io-6f17d22bba15001f\\rayon-core-1.13.0\\src\\lib.rs'
+      + '/rustc/abc/library/core/src/panicking.rs src/lib.rs'
+    expect(wasmCrates(bin)).toEqual(['crossbeam-channel', 'rayon-core'])
+  })
+
+  it('實際的 fsrs-browser:版本是整理過的那一版,wasm 裡看得到的 crate 都列了', () => {
+    const dir = resolveChain(['fsrs-browser'], ROOT)!
+    expect(checkWasmCrates(dir)).toEqual([])
+    // 真的掃得到東西(不是 regex 壞掉、什麼都沒抓到)
+    expect(wasmCrates(readFileSync(join(dir, WASM_AUDITED.file)).toString('latin1'))).toContain('fsrs')
+  })
+
+  it('fsrs-browser 換了版本、wasm 裡多了沒列的 crate、wasm 不見了:都報出來', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fsrs-browser-'))
+    try {
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'fsrs-browser', version: '9.9.9', license: 'BSD-3-Clause' }))
+      expect(checkWasmCrates(dir)).toEqual([expect.stringContaining('9.9.9'), expect.stringContaining('找不到')])
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'fsrs-browser', version: WASM_AUDITED.version }))
+      writeFileSync(join(dir, WASM_AUDITED.file), '/x/index.crates.io-0123abcd/rayon-core-1.13.0/src/a.rs /x/index.crates.io-0123abcd/burn-core-0.18.0/src/b.rs')
+      expect(checkWasmCrates(dir)).toEqual([expect.stringContaining('burn-core')])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('有 fsrs-browser 才列這些 crate,每一項都附上條款全文(fsrs 的 BSD 署名、priority-queue 的原始碼位置)', () => {
+    const fsrs = resolveChain(['fsrs-browser'], ROOT)!
+    const { packages } = collectNotices([join(fsrs, 'fsrs_browser.js')], ROOT)
+    for (const n of WASM_NOTICES) {
+      const p = packages.find((x) => x.name === n.name)
+      expect(p, n.name).toMatchObject({ bundledIn: 'fsrs-browser', license: n.license })
+      expect(p!.text.length, n.name).toBeGreaterThan(500)
+    }
+    expect(packages.find((p) => p.name === 'fsrs')?.text).toContain('Copyright (c) 2023, Open Spaced Repetition')
+    expect(packages.find((p) => p.name === 'priority-queue')?.text).toMatch(/依 MPL-2\.0 使用[\s\S]*crates\.io\/crates\/priority-queue\/2\.7\.0[\s\S]*Mozilla Public License Version 2\.0/)
+    expect(packages.find((p) => p.name === 'Rust 標準函式庫與其他 crate')?.text).toMatch(/rayon-core[\s\S]*Apache License\s+Version 2\.0/)
+    expect(collectNotices([join(resolveChain(['dexie'], ROOT)!, 'dist/dexie.mjs')], ROOT).packages.map((p) => p.name))
+      .toEqual(['dexie'])
+  })
+})
+
+describe('建置外掛的收尾核對', () => {
+  const plugin = () => {
+    const out = mkdtempSync(join(tmpdir(), 'build-'))
+    const { main } = thirdPartyLicenses()
+    const call = (hook: unknown, ...args: unknown[]) =>
+      (typeof hook === 'function' ? hook : (hook as { handler: (...a: unknown[]) => unknown }).handler).apply({}, args)
+    call(main.configResolved, { root: out, build: { outDir: 'dist' }, command: 'build' })
+    return { out, main, call }
+  }
+
+  it('建置失敗(沒寫出檔案)時不核對,不然會蓋掉真正的錯誤訊息', () => {
+    const { out, main, call } = plugin()
+    try {
+      call(main.buildStart)
+      expect(() => call(main.closeBundle)).not.toThrow()
+    } finally {
+      rmSync(out, { recursive: true, force: true })
+    }
+  })
+
+  it('寫出檔案之後才核對 service worker', () => {
+    const { out, main, call } = plugin()
+    try {
+      call(main.buildStart)
+      call(main.writeBundle)
+      expect(() => call(main.closeBundle)).toThrow(/sw\.js/)
+    } finally {
+      rmSync(out, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('顯示時的換行', () => {
   it('同一段的硬換行接成空白,空行分段照舊', () => {
     expect(reflow('Permission is hereby granted, free of charge,\nto any person obtaining a copy.\n\nTHE SOFTWARE IS\nPROVIDED "AS IS".'))
@@ -222,6 +299,14 @@ describe('顯示時的換行', () => {
     expect(reflow('MIT license\n===========\n\nCopyright (c) 2017 sql.js authors')).toBe('MIT license\n===========\n\nCopyright (c) 2017 sql.js authors')
     expect(reflow('Copyright (c) A 2015\nCopyright (c) B 2020\nPermission to use')).toBe('Copyright (c) A 2015\nCopyright (c) B 2020\nPermission to use')
     expect(reflow('Terms:\n- one\n- two\n1. three')).toBe('Terms:\n- one\n- two\n1. three')
+  })
+
+  it('句子中間換行剛好落在 copyright 一字:照樣接起來(只有署名行自成一行)', () => {
+    expect(reflow('hereby granted, provided that the above\ncopyright notice and this permission notice appear in all copies.'))
+      .toBe('hereby granted, provided that the above copyright notice and this permission notice appear in all copies.')
+    expect(reflow('IN NO EVENT SHALL THE AUTHORS OR\nCOPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER\nIN AN ACTION'))
+      .toBe('IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION')
+    expect(reflow('COPYRIGHT (C) 2020 X\nAll rights reserved.')).toBe('COPYRIGHT (C) 2020 X\nAll rights reserved.')
   })
 
   it('文字本身不變(只差換行與空白)', () => {

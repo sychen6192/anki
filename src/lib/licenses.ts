@@ -26,8 +26,11 @@ export interface LicensesFile {
   packages: PackageNotice[]
 }
 
-// 這種行要自成一行:縮排的(Apache 條款)、標題、清單、底線、Copyright 行
-const KEEP_LINE = /^(?:\s|#|[-*•+]\s|\d+[.)]\s|\([a-z0-9]+\)\s|={3,}|-{3,}|copyright\b|\(c\)|©)/i
+// 這種行要自成一行:縮排的(Apache 條款)、標題、清單、底線、(c)/© 開頭
+const KEEP_LINE = /^(?:\s|#|[-*•+]\s|\d+[.)]\s|\([a-z0-9]+\)\s|={3,}|-{3,}|\(c\)|©)/i
+// Copyright 署名行要分大小寫看:「…the above\ncopyright notice」「AUTHORS OR\nCOPYRIGHT HOLDERS」是句子中間換行,要接起來
+const COPYRIGHT_LINE = /^(?:Copyright\b|COPYRIGHT\s+(?:\(C\)|©|\d))/
+const keepLine = (line: string) => KEEP_LINE.test(line) || COPYRIGHT_LINE.test(line)
 const UNDERLINE = /^\s*(?:={3,}|-{3,})\s*$/
 
 /**
@@ -40,7 +43,7 @@ export function reflow(text: string): string {
   lines.forEach((line, i) => {
     const prev = lines[i - 1]
     const join = prev !== undefined && prev.trim() !== '' && line.trim() !== ''
-      && !KEEP_LINE.test(prev) && !KEEP_LINE.test(line) && !UNDERLINE.test(lines[i + 1] ?? '')
+      && !keepLine(prev) && !keepLine(line) && !UNDERLINE.test(lines[i + 1] ?? '')
     if (join) out[out.length - 1] += ` ${line}`
     else out.push(line)
   })

@@ -7,6 +7,8 @@
 //   3. Vite / Rolldown 自己塞進去的小段程式(\0vite/preload-helper.js、\0rolldown/runtime.js…)
 //   4. service worker:vite-plugin-pwa 交給 workbox-build 另外打包,這裡看不到它的模組,改用 SW_PACKAGES 手動維護;
 //      建置完 checkServiceWorker 會掃 dist 裡 workbox 執行檔的模組標記,有沒列到的就讓建置失敗
+//   5. fsrs-browser 的 wasm 裡靜態連結的 Rust crate:npm 套件沒附它們的授權,改用 WASM_NOTICES 手動維護;
+//      checkWasmCrates 核對 fsrs-browser 的版本與 wasm 裡留下的 crate 路徑,對不上就讓建置失敗
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -31,6 +33,108 @@ export const SW_PACKAGES: readonly (readonly string[])[] = [
   ['vite-plugin-pwa', 'workbox-build', '@trickfilm400/rollup-plugin-off-main-thread'],
   ['vite-plugin-pwa', 'workbox-build', '@babel/core', '@babel/helpers'],
 ]
+
+/**
+ * fsrs-browser 的 wasm 靜態連結了一整串 Rust crate,npm 套件裡只附了 fsrs-browser 自己的授權。
+ * 這份清單照 fsrs-browser 6.6.0 整理:fsrs 6.6.0 加上 wasm-bindgen、js-sys、serde、serde-wasm-bindgen、
+ * console_error_panic_hook、wasm-bindgen-rayon,用
+ *   cargo tree --target wasm32-unknown-unknown -e normal,no-proc-macro --prefix none --format "{p}|{l}"
+ * 解出來(只在編譯時跑的 proc-macro 不算),再加上 Rust 標準函式庫;授權全文取自各 crate 的原始碼,放在 WASM_LICENSE_DIR。
+ * 寧可多列:被連結器丟掉、實際沒進 wasm 的也列著。fsrs-browser 換版本時建置會失敗(checkWasmCrates),
+ * 照上面的方法重新整理之後,再改 WASM_AUDITED.version。
+ */
+export const WASM_AUDITED = { package: 'fsrs-browser', version: '6.6.0', file: 'fsrs_browser_bg.wasm' } as const
+
+/** 授權全文(相對於專案根目錄) */
+const WASM_LICENSE_DIR = 'vite-plugins/wasm-licenses'
+
+interface WasmNotice {
+  name: string
+  version?: string
+  /** crate 標示的授權(SPDX);雙授權的照原樣寫,選用哪一個寫在 intro */
+  license: string
+  url: string
+  /** 這一項涵蓋哪些 crate(checkWasmCrates 拿它核對 wasm 裡出現的 crate) */
+  crates: readonly string[]
+  /** 條款全文前的說明 */
+  intro?: string
+  /** WASM_LICENSE_DIR 裡的授權檔,依序接在一起 */
+  files: readonly string[]
+}
+
+/** 標準函式庫:core、alloc、std,以及它在 WebAssembly 上用到的 crate(wasm 裡看得到 dlmalloc、hashbrown 的路徑) */
+const RUST_STD = ['core', 'alloc', 'std', 'dlmalloc', 'hashbrown', 'compiler_builtins']
+
+/** 「MIT OR Apache-2.0」雙授權的 crate(Cargo.toml 寫成 MIT/Apache-2.0、Apache-2.0 OR MIT 的也是) */
+const DUAL_LICENSED = [
+  'cfg-if', 'chacha20', 'console_error_panic_hook', 'crossbeam-channel', 'crossbeam-deque', 'crossbeam-epoch',
+  'crossbeam-utils', 'either', 'equivalent', 'futures-core', 'futures-task', 'futures-util', 'getrandom', 'indexmap',
+  'itertools', 'js-sys', 'log', 'matrixmultiply', 'ndarray', 'num-complex', 'num-integer', 'num-traits', 'once_cell',
+  'pin-project-lite', 'rand', 'rand_core', 'rawpointer', 'rayon', 'rayon-core', 'serde', 'serde_core', 'snafu',
+  'wasm-bindgen', 'wasm-bindgen-shared', 'wasm_sync', 'web-sys',
+]
+
+export const WASM_NOTICES: readonly WasmNotice[] = [
+  {
+    name: 'fsrs', version: '6.6.0', license: 'BSD-3-Clause', url: 'https://github.com/open-spaced-repetition/fsrs-rs',
+    crates: ['fsrs'], files: ['fsrs.txt'],
+  },
+  {
+    name: 'Rust 標準函式庫與其他 crate', license: 'MIT OR Apache-2.0', url: 'https://www.rust-lang.org/policies/licenses',
+    crates: [...RUST_STD, ...DUAL_LICENSED],
+    intro: '下列程式都以 MIT 或 Apache-2.0 擇一授權，本 App 依 Apache License 2.0 使用（條款全文在下面；'
+      + 'crossbeam-channel 引用的第三方程式碼的授權附在最後）：\n\n'
+      + `Rust 標準函式庫（${RUST_STD.join('、')}）\n\n${DUAL_LICENSED.join('、')}`,
+    files: ['apache-2.0.txt', 'crossbeam-channel-third-party.txt'],
+  },
+  {
+    name: 'priority-queue', version: '2.7.0', license: 'LGPL-3.0-or-later OR MPL-2.0',
+    url: 'https://github.com/garro95/priority-queue', crates: ['priority-queue'],
+    intro: 'Copyright Gianmarco Garrisi。以 LGPL-3.0-or-later 或 MPL-2.0 擇一授權，本 App 依 MPL-2.0 使用。'
+      + '原始碼：https://github.com/garro95/priority-queue（2.7.0 版：https://crates.io/crates/priority-queue/2.7.0）',
+    files: ['mpl-2.0.txt'],
+  },
+  {
+    name: 'serde-wasm-bindgen', version: '0.6.5', license: 'MIT',
+    url: 'https://github.com/RReverser/serde-wasm-bindgen', crates: ['serde-wasm-bindgen'], files: ['serde-wasm-bindgen.txt'],
+  },
+  { name: 'slab', license: 'MIT', url: 'https://github.com/tokio-rs/slab', crates: ['slab'], files: ['slab.txt'] },
+  { name: 'strum', license: 'MIT', url: 'https://github.com/Peternator7/strum', crates: ['strum'], files: ['strum.txt'] },
+  {
+    name: 'unicode-ident', license: '(MIT OR Apache-2.0) AND Unicode-3.0', url: 'https://github.com/dtolnay/unicode-ident',
+    crates: ['unicode-ident'],
+    intro: '程式碼以 MIT 或 Apache-2.0 擇一授權，本 App 依 Apache-2.0 使用（條款見「Rust 標準函式庫與其他 crate」）；'
+      + '附帶的 Unicode 資料依 Unicode License v3：',
+    files: ['unicode-3.0.txt'],
+  },
+]
+
+/**
+ * wasm 裡留下的 crate 原始碼路徑(panic 訊息帶的位置,例如 …/index.crates.io-<hash>/rayon-core-1.13.0/src/…)→ crate 名稱。
+ * 只看得到會 panic 的 crate,所以只拿來補抓漏網的,清單本身照 cargo tree 整理(見 WASM_NOTICES)。
+ */
+export function wasmCrates(binary: string): string[] {
+  const re = /(?:index\.crates\.io-[0-9a-f]+|registry[\\/]src[\\/][^\\/]+)[\\/]([A-Za-z0-9_-]+?)-\d+\.\d+\.\d+[^\\/]*[\\/]/g
+  return [...new Set([...binary.matchAll(re)].map((m) => m[1]))].sort()
+}
+
+/** 核對 fsrs-browser:版本要是整理過的那一版,wasm 裡看得到的 crate 都要在 WASM_NOTICES 裡。回傳問題 */
+export function checkWasmCrates(dir: string): string[] {
+  const version = readPackage(dir).version
+  const problems: string[] = []
+  if (version !== WASM_AUDITED.version) {
+    problems.push(`${WASM_AUDITED.package} 換成 ${version} 了,它的 wasm 連結的 Rust crate 可能也變了:`
+      + `照 vite-plugins/thirdPartyLicenses.ts 的 WASM_NOTICES 註解重新整理,再把 WASM_AUDITED.version 改成 ${version}`)
+  }
+  const file = path.join(dir, WASM_AUDITED.file)
+  if (!fs.existsSync(file)) return [...problems, `找不到 ${file}`]
+  // wasm-bindgen 的 snippet 另外列(見 collectNotices)
+  const covered = new Set([...WASM_NOTICES.flatMap((n) => n.crates), 'wasm-bindgen-rayon'])
+  for (const crate of wasmCrates(fs.readFileSync(file).toString('latin1'))) {
+    if (!covered.has(crate)) problems.push(`${WASM_AUDITED.file} 裡有 ${crate},請加進 WASM_NOTICES`)
+  }
+  return problems
+}
 
 /** Vite / Rolldown 產生的虛擬模組(id 以 \0 開頭)→ 程式出自哪個套件(相依鏈) */
 const VIRTUAL_SOURCES: Record<string, readonly string[]> = {
@@ -218,10 +322,11 @@ function guessLicense(notice: string): string {
 /**
  * 模組 id、資源檔路徑 → 每個套件的授權資料(依名稱排序,同名同版只留一筆)。
  * extraChains:看不到模組、要另外列的套件(service worker 的)。missing 是沒附授權全文的套件,建置時會警告。
+ * 有 fsrs-browser 時連同它 wasm 裡的 Rust crate 一起列(WASM_NOTICES),wasmProblems 是核對 wasm 發現的問題。
  */
 export function collectNotices(
   ids: Iterable<string>, root: string, extraChains: readonly (readonly string[])[] = [],
-): { packages: PackageNotice[]; missing: string[] } {
+): { packages: PackageNotice[]; missing: string[]; wasmProblems: string[] } {
   const dirs = new Set<string>()
   const snippets = new Map<string, { file: string; dir: string }>()
   const addChain = (chain: readonly string[]) => {
@@ -242,11 +347,21 @@ export function collectNotices(
   extraChains.forEach(addChain)
 
   const byKey = new Map<string, PackageNotice>()
+  const wasmProblems: string[] = []
   for (const dir of dirs) {
     const notice = readPackage(dir)
     byKey.set(`${notice.name}@${notice.version ?? ''}`, notice)
+    if (notice.name === WASM_AUDITED.package) wasmProblems.push(...checkWasmCrates(dir))
   }
   const packages = [...byKey.values()]
+  if (packages.some((p) => p.name === WASM_AUDITED.package)) {
+    for (const { name, version, license, url, intro, files } of WASM_NOTICES) {
+      const texts = files.map((f) => readText(path.join(root, WASM_LICENSE_DIR, f)))
+      packages.push({
+        name, version, license, url, bundledIn: WASM_AUDITED.package, text: [intro, ...texts].filter(Boolean).join('\n\n'),
+      })
+    }
+  }
 
   // snippet 的授權聲明只說「依 Apache License 2.0」,條款全文借用清單裡別的套件附的那份
   const apacheText = packages
@@ -265,7 +380,7 @@ export function collectNotices(
   }
 
   packages.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-  return { packages, missing: packages.filter((p) => p.text === '').map((p) => p.name) }
+  return { packages, missing: packages.filter((p) => p.text === '').map((p) => p.name), wasmProblems }
 }
 
 /** generateBundle 拿到的輸出:chunk 看 moduleIds(Rolldown 的 OutputChunk 有,沒有就退回 modules 的 key),資源檔看原始路徑 */
@@ -306,6 +421,9 @@ export function thirdPartyLicenses(): { main: Plugin; worker: () => Plugin } {
   let root = process.cwd()
   let outDir = path.join(root, 'dist')
   let isBuild = false
+  // 這次建置真的寫出檔案了沒:Rolldown 在建置失敗時照樣呼叫 closeBundle(而且不帶錯誤),
+  // 那時去核對 service worker 一定失敗,丟出的錯還會蓋掉真正的錯誤訊息
+  let written = false
   // worker 在主程式 transform 時就先打包完了,它的模組先存在這裡,等主程式 generateBundle 一起整理
   const fromWorkers = new Set<string>()
 
@@ -328,20 +446,28 @@ export function thirdPartyLicenses(): { main: Plugin; worker: () => Plugin } {
         res.end(JSON.stringify(data))
       })
     },
+    buildStart() {
+      written = false
+    },
     generateBundle(_, bundle) {
       const ids = new Set(fromWorkers)
       bundleSources(bundle, root, ids)
-      const { packages, missing } = collectNotices(ids, root, SW_PACKAGES)
+      const { packages, missing, wasmProblems } = collectNotices(ids, root, SW_PACKAGES)
+      if (wasmProblems.length) this.error(wasmProblems.join('\n'))
       if (missing.length) this.warn(`這些套件沒附授權全文,頁面上只會顯示授權代號:${missing.join(', ')}`)
       const data: LicensesFile = { packages }
       this.emitFile({ type: 'asset', fileName: LICENSES_FILE, source: JSON.stringify(data) })
+    },
+    // 每個外掛的 generateBundle 都成功、檔案也寫進 dist 之後才會到這裡
+    writeBundle() {
+      written = true
     },
     // vite-plugin-pwa 在 closeBundle 才產生 service worker:排在它後面核對
     closeBundle: {
       order: 'post',
       sequential: true,
       handler() {
-        if (!isBuild) return // 開發伺服器關掉時也會呼叫
+        if (!isBuild || !written) return // 開發伺服器關掉、建置失敗時也會呼叫
         const problems = checkServiceWorker(outDir)
         if (problems.length) throw new Error(`[third-party-licenses]\n${problems.join('\n')}`)
       },
