@@ -1,17 +1,19 @@
 import type { Table } from 'dexie'
 import type { CardRecord, ConflictTable, NoteRecord } from '../../shared/types'
+import { SYNC_KEY_ALPHABET } from '../../shared/syncKey'
+import { derivedId } from '../../shared/derivedId'
 import { db, type Local } from '../db/db'
 
 /**
  * 產生一組好唸好抄的隨機金鑰(xxxx-xxxx-xxxx)。
  * 字母表拿掉易混淆的 i/l/o/0/1;12 字 × 31 種 ≈ 2^59,以「網址+金鑰」的
  * 威脅模型來說足夠 —— 真要上鎖走 SYNC_TOKEN(見 README)。
+ * 伺服器只讓這個格式開新空間(見 shared/syncKey.ts)。
  */
 export function generateSyncKey(): string {
-  const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'
   const bytes = new Uint8Array(12)
   crypto.getRandomValues(bytes)
-  const chars = Array.from(bytes, (b) => alphabet[b % alphabet.length])
+  const chars = Array.from(bytes, (b) => SYNC_KEY_ALPHABET[b % SYNC_KEY_ALPHABET.length])
   return `${chars.slice(0, 4).join('')}-${chars.slice(4, 8).join('')}-${chars.slice(8, 12).join('')}`
 }
 
@@ -58,13 +60,17 @@ export async function setSyncSpace(key: string): Promise<void> {
     await db.meta.delete(LAST_SPACE) // 本機清空了,沒有哪一列還屬於之前的空間
     await db.meta.delete(REKEYED)
     await db.meta.delete(PENDING_FOLD)
+    await db.meta.delete(CLOUD_DELETED)
     await db.meta.put({ key: 'sync_space', value: next })
     await db.meta.put({ key: SYNC_SINCE, value: Date.now() })
   })
 }
 
-/** 停止同步時記下原本的空間:這台的資料列在伺服器上屬於它(見 adoptSyncSpace) */
-const LAST_SPACE = 'last_sync_space'
+/** 停止同步時記下原本的空間:這台的資料列在伺服器上屬於它(見 adoptSyncSpace);設定頁也靠它提供「刪除之前的雲端資料」 */
+export const LAST_SPACE = 'last_sync_space'
+
+/** 雲端那份在別台被刪掉、這台同步時才發現(見 forgetDeletedSpace):首頁提醒用,值是發現的時間 */
+export const CLOUD_DELETED = 'cloud_deleted'
 
 /**
  * 這台開始同步目前這組金鑰的時間。首頁「超過一天沒同步成功」從上次成功或這個時間算起 ——
@@ -77,6 +83,8 @@ export const REKEYED = 'rekeyed_ids'
 
 /** 帶著本機資料合併進空間後,等同步成功再併進同名牌組的那幾副(JSON 的 id 陣列),見 runPendingFold */
 export const PENDING_FOLD = 'pending_fold'
+
+export { derivedId }
 
 /** 照換 id 的紀錄一路找到最後的 id:換過不只一次(舊 → 中間 → 新)時,只看一層會停在已經不存在的中間那個 */
 export function resolveRekeyed(map: Readonly<Record<string, string>>, id: string): string {
@@ -96,33 +104,6 @@ export async function readRekeyed(): Promise<Record<string, string>> {
   }
 }
 
-/** bryc 的 cyrb128:簡單的 128 位元字串雜湊(非加密用途),同步算得出來,可以在 Dexie 交易裡用 */
-function cyrb128(str: string): [number, number, number, number] {
-  let h1 = 1779033703, h2 = 3144134277, h3 = 1013904242, h4 = 2773480762
-  for (let i = 0; i < str.length; i++) {
-    const k = str.charCodeAt(i)
-    h1 = h2 ^ Math.imul(h1 ^ k, 597399067)
-    h2 = h3 ^ Math.imul(h2 ^ k, 2869860233)
-    h3 = h4 ^ Math.imul(h3 ^ k, 951274213)
-    h4 = h1 ^ Math.imul(h4 ^ k, 2716044179)
-  }
-  h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067)
-  h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233)
-  h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213)
-  h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179)
-  h1 ^= h2 ^ h3 ^ h4; h2 ^= h1; h3 ^= h1; h4 ^= h1
-  return [h1 >>> 0, h2 >>> 0, h3 >>> 0, h4 >>> 0]
-}
-
-/**
- * 換 id 時的新 id:由(要進去的空間,舊 id)算出來,不是亂數。好幾台裝置把同一批別的空間的資料
- * (例如同一份備份)帶進同一個空間,換出來的 id 一樣,就會照 updated_at 合併成一份,而不是每台各一份。
- */
-export function derivedId(space: string, oldId: string): string {
-  const hex = cyrb128(`${space}\u0000${oldId}`).map((x) => x.toString(16).padStart(8, '0')).join('')
-  const variant = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16)
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`
-}
 
 /**
  * 伺服器回報「這些 id 已經是別的空間的」:換一組新 id,參照它們的列跟著改,全部標成待上傳。
@@ -224,7 +205,14 @@ export async function adoptSyncSpace(key: string, knownDeckIds?: ReadonlySet<str
   const next = key.trim()
   await db.transaction('rw', [db.decks, db.notes, db.cards, db.review_logs, db.settings, db.meta], async () => {
     const last = await db.meta.get(LAST_SPACE)
-    const otherSpace = typeof last?.value === 'string' && last.value !== '' && last.value !== next
+    const leftOther = typeof last?.value === 'string' && last.value !== '' && last.value !== next
+    // 空間已經認得這台牌組的原 id(原本的空間刪了、別台照原 id 帶進去了,或回到同一個空間):照原 id,不換 ——
+    // 就算 LAST_SPACE 還記著(問不到舊空間刪了沒)也一樣,換了反而跟空間裡那份對不上。
+    // 反過來空間裡是換過 id 的那一份時不必在這裡整份換:照原 id 推上去,伺服器認得出換過 id 的那一筆、
+    // 回報衝突,只有那幾筆換 id(見 rekeyConflicts、worker 的 findTaken),空間裡沒有的照原 id
+    const knowsOriginal = knownDeckIds !== undefined && knownDeckIds.size > 0
+      && (await db.decks.toArray()).some((d) => knownDeckIds.has(d.id))
+    const otherSpace = leftOther && !knowsOriginal
     // 回到同一個空間:上次合併還沒併完(推上去了、還沒拉回來就停止同步)記下的牌組照樣要併 ——
     // 那副已經在空間裡了,下面的「空間不認得的」算不到它
     const carried = otherSpace ? [] : await readPendingFold()
@@ -233,7 +221,9 @@ export async function adoptSyncSpace(key: string, knownDeckIds?: ReadonlySet<str
     // 同步成功、空間的牌組拉下來之後併進同名的那副(見 runPendingFold)。空間認得的不算這台的 ——
     // 停止同步後回到同一個空間時,共用的那副要是被當成「這台的」併掉,別台在那副的進度就沒了
     const live = (await db.decks.toArray()).filter((d) => !d.deleted).map((d) => d.id)
-    const fresh = knownDeckIds === undefined || knownDeckIds.size === 0 ? [] : live.filter((id) => !knownDeckIds.has(id))
+    // 換 id 之後才會對上的(推上去撞到、伺服器回報衝突再換,見 rekeyConflicts)也算空間認得的,不拿去併
+    const fresh = knownDeckIds === undefined || knownDeckIds.size === 0 ? []
+      : live.filter((id) => !knownDeckIds.has(id) && !knownDeckIds.has(derivedId(next, id)))
     const fold = [...new Set([...fresh, ...carried.filter((id) => live.includes(id))])]
     if (fold.length > 0) await db.meta.put({ key: PENDING_FOLD, value: JSON.stringify(fold) })
     else await db.meta.delete(PENDING_FOLD)
@@ -244,6 +234,7 @@ export async function adoptSyncSpace(key: string, knownDeckIds?: ReadonlySet<str
     await db.settings.toCollection().modify({ dirty: 1, updated_at: 0 })
     await db.meta.delete('sync_cursor')
     await db.meta.delete(LAST_SPACE)
+    await db.meta.delete(CLOUD_DELETED)
     await db.meta.put({ key: 'sync_space', value: next })
     await db.meta.put({ key: SYNC_SINCE, value: Date.now() })
   })
@@ -401,6 +392,39 @@ export async function leaveSyncSpace(): Promise<void> {
   })
 }
 
+const BARE_KEY = new RegExp(`^[${SYNC_KEY_ALPHABET}]{12}$`)
+
+/**
+ * 雲端那份已經刪掉了(這台按的「刪除雲端資料」,或別台刪的、這台同步時才收到 410):停止同步,**保留**這台的資料。
+ * 跟 leaveSyncSpace 不同:不記 LAST_SPACE —— 伺服器上已經沒有那個空間的列,id 都空出來了,之後帶進別的空間
+ * 照原 id 就好。所有從這個空間出來的裝置(換金鑰那台、收到 410 的、之前停止同步過的,見 sync.ts 的
+ * dropDeletedLastSpace)都照原 id,合併時才對得上:同一筆不會變成兩份,刪掉的照 updated_at 留著刪除,
+ * 搬家前的備份還原回來也認得。那組金鑰本身不能再用了(伺服器一律回 410)。
+ * 只在目前的金鑰還是 space 時才停:同步到一半換了金鑰的話,不能把新的那組清掉。
+ * fromElsewhere:別台刪的 —— 記下來讓首頁提醒,不然只會覺得同步默默停了。
+ */
+export async function forgetDeletedSpace(space: string, fromElsewhere: boolean): Promise<void> {
+  await db.transaction('rw', [db.meta], async () => {
+    const cur = await db.meta.get('sync_space')
+    if (cur?.value === space) {
+      await db.meta.put({ key: 'sync_space', value: '' })
+      await db.meta.delete('sync_cursor')
+      await db.meta.delete(PENDING_FOLD)
+      // 不再連線,上次的同步錯誤也不再成立(不然導覽列紅點會一直掛著)
+      await db.meta.delete('sync_error')
+      if (fromElsewhere) await db.meta.put({ key: CLOUD_DELETED, value: Date.now() })
+    }
+    // 停止同步後才刪(刪的是之前那個空間):換 id 的理由也一起沒了
+    if ((await db.meta.get(LAST_SPACE))?.value === space) await db.meta.delete(LAST_SPACE)
+  })
+}
+
+/** 停止同步後還留在雲端的那份是哪一組金鑰(沒有回空字串):設定頁的「刪除之前的雲端資料」用 */
+export async function getLastSyncSpace(): Promise<string> {
+  const row = await db.meta.get(LAST_SPACE)
+  return typeof row?.value === 'string' ? row.value : ''
+}
+
 /**
  * 手打或貼上的金鑰先正規化:全形轉半形、去掉空白、轉小寫;去掉分隔符號後剛好是
  * 12 個產生器會用的字元,就補回「xxxx-xxxx-xxxx」。抄成「BVJ6 AM4P AD9Q」也連得上同一個空間。
@@ -408,7 +432,7 @@ export async function leaveSyncSpace(): Promise<void> {
  */
 export function normalizeSyncKey(input: string): { key: string; standard: boolean } {
   const bare = input.normalize('NFKC').replace(/[\s\-‐‑–—ー_]+/g, '').toLowerCase()
-  if (/^[abcdefghjkmnpqrstuvwxyz23456789]{12}$/.test(bare)) {
+  if (BARE_KEY.test(bare)) {
     return { key: `${bare.slice(0, 4)}-${bare.slice(4, 8)}-${bare.slice(8)}`, standard: true }
   }
   return { key: input.trim(), standard: false }

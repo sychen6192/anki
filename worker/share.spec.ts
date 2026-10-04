@@ -31,6 +31,15 @@ describe('/api/share', () => {
     expect(got.status).toBe(404)
   })
 
+  it('名稱超過 200 字、內容超過 600 KB:400(分享不是免費的檔案空間)', async () => {
+    const long = await create({ name: 'x'.repeat(201), rows })
+    expect(long.status).toBe(400)
+    expect(await long.json()).toEqual({ error: 'name too long' })
+    const big = await create({ name: '大', rows: Array.from({ length: 3000 }, (_, i) => ({ expression: `語${i}`, reading: '', meaning: 'm'.repeat(200) })) })
+    expect(big.status).toBe(400)
+    expect(await big.json()).toEqual({ error: 'payload too large' })
+  })
+
   it('缺 name、rows 為空、或列缺單字/意思 → 400', async () => {
     expect((await create({ rows })).status).toBe(400)
     expect((await create({ name: 'x', rows: [] })).status).toBe(400)

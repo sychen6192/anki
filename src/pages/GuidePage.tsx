@@ -61,7 +61,7 @@ export default function GuidePage() {
       <section className="guide-card card">
         <h2>同步與備份</h2>
         <p>設一組同步金鑰，手機和電腦的進度就會同步；沒設就只存在這台裝置。</p>
-        <p className="hint">金鑰在「設定」→「同步金鑰」。也可以在設定頁下載完整備份。</p>
+        <p className="hint">金鑰在「設定」→「同步金鑰」，不想留在雲端也可以在那裡刪除雲端資料。也可以在設定頁下載完整備份。</p>
         <Link to="/settings" className="btn secondary guide-btn">前往設定</Link>
       </section>
     </>

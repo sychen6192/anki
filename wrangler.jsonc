@@ -16,5 +16,20 @@
     // database_id 在 Task 14 執行 `wrangler d1 create` 後填入;local dev/test 不需要真 id
     { "binding": "DB", "database_name": "anki-pwa", "database_id": "466916b1-0856-49a5-8894-20dd3b5a8588" }
   ],
+  // 依來源 IP 限流(見 worker/index.ts 的 limit)。period 只能是 10 或 60 秒;namespace_id 是帳號內自取的整數,
+  // 別跟同帳號其他 Worker 的限流器撞號(撞了會共用計數)。量抓正常使用的好幾倍:
+  // - 同步:首次上傳一大副牌組約十幾個請求,備份還原幾萬筆紀錄會更多 —— 用戶端遇到 429 會等一下再送
+  // - 查空間(輸入金鑰時):一般一次輸入問一兩次,猜金鑰的才會打很多次
+  // - 本機 wrangler dev 也會模擬這些限流器,但 worker 對 127.0.0.1 不限(見 overLimit)
+  // - 分享:建立很少,讀取是點開連結;查重音:匯入一次 200 字一個請求
+  "ratelimits": [
+    { "name": "SYNC_LIMITER", "namespace_id": "4101", "simple": { "limit": 60, "period": 10 } },
+    { "name": "SUMMARY_LIMITER", "namespace_id": "4102", "simple": { "limit": 20, "period": 60 } },
+    // 舊版自訂金鑰(不是 xxxx-xxxx-xxxx)打任何同步端點都算這一份:那種金鑰猜得到,不能讓推、拉也拿來快速猜
+    { "name": "LEGACY_KEY_LIMITER", "namespace_id": "4106", "simple": { "limit": 30, "period": 60 } },
+    { "name": "SHARE_CREATE_LIMITER", "namespace_id": "4103", "simple": { "limit": 10, "period": 60 } },
+    { "name": "SHARE_READ_LIMITER", "namespace_id": "4104", "simple": { "limit": 60, "period": 60 } },
+    { "name": "ACCENT_LIMITER", "namespace_id": "4105", "simple": { "limit": 60, "period": 10 } }
+  ],
   "observability": { "enabled": true }
 }

@@ -1,3 +1,5 @@
+import { fetchWithRetry } from './http'
+
 const LOOKUP_CHUNK = 200
 
 export function isValidAccent(s: string): boolean {
@@ -21,7 +23,8 @@ export async function lookupAccents(
   const out: (string | null)[] = new Array(items.length).fill(null)
   for (let i = 0; i < items.length; i += LOOKUP_CHUNK) {
     const slice = items.slice(i, i + LOOKUP_CHUNK)
-    const res = await fetchFn('/api/accent/lookup', {
+    // 匯入幾千字是一連串請求:碰到限流就照伺服器說的等一下再送,不要整批重音都沒標
+    const res = await fetchWithRetry(fetchFn, '/api/accent/lookup', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ items: slice }),
     })

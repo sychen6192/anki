@@ -1,5 +1,5 @@
 import type { ApkgNote } from './apkg'
-import { ACCENT_ALIASES, EXPRESSION_ALIASES, MEANING_ALIASES, READING_ALIASES, type ParsedRow } from './csv'
+import { ACCENT_ALIASES, EXPRESSION_ALIASES, MEANING_ALIASES, READING_ALIASES, usableRow, type ParsedRow } from './csv'
 import { splitFurigana, stripAnkiHtml } from './ankiText'
 import { isValidAccent, normalizeAccent } from './accent'
 
@@ -58,5 +58,5 @@ export function mapApkgNotes(notes: ApkgNote[], mapping: ApkgMapping): ParsedRow
         accent: isValidAccent(accent) ? accent : '',
       }
     })
-    .filter((r) => r.expression !== '' && r.meaning !== '')
+    .filter(usableRow)
 }

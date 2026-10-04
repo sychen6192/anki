@@ -1,5 +1,7 @@
 // 線條 icon 集(currentColor,深淺色自動適配),與 SpeakerIcon 同一套筆觸。
 // 之前用 ↩ ✎ ⤼ 這類文字符號充當 icon,字型間長相不一、對不齊又醜。
+// 部分路徑取自 Feather(MIT)與 Lucide(ISC):例如 GearIcon 就是它們的 settings,UndoIcon 照 Lucide 的 undo-2 畫。
+// 兩者的授權全文列在「授權與資料來源」頁(src/pages/LicensesPage.tsx);之後再從這兩套取圖示,不必另外註明。
 
 import type { ReactNode } from 'react'
 

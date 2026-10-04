@@ -31,6 +31,7 @@ import {
   SlidersIcon, SortIcon, SparklesIcon, TrashIcon, CloseIcon, FileIcon,
 } from '../components/icons'
 import type { CardSuspended, NoteRecord } from '../../shared/types'
+import { MAX_FIELD_CHARS } from '../../shared/limits'
 import './deck.css'
 
 const EMPTY: NoteInput = { expression: '', reading: '', meaning: '', reversed: false, accent: '' }
@@ -749,12 +750,13 @@ export default function DeckDetail() {
           )}
           <label className="field"><span className="field-label">單字</span>
             <input ref={firstField} lang="ja" placeholder="例如 勉強" value={form.expression} data-autofocus={isNew ? '' : undefined}
+              maxLength={MAX_FIELD_CHARS}
               enterKeyHint="next" onKeyDown={nextOnEnter(readingField)}
               onChange={(e) => setForm({ ...form, expression: e.target.value })} />
           </label>
           <div className="field-row">
             <label className="field"><span className="field-label">讀音（可空）</span>
-              <input ref={readingField} lang="ja" placeholder="例如 べんきょう" value={form.reading}
+              <input ref={readingField} lang="ja" placeholder="例如 べんきょう" value={form.reading} maxLength={MAX_FIELD_CHARS}
                 enterKeyHint="next" onKeyDown={nextOnEnter(meaningField)}
                 onChange={(e) => setForm({ ...form, reading: e.target.value })} onBlur={autoLookup} />
             </label>
@@ -764,13 +766,13 @@ export default function DeckDetail() {
             )}
           </div>
           <label className="field"><span className="field-label">意思</span>
-            <input ref={meaningField} placeholder="例如 讀書、用功" value={form.meaning} enterKeyHint="done"
+            <input ref={meaningField} placeholder="例如 讀書、用功" value={form.meaning} enterKeyHint="done" maxLength={MAX_FIELD_CHARS}
               onChange={(e) => setForm({ ...form, meaning: e.target.value })} />
           </label>
           <div className="field-row">
             <label className="field"><span className="field-label">重音（可空）</span>
               {/* 不用 numeric 鍵盤:iPhone 的數字鍵盤打不出「0,3」的逗號 */}
-              <input ref={accentField} placeholder="例如 0 或 0,3" value={form.accent} autoCapitalize="off" autoCorrect="off"
+              <input ref={accentField} placeholder="例如 0 或 0,3" value={form.accent} autoCapitalize="off" autoCorrect="off" maxLength={MAX_FIELD_CHARS}
                 onChange={(e) => { setForm({ ...form, accent: e.target.value }); setAccentHint(''); setAccentErr('') }} />
             </label>
             <button type="button" className="btn secondary field-btn" disabled={looking} onClick={() => void lookupOne()}>

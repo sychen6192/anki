@@ -25,6 +25,7 @@ import { requestSync } from '../lib/sync'
 import { pageScrollTop, scrollPageTo } from '../lib/scroller'
 import type { CardRecord, DeckRecord, NoteRecord } from '../../shared/types'
 import './review.css'
+import { MAX_FIELD_CHARS } from '../../shared/limits'
 
 const RATING_LABELS: Record<RatingValue, string> = { 1: '重來', 2: '困難', 3: '普通', 4: '簡單' }
 
@@ -741,19 +742,19 @@ export default function Review() {
           <form className="form" onSubmit={(e) => { e.preventDefault(); void saveEdit() }}>
             {!showBack && <p className="hint">打開編輯就會看到答案，這張等一下建議按「重來」。</p>}
             <label className="field"><span className="field-label">單字</span>
-              <input value={editing.expression} lang="ja"
+              <input value={editing.expression} lang="ja" maxLength={MAX_FIELD_CHARS}
                 onChange={(e) => setEditing({ ...editing, expression: e.target.value })} />
             </label>
             <label className="field"><span className="field-label">讀音</span>
-              <input value={editing.reading} lang="ja"
+              <input value={editing.reading} lang="ja" maxLength={MAX_FIELD_CHARS}
                 onChange={(e) => setEditing({ ...editing, reading: e.target.value })} />
             </label>
             <label className="field"><span className="field-label">意思</span>
-              <input value={editing.meaning}
+              <input value={editing.meaning} maxLength={MAX_FIELD_CHARS}
                 onChange={(e) => setEditing({ ...editing, meaning: e.target.value })} />
             </label>
             <label className="field"><span className="field-label">重音</span>
-              <input value={editing.accent} placeholder="例如 0 或 0,3" autoCapitalize="off" autoCorrect="off"
+              <input value={editing.accent} placeholder="例如 0 或 0,3" autoCapitalize="off" autoCorrect="off" maxLength={MAX_FIELD_CHARS}
                 onChange={(e) => setEditing({ ...editing, accent: e.target.value })} />
             </label>
             {editErr && <p className="err" role="alert">{editErr}</p>}

@@ -195,3 +195,11 @@ describe('findDuplicateNote', () => {
     expect(findDuplicateNote(notes, '試験', 'しけん', 'a')).toBeUndefined()
   })
 })
+
+describe('超長的欄位', () => {
+  it('任何一格超過 2 萬字的列不匯入(多半是少了一個引號、後面整份被當成同一格;伺服器也存不下)', () => {
+    const rows = [['犬', 'いぬ', '狗'], ['猫', 'ねこ', '貓'.repeat(20_001)], ['鳥', 'とり', '鳥'.repeat(20_000)]]
+    const out = mapRows(rows, { expression: 0, reading: 1, meaning: 2, accent: null })
+    expect(out.map((r) => r.expression)).toEqual(['犬', '鳥'])
+  })
+})

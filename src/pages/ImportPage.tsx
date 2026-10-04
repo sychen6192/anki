@@ -11,6 +11,7 @@ import {
   type CsvMapping, type ParsedRow,
 } from '../lib/csv'
 import { DECK_TEMPLATES, type DeckTemplate } from '../data/templates'
+import { MAX_FIELD_CHARS } from '../../shared/limits'
 import { parseApkg, type ApkgParse } from '../lib/apkg'
 import { autoMapFields, mapApkgNotes, type ApkgMapping } from '../lib/apkgMap'
 import { fillMissingAccents } from '../lib/accent'
@@ -322,6 +323,11 @@ export default function ImportPage() {
   const otherNoteCount = apkg ? apkg.notes.length - (notetype?.noteCount ?? 0) : 0
   // 缺單字或意思的列不會匯入:預覽下方明講幾列,不要默默少掉
   const sourceCount = mode === 'csv' ? dataRows.length : (notetype?.noteCount ?? 0)
+  // 有一格超過 MAX_FIELD_CHARS 字的列另外算(多半是少了一個引號,後面整段被當成同一格),不要說成「缺少單字或意思」
+  const tooLong = mode === 'csv' && mapping
+    ? dataRows.filter((r) => [mapping.expression, mapping.reading, mapping.meaning]
+      .some((i) => i !== null && (r[i] ?? '').trim().length > MAX_FIELD_CHARS)).length
+    : 0
 
   const parsed = mode === 'csv' ? csvParsed : apkgParsed
   const activeMapping: CsvMapping | ApkgMapping | null = mode === 'csv' ? mapping : apkgMapping
@@ -788,7 +794,12 @@ export default function ImportPage() {
 
                 <ListSection header={`預覽（共 ${parsed.length} 個字${mode === 'apkg' && otherNoteCount > 0 ? `，另有 ${otherNoteCount} 個屬於其他筆記類型，不會匯入` : ''}）`}
                   footer={sourceCount > parsed.length
-                    ? `有 ${sourceCount - parsed.length} ${mode === 'csv' ? '列' : '個'}缺少單字或意思，不會匯入。` : undefined}>
+                    ? [
+                      sourceCount - parsed.length - tooLong > 0
+                        ? `有 ${sourceCount - parsed.length - tooLong} ${mode === 'csv' ? '列' : '個'}缺少單字或意思，不會匯入。` : '',
+                      tooLong > 0
+                        ? `有 ${tooLong} 列某一格超過 ${MAX_FIELD_CHARS.toLocaleString()} 字（多半是少了一個引號，後面整段被當成同一格），不會匯入。` : '',
+                    ].join('') : undefined}>
                   <div className="preview-scroll">
                     <table className="preview">
                       <thead><tr><th>單字</th><th>讀音</th><th>意思</th><th>重音</th></tr></thead>

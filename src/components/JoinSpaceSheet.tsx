@@ -3,6 +3,7 @@ import { Sheet } from './Sheet'
 import { useBusy } from '../lib/useBusy'
 import { countLocalContents, normalizeSyncKey, setSyncSpace } from '../lib/space'
 import { probeSyncKey, syncNow } from '../lib/sync'
+import { spaceProblemText } from '../lib/syncText'
 
 type Outcome = { kind: 'empty' } | { kind: 'error'; text: string } | null
 
@@ -37,8 +38,8 @@ export function JoinSpaceSheet({ open, onClose, onJoined }: {
       // 舊版自訂的金鑰(大小寫有差)可能要照原樣用,見 probeSyncKey
       const probe = await probeSyncKey(input, key)
       if (mine !== attempt.current) return
-      if (probe === null) {
-        setOutcome({ kind: 'error', text: '連不上伺服器，這台什麼都沒改。連上網路後再按一次「連上」' })
+      if ('problem' in probe) {
+        setOutcome({ kind: 'error', text: spaceProblemText(probe.problem) })
         return
       }
       if (probe.decks === 0) {
