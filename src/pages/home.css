@@ -2,9 +2,8 @@
 
 /* 今天:整頁最重要的一塊,只有一顆主按鈕 */
 .today { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; padding: 18px; }
-.today-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.today-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.today-label { font-size: var(--fs-footnote); font-weight: 600; color: var(--text-2); letter-spacing: .02em; }
+/* 不另放「今天」小標:標題自己就講了(今天還有…、今天完成了),區塊也有 aria-label */
+.today-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .today-headline { font-size: var(--fs-title2); font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
 .today-headline b { font-size: var(--fs-large); font-weight: 700; letter-spacing: -0.02em; margin-right: 2px; }
 .today-headline.done { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-title3); color: var(--success); }
@@ -20,10 +19,8 @@
 
 .today + .notice, .notice + .deck-section, .today + .deck-section { margin-top: 16px; }
 .nav-bar + .notice, .large-title + .notice { margin-top: 16px; }
-.notice + .notice { margin-top: 10px; }
 
 /* 牌組列:點名稱那一大塊進詳情,右邊的小膠囊直接開始複習這一副 */
-.deck-section { margin-top: 28px; }
 .deck-row { padding: 0 12px 0 0; gap: 8px; min-height: 64px; }
 .deck-link {
   flex: 1; min-width: 0; align-self: stretch;
@@ -31,7 +28,11 @@
   padding: 12px 0 12px 16px;
   color: inherit; text-decoration: none;
 }
-.deck-link:active { opacity: .6; }
+/* 按下去、滑過去整列變灰(和其他列表的列一樣),不是只有字變淡;右邊的複習膠囊有自己的樣子,不算 */
+.deck-row:has(> .deck-link:active) { background: var(--fill-2); }
+@media (hover: hover) { .deck-row:has(> .deck-link:hover) { background: var(--fill-2); } }
+/* 連結貼齊列表左緣,.list 的 overflow: hidden 會裁掉往外畫的焦點框:改往內縮(同 components.css 的 .list .row) */
+.deck-link:focus-visible { outline-offset: -2px; border-radius: var(--radius); }
 .deck-name { font-size: var(--fs-headline); font-weight: 600; }
 .deck-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
 .deck-meta .count { gap: 5px; }
@@ -47,7 +48,7 @@
   display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px;
 }
 .welcome h2 { font-size: var(--fs-title2); font-weight: 700; }
-.welcome p { color: var(--text-2); font-size: var(--fs-subhead); max-width: 26em; }
+.welcome p { color: var(--text-2); font-size: var(--fs-subhead); max-width: 26em; text-wrap: balance; }
 .welcome .btn-stack { width: 100%; max-width: 340px; margin-top: 8px; }
 .welcome > .btn.lg { max-width: 340px; margin-top: 6px; }
 /* 滿版的主畫面圖示,圓角照 iPhone 裁的比例 */
@@ -56,6 +57,8 @@
 .welcome .welcome-install {
   width: 100%; max-width: 340px; padding: 10px 12px; border-radius: var(--radius);
   background: var(--fill-2); color: var(--text); text-align: left; font-size: var(--fs-small); line-height: 1.55;
+  /* 靠左的一段說明:不跟著上面置中的句子 balance(會縮成參差的短行,還把「瀏覽器」拆開) */
+  text-wrap: pretty;
 }
 .welcome-check {
   display: inline-flex; align-items: center; justify-content: center;

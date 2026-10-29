@@ -39,6 +39,9 @@ export function normalizeSharedRows(rows: unknown): ParsedRow[] {
     .filter(usableRow)
 }
 
+/** 牌組超過伺服器收得下的大小:重試也沒用,畫面據此不顯示「重試」 */
+export class ShareTooLargeError extends Error {}
+
 /** 上傳牌組內容,回傳分享碼。大牌組的 JSON 有幾十 KB,行動網路上行慢 —— 能壓就壓(約剩 1/3) */
 export async function createShare(
   name: string, rows: ParsedRow[], fetchFn: typeof fetch = fetch,
@@ -54,9 +57,11 @@ export async function createShare(
   if (res.status === 429) throw new Error('分享得太頻繁了，等一分鐘再試')
   if (res.status === 400) {
     const reason = await res.json().then((d: { error?: unknown }) => d?.error, () => undefined)
-    if (reason === 'payload too large' || reason === 'rows must be 1..5000') throw new Error('這副牌組太大了，沒辦法分享；分成幾副再分享')
+    if (reason === 'payload too large' || reason === 'rows must be 1..5000') throw new ShareTooLargeError('這副牌組太大了，沒辦法分享；分成幾副再分享')
   }
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  // 不秀「HTTP 502」:看不懂,也不知道該不該再按一次(同 syncText 的寫法)
+  if (res.status >= 500) throw new Error('伺服器暫時有問題，稍後再試一次')
+  if (!res.ok) throw new Error(`伺服器回應錯誤（代碼 ${res.status}）`)
   const data = await res.json() as { code?: unknown }
   if (typeof data.code !== 'string' || data.code === '') throw new Error('伺服器沒有回傳分享碼')
   return data.code
@@ -65,12 +70,13 @@ export async function createShare(
 /** 分享不存在(貼錯或過期):重試也沒用,畫面據此不顯示「重試」 */
 export class ShareNotFoundError extends Error {}
 
-/** 讀取分享內容;404 講人話,其餘錯誤帶狀態碼 */
+/** 讀取分享內容。打開的多半是收到連結的朋友:錯誤都講人話、講接下來怎麼辦,不秀狀態碼 */
 export async function fetchShare(code: string, fetchFn: typeof fetch = fetch): Promise<SharedDeck> {
   const res = await fetchFn(`/api/share/${encodeURIComponent(code)}`)
   if (res.status === 404) throw new ShareNotFoundError('找不到這個分享，連結可能貼錯了或已經過期')
   if (res.status === 429) throw new Error('開啟得太頻繁了，等一分鐘再試')
-  if (!res.ok) throw new Error(`讀取分享失敗（HTTP ${res.status}）`)
+  if (res.status >= 500) throw new Error('伺服器暫時有問題，稍後再試一次')
+  if (!res.ok) throw new Error('讀不到這個分享，請朋友重新傳一次連結')
   const data = await res.json() as { name?: unknown; rows?: unknown }
   return {
     name: typeof data.name === 'string' && data.name.trim() !== '' ? data.name.trim() : '分享的牌組',

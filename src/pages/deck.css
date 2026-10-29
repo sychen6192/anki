@@ -12,40 +12,65 @@
 /* 搜尋 + 排序 */
 .list-tools { display: flex; gap: 8px; align-items: center; margin-top: 22px; }
 .list-tools .search-field { flex: 1; min-width: 0; }
-.list-tools input[type="search"] { background: var(--surface); }
 .list-tools input[type="search"]::-webkit-search-cancel-button { display: none; }
-.list-tools .icon-btn.filled { width: 40px; height: 40px; border-radius: 11px; background: var(--surface); color: var(--accent); }
+.list-tools .icon-btn.filled { width: 40px; height: 40px; border-radius: var(--radius-control); background: var(--surface); color: var(--accent); }
 
 /* 狀態篩選 chip:橫向可捲,不換行 */
 .chips {
-  display: flex; gap: 8px; overflow-x: auto; margin-top: 12px; padding-bottom: 2px;
-  scrollbar-width: none;
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+  /* 左右撐滿到螢幕邊(吃掉 .page 的內距),捲動時 chip 一路滑到邊上才看得出能捲;
+     停在內容欄邊緣的話,320 寬時第四顆被切在離螢幕邊 16px 的地方,像版面壞掉。
+     捲動容器會裁掉往外畫的焦點框(2px 寬、離 2px):上下各留 4px 以上的內距,再從 margin 扣回來
+     (上 8 + 4、下 6 − 4),chip 和底下列表的位置不變 */
+  margin: 8px calc(-1 * (var(--page-x) + var(--safe-right))) -4px calc(-1 * (var(--page-x) + var(--safe-left)));
+  padding: 4px calc(var(--page-x) + var(--safe-right)) 6px calc(var(--page-x) + var(--safe-left));
+  /* 方向鍵把焦點移到看不見的 chip 時,捲過去也留同樣的邊 */
+  scroll-padding-inline: calc(var(--page-x) + var(--safe-left)) calc(var(--page-x) + var(--safe-right));
 }
 .chips::-webkit-scrollbar { display: none; }
 /* 觸控時可點範圍撐到 44pt:容器上下多留 5px,chip 的 ::after 往外撐才不會被捲動容器裁掉 */
 @media (pointer: coarse) {
-  .chips { margin-top: 7px; padding: 5px 0 7px; }
+  .chips { margin-top: 7px; margin-bottom: 0; padding-top: 5px; padding-bottom: 7px; }
   .chip { position: relative; }
   .chip::after { content: ''; position: absolute; inset: -5px 0; }
+  /* 排序鈕 40px:四邊各撐 2px 到 44pt(離搜尋框還有 8px 的縫) */
+  .list-tools .icon-btn.filled { position: relative; }
+  .list-tools .icon-btn.filled::after { content: ''; position: absolute; inset: -2px; }
 }
 .chip {
   display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
   min-height: 34px; padding: 0 14px; border-radius: 999px;
   border: none; background: var(--surface); color: var(--text);
   font-family: inherit; font-size: var(--fs-small); font-weight: 500; cursor: pointer;
+  transition: background-color .15s ease, color .15s ease;
 }
 .chip.active { background: var(--accent); color: var(--on-accent); }
+/* 白底的 chip 和排序鈕:滑過去、按下去疊一點字的顏色。
+   排序鈕要寫在這裡:上面 .list-tools .icon-btn.filled 的白底比 .icon-btn:hover / :active 重,那兩條蓋不過 */
+@media (hover: hover) {
+  .chip:not(.active):hover, .list-tools .icon-btn.filled:hover { background: color-mix(in srgb, var(--surface), var(--text) 6%); }
+  .chip.active:hover { background: var(--accent-pressed); }
+}
+.chip:not(.active):active, .list-tools .icon-btn.filled:active { background: color-mix(in srgb, var(--surface), var(--text) 10%); }
 .chip-count { font-size: var(--fs-caption); opacity: .7; font-variant-numeric: tabular-nums; }
+/* 選中的 chip 是實心主色:數字再調淡就只剩 3.3:1,改成不透明(靠字小和標籤分開) */
+.chip.active .chip-count { opacity: 1; }
 
 /* 卡片列表:第一行單字 + 狀態;第二行讀音 · 意思;點整列開編輯 */
 .note-list { margin-top: 12px; }
 .note-row { min-height: 60px; padding: 10px 12px 10px 16px; }
 .note-line1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .note-expr { font-size: var(--fs-headline); font-weight: 600; overflow-wrap: anywhere; }
-.note-line2 { display: flex; gap: 0 10px; flex-wrap: wrap; }
+/* 讀音、意思用 --fs-subhead(tokens 給次要一行的大小),不跟 .row-subtitle 的 13px:
+   找字時掃的就是意思,13px 的ば/ぱ也不好分 */
+.note-line2 { display: flex; gap: 0 10px; flex-wrap: wrap; font-size: var(--fs-subhead); }
 .note-reading { color: var(--text-2); }
 .note-meaning { color: var(--text-2); overflow-wrap: anywhere; }
-.note-row.selected { background: var(--accent-tint); }
+/* 選取的列滑過去、按下去也維持主色淡底:共用的 button.row:hover(0,2,1)會蓋成灰底,看起來像沒選到。
+   不換成更深的 --accent-tint-pressed:深色模式的意思只剩 3.84:1 */
+.note-row.selected, .note-row.selected:hover, .note-row.selected:active { background: var(--accent-tint); }
+/* 灰底標籤疊在主色淡底上只有 4.43:1(深色 3.71:1),換成白底:5.97:1 / 6.61:1 */
+.note-row.selected .badge.known, .note-row.selected .badge.paused { background: var(--surface); }
 .select-mark {
   display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
   width: 24px; height: 24px; border-radius: 50%;
@@ -53,7 +78,12 @@
 }
 .select-mark.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .list-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; color: var(--text-2); padding: 28px 0; }
-.accent-hint { margin-top: -8px; padding: 0 2px; }
+.list-empty p { text-wrap: balance; }
+/* 怎麼標的說明:keep-all 只在標點(「」，)換行,320 寬才不會把「複習」拆成兩行。
+   搜尋那句不用:長的搜尋字會整串被推到下一行,「找不到」孤零零留在上面 */
+.list-empty .hint { word-break: keep-all; overflow-wrap: anywhere; }
+/* 欄位底下的提示與錯誤:貼著上面那一欄(表單的 gap 是 16px) */
+.accent-hint, .field-err { margin-top: -8px; padding: 0 2px; }
 .list-count { text-align: center; color: var(--text-2); font-size: var(--fs-footnote); margin-top: 14px; }
 .list-count .link { font-size: var(--fs-footnote); }
 
@@ -67,6 +97,14 @@
   background: var(--elevated); border-radius: var(--radius-lg); box-shadow: var(--shadow-md);
 }
 .batch-count { font-size: var(--fs-subhead); white-space: nowrap; }
+/* 「完成」只在寬螢幕出現:那裡的導覽列會捲走。手機的導覽列固定在頂端,已經有一顆,320 寬也不必多擠一顆 */
+.batch-done { display: none; }
+@media (min-width: 768px) {
+  /* 左邊也是一顆按鈕了:內距跟右邊一樣 10px,滑過去的淡底才左右對稱 */
+  .batch-bar { padding-left: 10px; }
+  .batch-done { display: inline-flex; }
+  .batch-bar .batch-done { padding: 0 12px; }
+}
 .batch-actions { display: flex; gap: 10px; margin-left: auto; }
 .batch-actions .btn.sm { padding: 0 12px; }
 /* 批次列疊在捲動區底部(分頁列在捲動區外面):列表最後一行要能捲到它上面 */
@@ -82,16 +120,23 @@
 .field-btn { flex-shrink: 0; min-height: 44px; }
 .field-row > .speak-btn.field-btn { width: 44px; height: 44px; }
 .accent-preview { font-size: var(--fs-title3); color: var(--text-2); padding: 0 2px; }
+/* 勾勾不縮:字長換行時 flex 會把它擠成 9px。換行後對齊第一行 */
 .added-line {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: flex-start; gap: 6px;
   padding: 10px 12px; border-radius: var(--radius);
   background: var(--success-tint); color: var(--success); font-size: var(--fs-subhead); font-weight: 500;
 }
+.added-line svg { flex-shrink: 0; margin-top: 3px; }
 
 /* 分享 */
 .share-sheet { display: flex; flex-direction: column; gap: 14px; }
-.share-uploading { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 120px; color: var(--text-2); }
-.share-link-input { font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--fs-small); color: var(--text-2); background: var(--surface); }
+.share-uploading {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  min-height: 120px; color: var(--text-2); text-align: center;
+}
+.share-status { display: flex; align-items: center; gap: 10px; text-wrap: balance; }
+.share-link-input { font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--fs-small); color: var(--text-2); }
 .share-msg { text-align: center; }
 /* 牌組設定面板裡的動作結果(例如為整副開啟反向卡) */
 .settings-note { display: inline-flex; align-items: center; gap: 4px; color: var(--success); font-weight: 500; }
+.settings-note svg { flex-shrink: 0; }

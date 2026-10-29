@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { useConfirm } from './Confirm'
-import { useModalDialog } from './useModalDialog'
+import { finishClosingDialogs, useLastOpen, useModalDialog } from './useModalDialog'
 
 /**
  * 面板跟著「看得見的那一塊」走:iPhone 鍵盤跳出來時 100dvh 不會變,只有 visualViewport 變小 ——
@@ -60,28 +60,31 @@ export function Sheet({ open, onClose, title, full, start, cancelLabel, end, dir
         // 等確認框先關好再關面板:同一次一起關,焦點還不回打開面板的那一列,會掉到頁首
         requestAnimationFrame(() => onClose())
       } else {
-        // 繼續編輯:瀏覽器可能已經自己把面板關掉了(擋不下來的關閉要求,例如 Android 的返回手勢),重新打開
+        // 繼續編輯:瀏覽器可能已經自己把面板關掉了(擋不下來的關閉要求,例如 Android 的返回手勢),重新打開。
+        // 確認框這時還在播關閉動畫:先關好它,面板才不會疊到它上面
         const d = dialogProps.ref.current
-        if (d !== null && !d.open && typeof d.showModal === 'function') d.showModal()
+        if (d !== null && !d.open && typeof d.showModal === 'function') { finishClosingDialogs(); d.showModal() }
       }
     } finally {
       asking.current = false
     }
   }
-  const dialogProps = useModalDialog(open, () => void requestClose())
-  useVisualViewport(dialogProps.ref, open)
+  const { dialogProps, visible } = useModalDialog(open, () => void requestClose())
+  // 關閉動畫期間 --vvh 照留:拿掉的話滑到一半會突然換成整個畫面的高度
+  useVisualViewport(dialogProps.ref, visible)
+  const s = useLastOpen(open, { title, full, start, cancelLabel, end, children })
   return (
-    <dialog {...dialogProps} className={`sheet${full ? ' full' : ''}`} aria-label={title}>
-      {open && (
+    <dialog {...dialogProps} className={`sheet${s.full ? ' full' : ''}`} aria-label={s.title}>
+      {visible && (
         <>
           <div className="sheet-header">
             <div className="start">
-              {start ?? <button type="button" className="btn plain" onClick={() => void requestClose()}>{cancelLabel ?? '取消'}</button>}
+              {s.start ?? <button type="button" className="btn plain" onClick={() => void requestClose()}>{s.cancelLabel ?? '取消'}</button>}
             </div>
-            <div className="sheet-title">{title}</div>
-            <div className="end">{end}</div>
+            <div className="sheet-title">{s.title}</div>
+            <div className="end">{s.end}</div>
           </div>
-          <div className="sheet-body">{children}</div>
+          <div className="sheet-body">{s.children}</div>
         </>
       )}
     </dialog>
@@ -94,6 +97,10 @@ export interface SheetAction {
   onSelect: () => void
   destructive?: boolean
   disabled?: boolean
+  /** 目前選中的那一個(例如現在的排序):讀螢幕唸成「目前」;畫面上的勾由呼叫端放進 icon,不寫進 label */
+  current?: boolean
+  /** 鍵盤快捷鍵(例如複習頁的 E):只在有實體鍵盤的裝置顯示(.kbd-hint) */
+  hint?: string
 }
 
 interface ActionSheetProps {
@@ -106,24 +113,25 @@ interface ActionSheetProps {
 
 /** iOS 的動作選單:一列一個動作,危險動作紅字,下面分開一顆「取消」 */
 export function ActionSheet({ open, onClose, title, message, actions }: ActionSheetProps) {
-  const dialogProps = useModalDialog(open, onClose)
-  const items = actions.filter((a): a is SheetAction => Boolean(a))
+  const { dialogProps, visible } = useModalDialog(open, onClose)
+  const s = useLastOpen(open, { title, message, items: actions.filter((a): a is SheetAction => Boolean(a)) })
   return (
-    <dialog {...dialogProps} className="action-sheet" aria-label={title ?? '動作'}>
-      {open && (
+    <dialog {...dialogProps} className="action-sheet" aria-label={s.title ?? '動作'}>
+      {visible && (
         <>
           <div className="action-group">
-            {(title !== undefined || message !== undefined) && (
+            {(s.title !== undefined || s.message !== undefined) && (
               <div className="action-head">
-                {title !== undefined && <div className="action-title">{title}</div>}
-                {message !== undefined && <div className="action-message">{message}</div>}
+                {s.title !== undefined && <div className="action-title">{s.title}</div>}
+                {s.message !== undefined && <div className="action-message">{s.message}</div>}
               </div>
             )}
-            {items.map((a) => (
-              <button key={a.label} type="button" disabled={a.disabled}
-                className={`action${a.destructive ? ' destructive' : ''}`}
+            {s.items.map((a) => (
+              <button key={a.label} type="button" disabled={a.disabled} aria-current={a.current || undefined}
+                aria-keyshortcuts={a.hint} className={`action${a.destructive ? ' destructive' : ''}`}
                 onClick={() => { onClose(); a.onSelect() }}>
-                {a.icon}{a.label}
+                {/* 快捷鍵交給 aria-keyshortcuts 唸,字母本身不算進名稱(不然唸成「編輯這張E」) */}
+                {a.icon}{a.label}{a.hint !== undefined && <span className="kbd-hint" aria-hidden="true">{a.hint}</span>}
               </button>
             ))}
           </div>

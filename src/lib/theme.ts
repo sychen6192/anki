@@ -19,7 +19,13 @@ const systemDark = () => window.matchMedia('(prefers-color-scheme: dark)')
 
 function apply(pref: ThemePref): void {
   const mode = pref === 'system' ? (systemDark().matches ? 'dark' : 'light') : pref
-  document.documentElement.dataset.theme = mode
+  const root = document.documentElement
+  // 換色時先關掉轉場(base.css 的 .theme-switching),讀一次版面讓新顏色直接套上,下一格再還回去 ——
+  // 之後才變的東西(分段控制選中的那一格)照常有轉場,用的已經是新主題的顏色
+  root.classList.add('theme-switching')
+  root.dataset.theme = mode
+  void root.offsetWidth
+  requestAnimationFrame(() => root.classList.remove('theme-switching'))
   // 狀態列/瀏覽器框顏色跟著走(index.html 的 meta 由這裡接手)
   for (const m of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
     m.content = BG[mode]

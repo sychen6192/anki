@@ -176,14 +176,13 @@ export default function DeckList() {
   return (
     <>
       <PageHeader title="牌組" actions={
-        <button className="icon-btn" aria-label="新增牌組或匯入" onClick={() => setMenuOpen(true)}><PlusIcon /></button>
+        <button className="icon-btn" aria-label="新增牌組或匯入" aria-haspopup="dialog" onClick={() => setMenuOpen(true)}><PlusIcon /></button>
       } />
 
       {newKey !== null && <KeyCreated keyValue={newKey} onDone={() => setNewKey(null)} />}
 
       {decks.length > 0 && totalWords === 0 && (
         <section className="today card" aria-label="今天">
-          <span className="today-label">今天</span>
           <p className="today-headline small">先幫「{decks[0].name}」加幾個字</p>
           <div className="btn-row">
             <Link to={`/deck/${decks[0].id}`} className="btn">加卡片</Link>
@@ -194,15 +193,13 @@ export default function DeckList() {
       {decks.length > 0 && totalWords > 0 && (
         <section className="today card" aria-label="今天">
           <div className="today-top">
-            <div className="today-main">
-              <span className="today-label">今天</span>
-              {totalDue > 0 ? (
-                <p className="today-headline">還有 <b className="num">{totalDue}</b> 張</p>
-              ) : (
-                <p className="today-headline done"><CheckIcon size={22} />
-                  {todayLogs.length > 0 ? '今天完成了' : '今天沒有要複習的卡'}</p>
-              )}
-            </div>
+            {totalDue > 0 ? (
+              // 數字和「張」綁在一起:三位數在 320px 寬會換行,「128 張」整段換到下一行,不會只剩一個「張」
+              <p className="today-headline">今天還有 <span className="nowrap"><b className="num">{totalDue}</b> 張</span></p>
+            ) : (
+              <p className="today-headline done"><CheckIcon size={22} />
+                {todayLogs.length > 0 ? '今天完成了' : '今天沒有要複習的卡'}</p>
+            )}
             {streak > 0 && (
               <span className="streak" role="img" aria-label={`連續 ${streak} 天`}><FlameIcon size={15} />{streak} 天</span>
             )}
@@ -214,7 +211,7 @@ export default function DeckList() {
               <span className={`count${total.rev === 0 ? ' zero' : ''}`}><span className="dot due" />待複習 <b>{total.rev}</b></span>
             </div>
           )}
-          {todayLogs.length > 0 && <p className="today-sub">今天已複習 {todayLogs.length} 次</p>}
+          {todayLogs.length > 0 && <p className="today-sub">已複習 {todayLogs.length} 次</p>}
           {totalDue > 0 && (
             <Link to={reviewAllTo} className="btn lg today-cta"><PlayIcon size={14} />開始複習</Link>
           )}
@@ -223,7 +220,8 @@ export default function DeckList() {
 
       {showSyncProblem && (
         <div className="notice" role="status">
-          <span className="notice-text">超過一天沒同步成功：{humanizeSyncError(String(syncError.value))}</span>
+          {/* 句號加在這裡:humanizeSyncError 的字也拿去當 toast,那邊不收句號 */}
+          <span className="notice-text">超過一天沒同步成功：{humanizeSyncError(String(syncError.value))}。</span>
           <span className="notice-actions">
             <button className="link" disabled={retrying} onClick={() => void runRetry(async () => {
               const r = await syncNow() // 成功會清掉 sync_error meta,這條橫幅跟著消失

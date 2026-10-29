@@ -38,7 +38,7 @@ export default function LicensesPage() {
             重音資料來自 <ExternalLink href={KANJIUM_URL}>kanjium</ExternalLink>（作者 Uros&nbsp;O.），以{' '}
             <ExternalLink href={CC_BY_SA_URL}>CC BY-SA 4.0</ExternalLink> 授權。
           </p>
-          <p>本 App 把其中的 accents.txt 轉成查詢表（轉換格式、讀音改成平假名、去掉重複和格式不對的資料），用來自動標註卡片的重音。改作後的重音資料同樣以 CC BY-SA 4.0 提供。</p>
+          <p>本 App 把其中的 accents.txt 轉成查詢表（轉換格式、讀音改成平假名、去掉重複和格式不對的資料），用來自動標註卡片的重音。改作後的重音資料同樣以 <span className="term">CC BY-SA 4.0</span> 提供。</p>
           <p lang="en" className="source-quote">
             “The pitch accent notation, verb particle data, phonetics, homonyms and other additions or modifications
             to EDICT, KANJIDIC or KRADFILE were provided by Uros O. through his free database.”
@@ -54,8 +54,8 @@ export default function LicensesPage() {
         <div className="row source-row">
           <span className="row-title">複習排程</span>
           <p>
-            用 FSRS 演算法排下次複習的時間，程式來自 <ExternalLink href={FSRS_URL}>Open Spaced Repetition</ExternalLink> 的
-            ts-fsrs 與 fsrs-browser，授權條款在下面的套件清單裡。
+            用 FSRS 演算法排下次複習的時間，程式來自 <ExternalLink href={FSRS_URL}>Open Spaced Repetition</ExternalLink> 的{' '}
+            <span className="term">ts-fsrs</span> 與 <span className="term">fsrs-browser</span>，授權條款在下面的套件清單裡。
           </p>
         </div>
       </ListSection>
@@ -65,10 +65,12 @@ export default function LicensesPage() {
         <LicenseItem title="Lucide" detail="ISC" url="https://github.com/lucide-icons/lucide" text={LUCIDE_LICENSE} />
       </ListSection>
 
+      {/* 讀不到清單時沒有東西可以點開,不留「點開看授權全文」;載入中照樣留著,清單出來時版面不跳 */}
       <ListSection header="開放原始碼套件" footer={
-        state.status === 'ok' && state.data.partial
-          ? '開發模式只列出 package.json 的直接相依套件，建置版才會列出完整清單。'
-          : '依建置結果列出 App 裡實際用到的套件，點開看授權全文。'
+        state.status === 'error' ? undefined
+          : state.status === 'ok' && state.data.partial
+            ? '開發模式只列出 package.json 的直接相依套件，建置版才會列出完整清單。'
+            : '依建置結果列出 App 裡實際用到的套件，點開看授權全文。'
       }>
         {state.status === 'loading' && <Loading />}
         {state.status === 'error' && (

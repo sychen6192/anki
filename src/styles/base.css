@@ -10,7 +10,8 @@ a, button, .btn, .row, input, select, textarea, label, summary, .flashcard {
 /* 導覽用的連結長按不跳 iOS 的連結預覽,比較像 App */
 .tabbar a, a.btn, a.row, .deck-link, .nav-bar a { -webkit-touch-callout: none; }
 
-html { -webkit-text-size-adjust: 100%; }
+/* scrollbar-color 會繼承:sheet、表格、條款全文這些內層捲動區一起換成淡淡的灰,不是預設的白色軌道 */
+html { -webkit-text-size-adjust: 100%; scrollbar-color: color-mix(in srgb, var(--text) 28%, transparent) transparent; }
 
 body {
   font-family: var(--font);
@@ -27,8 +28,13 @@ body {
 h1, h2, h3 { font-weight: 700; letter-spacing: -0.01em; line-height: 1.25; }
 b, strong { font-weight: 600; }
 .num, .tabular { font-variant-numeric: tabular-nums; }
+.nowrap { white-space: nowrap; }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* 瀏覽器自己畫的部分也用主題色(iOS 的游標、選取也是跟著主題色)。
+   選取只換底色不換字色:連結選起來還是藍的,淡主色底上次要文字還有 4:1 左右,和瀏覽器預設差不多 */
+::selection { background: var(--accent-tint-pressed); }
+input, textarea { caret-color: var(--accent); }
 
 /* ---------- 版面 ---------- */
 /* App 殼層:文件本身不捲,頁面在 .scroller 裡捲;分頁列是 .app 裡另一列,不疊在捲動區上。
@@ -39,7 +45,11 @@ html, body { overflow: hidden; overscroll-behavior: none; }
 .app { height: 100%; display: flex; flex-direction: column; }
 /* position: relative:沒有定位祖先的 absolute 元素(例如 .visually-hidden)以它為準、跟著一起捲、被它裁掉;
    不然會以整個文件為準,把文件撐得比畫面高 —— 文件又可以捲了 */
-.scroller { position: relative; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+/* scrollbar-gutter: stable:有傳統捲軸的電腦上(Windows、接滑鼠的 Mac),短頁面也先留好捲軸的位置,
+   在「牌組」(短)和「設定」(長)之間切換時內容不會左右跳 7.5px;iPhone 的捲軸是疊在上面的,沒有影響。
+   both-edges:左邊也留一樣寬,內容欄照樣以整個視窗置中 —— 和頂端的分頁列、置中的面板、批次列對得齊
+   (只留右邊時整欄往左偏 7.5px) */
+.scroller { position: relative; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable both-edges; }
 /* 鍵盤捲動時焦點會交給它(App.tsx),不畫焦點框 */
 .scroller:focus, .scroller:focus-visible { outline: none; }
 /* 注意:.scroller 不能加 transform、filter、contain、z-index —— 它一變成 fixed 元素的容器或堆疊層,
@@ -106,13 +116,9 @@ html, body { overflow: hidden; overscroll-behavior: none; }
   background: none; border: none; border-radius: var(--radius-sm); cursor: pointer; font-family: inherit;
 }
 .back-btn:active { opacity: .55; }
+@media (hover: hover) { .back-btn:hover { background: var(--fill-2); } }
 
-.section-title {
-  font-size: var(--fs-title3); font-weight: 700; letter-spacing: -0.01em;
-  margin: 28px 0 10px;
-}
-
-.hint { color: var(--text-2); font-size: var(--fs-footnote); line-height: 1.5; }
+.hint { color: var(--text-2); font-size: var(--fs-footnote); line-height: 1.5; text-wrap: pretty; }
 .err { color: var(--danger); font-size: var(--fs-small); }
 .muted { color: var(--text-2); }
 
@@ -124,6 +130,10 @@ html, body { overflow: hidden; overscroll-behavior: none; }
   .nav-bar-title { display: none; }
   .large-title { font-size: var(--fs-large); }
 }
+
+/* 換主題的那一下(lib/theme.ts 加上、下一格拿掉):顏色一次換好。不然開關、分段控制、按鈕的底色
+   還要 .15–.2s 才從舊主題淡過來,剛按下「深色」的那顆在黑底上閃一下淺色 */
+.theme-switching, .theme-switching *, .theme-switching *::before, .theme-switching *::after { transition: none !important; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

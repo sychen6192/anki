@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { flushSync } from 'react-dom'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { errorText } from '../lib/syncText'
@@ -14,12 +15,13 @@ import { fillMissingAccents, isValidAccent, lookupAccents, normalizeAccent } fro
 import { PitchAccent } from '../components/PitchAccent'
 import { isSpeechSupported, speak } from '../lib/speak'
 import { requestSync } from '../lib/sync'
-import { createShare, isTouchDevice, shareUrlFor } from '../lib/share'
+import { createShare, isTouchDevice, ShareTooLargeError, shareUrlFor } from '../lib/share'
 import { State } from '../lib/fsrs'
 import { deckQueue, LEARN_AHEAD_MS, startOfToday, todayCards } from '../lib/queue'
 import { nextLearningDue, useNow } from '../lib/useNow'
 import { pageScroller } from '../lib/scroller'
 import { useBusy } from '../lib/useBusy'
+import { nextOnEnter } from '../lib/formKeys'
 import { Loading } from '../components/Loading'
 import { SpeakerIcon } from '../components/SpeakerIcon'
 import { PageHeader } from '../components/PageHeader'
@@ -51,6 +53,14 @@ const BATCH_CONFIRM_AT = 50
 
 type NoteStatus = 'active' | 'paused' | 'known'
 type CardLite = { state: number; due: number; suspended?: number }
+
+// 篩選出來是空的:順便說字怎麼會進這一類(複習時一個一個標,或在這裡一次標很多個)
+const MARK_HINT = '複習時按「⋯」，或用右上角「⋯」→「選取多個字」，都可以標。'
+const EMPTY_STATUS_TEXT: Record<NoteStatus, readonly [string, string?]> = {
+  known: ['還沒有標成「已會」的字', MARK_HINT],
+  paused: ['還沒有標成「先不學」的字', MARK_HINT],
+  active: ['每個字都標成「已會」或「先不學」了'],
+}
 
 /** 一筆 note 的狀態(彙總它的卡片):任一張已會 → 已會;任一張先不學 → 先不學;否則學習中 */
 function noteStatus(cards: CardLite[] | undefined): NoteStatus {
@@ -190,9 +200,17 @@ export default function DeckDetail() {
   useEffect(() => {
     if (accentErr !== '') accentErrRef.current?.scrollIntoView({ block: 'nearest' })
   }, [accentErr])
+  // 單字、意思沒填:同樣寫在那一欄正下方。焦點移過去不保證底下那行在鍵盤上面,所以也捲一下
+  const [requiredErr, setRequiredErr] = useState<'expression' | 'meaning' | null>(null)
+  const requiredErrRef = useRef<HTMLParagraphElement | null>(null)
+  useEffect(() => {
+    if (requiredErr !== null) requiredErrRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [requiredErr])
   // 跑很久的工作(自動標註)進行中的訊息;結果用 toast
   const [progressMsg, setProgressMsg] = useState<string | null>(null)
   const [shareMsg, setShareMsg] = useState<string | null>(null)
+  // 分享失敗時給不給「重試」:牌組太大的話再傳一次也一樣
+  const [shareCanRetry, setShareCanRetry] = useState(false)
 
   // 卡片也要等:還沒讀到時算出來是 0 張,按鈕會先閃一下「今天完成了」
   if (deck === undefined || !notes || !todayLogs || !deckCards) return <Loading />
@@ -230,7 +248,34 @@ export default function DeckDetail() {
     else next.add(id)
     return next
   })
-  const exitSelecting = () => { setSelecting(false); setSelected(new Set()) }
+  /**
+   * 離開選取模式。上面的「開始複習/新增」會回來,捲到列表中間時眼前的字會往下跳一截:
+   * 搜尋列已經捲出畫面的話,把捲動位置補回去。Chrome 的捲動錨定在這裡不作用
+   * (.page 的下內距跟著批次列一起變了),Safari 根本沒有。
+   * 按的那顆「完成」會跟著拆掉,焦點會掉到 <body>。focusRow:寬螢幕批次列上的那顆,
+   * 焦點改放到畫面裡第一個字(列會留著,只是換回點了開編輯);導覽列上的那顆換回「‹ 牌組」,
+   * 用鍵盤的人焦點就跟到同一個位置
+   */
+  const exitSelecting = (focusRow = false) => {
+    const viaKeyboard = keyboardFocused()
+    const scroller = pageScroller()
+    const nav = document.querySelector('.nav-bar')
+    // 手機的導覽列固定在上面、蓋著捲動區:看得到的範圍從它底下算起
+    const navBottom = nav !== null && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().bottom : 0
+    const viewTop = Math.max(scroller?.getBoundingClientRect().top ?? 0, navBottom)
+    const rows = [...document.querySelectorAll<HTMLElement>('.note-row')]
+    const anchor = rows.find((r) => r.getBoundingClientRect().top >= viewTop) ?? rows[rows.length - 1]
+    const before = anchor?.getBoundingClientRect().top
+    const keepPlace = (document.querySelector('.list-tools')?.getBoundingClientRect().top ?? 0) < viewTop
+    if (focusRow) anchor?.focus({ preventScroll: true })
+    flushSync(() => { setSelecting(false); setSelected(new Set()) })
+    if (!focusRow && viaKeyboard) document.querySelector<HTMLElement>('.nav-bar .back-btn')?.focus({ preventScroll: true })
+    if (keepPlace && scroller !== null && anchor !== undefined && before !== undefined) {
+      scroller.scrollTop += anchor.getBoundingClientRect().top - before
+    }
+  }
+  // 全選之後再按一次就全部取消(iOS 照片、郵件的習慣):不然只能一列一列點掉
+  const allSelected = filtered.length > 0 && filtered.every((n) => selected.has(n.id))
 
   /**
    * byKey:這一下是鍵盤(或讀螢幕軟體)按的 —— click 的 detail 是 0。滑鼠、手指按的是 1 以上。
@@ -263,7 +308,10 @@ export default function DeckDetail() {
 
   /** 查字典補重音。quiet:讀音欄失焦時自動查,查無或離線只在欄位下方小字提示,不當成錯誤 */
   const lookupOne = async (quiet = false) => {
-    if (!form.expression.trim()) { if (!quiet) setErrMsg('請先輸入單字'); return }
+    if (!form.expression.trim()) {
+      if (!quiet) { setRequiredErr('expression'); firstField.current?.focus() }
+      return
+    }
     // 查的是哪個字:結果回來時表單可能已經換成下一個字(連續新增、換編輯別筆),
     // 那時就不能填進去 —— 不然下一個字會帶著上一個字的重音存檔
     const q = { expression: form.expression.trim(), reading: form.reading.trim() }
@@ -338,7 +386,7 @@ export default function DeckDetail() {
 
   const openNew = () => {
     lookupSeq.current++
-    setEditingId('new'); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setErrMsg(null); setAccentHint(''); setAccentErr(''); setLooking(false)
+    setEditingId('new'); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setErrMsg(null); setAccentHint(''); setAccentErr(''); setRequiredErr(null); setLooking(false)
   }
   const openEdit = (n: NoteRecord) => {
     lookupSeq.current++
@@ -349,23 +397,21 @@ export default function DeckDetail() {
     setErrMsg(null)
     setAccentHint('')
     setAccentErr('')
+    setRequiredErr(null)
     setForm({ expression: n.expression, reading: n.reading, meaning: n.meaning, reversed: n.reversed === 1, accent: n.accent ?? '' })
-  }
-  /** 單字、讀音欄按 return 跳到下一欄,不是送出;日文輸入法選字時的 Enter 不算 */
-  const nextOnEnter = (next: RefObject<HTMLInputElement | null>) => (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.keyCode === 229) return
-    e.preventDefault()
-    next.current?.focus()
   }
   const closeNote = () => {
     lookupSeq.current++
-    setEditingId(null); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setErrMsg(null); setAccentErr(''); setLooking(false)
+    setEditingId(null); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setErrMsg(null); setAccentErr(''); setRequiredErr(null); setLooking(false)
   }
 
   const saveNote = () => run(async () => {
     if (!form.expression.trim() || !form.meaning.trim()) {
-      setErrMsg('單字與意思為必填')
-      ;(form.expression.trim() ? meaningField : firstField).current?.focus()
+      // 寫在缺的那一欄底下(以前寫在表單最下面,鍵盤一跳出來就被蓋住,上面又還留著綠色的「已新增…」,
+      // 看起來像存好了,接著打下一個字,這個字就沒加進去)
+      const missing = form.expression.trim() ? 'meaning' : 'expression'
+      setRequiredErr(missing)
+      ;(missing === 'meaning' ? meaningField : firstField).current?.focus()
       return
     }
     // 「０、３」「0，3」這類手機上打出來的寫法先統一成「0,3」
@@ -413,6 +459,7 @@ export default function DeckDetail() {
         setAddedLabel(form.expression.trim())
         setForm({ ...EMPTY, reversed: form.reversed })
         setAccentHint('')
+        setRequiredErr(null)
         setErrMsg(null)
         requestSync()
         firstField.current?.focus()
@@ -491,11 +538,14 @@ export default function DeckDetail() {
         if (live()) setShareMsg('連結好了，按「複製連結」')
       }
     } catch (e) {
-      if (live()) setShareMsg(`分享失敗：${errText(e)}`)
+      if (!live()) return
+      setShareMsg(`分享失敗：${errText(e)}`)
+      setShareCanRetry(!(e instanceof ShareTooLargeError))
     }
   }
 
   const closeShare = () => { shareAttempt.current++; setShareOpen(false); setShareLink(null); setShareMsg(null) }
+  const shareFailed = shareMsg?.startsWith('分享失敗') === true
 
   /** 第二步(手機):點擊當下直接開系統分享面板,前面不能先 await 別的東西 */
   const nativeShare = async () => {
@@ -563,6 +613,8 @@ export default function DeckDetail() {
 
   const noteSheetOpen = editingId !== null
   const isNew = editingId === 'new'
+  // 重音格式錯誤:改對了(手打、查字典補上)就不再顯示,也不再標成錯的
+  const accentInvalid = accentErr !== '' && !isValidAccent(normalizeAccent(form.accent))
   // 面板裡有沒存的東西:新增時任一欄有字;編輯時跟原本那筆不一樣(或選了要搬去別副)
   const editingNote = !isNew && editingId !== null ? notes.find((n) => n.id === editingId) : undefined
   const noteDirty = isNew
@@ -584,15 +636,29 @@ export default function DeckDetail() {
     ['known', '已會', chipCounts.known],
     ['paused', '先不學', chipCounts.paused],
   ]
+  // 「全部」又沒有搜尋時不會是空的(空牌組走上面的空狀態)
+  const [emptyMsg, emptyHint]: readonly [string, string?] = search !== '' ? [`找不到「${search}」`]
+    : status === 'all' ? [''] : EMPTY_STATUS_TEXT[status]
+  /** 狀態 chip 是一組單選:左右鍵換一個(和 Segmented 一樣),Tab 只停在選中的那顆 */
+  const onChipsKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    const i = statusChips.findIndex(([k]) => k === status)
+    const next = (i + (e.key === 'ArrowRight' ? 1 : statusChips.length - 1)) % statusChips.length
+    setStatus(statusChips[next][0])
+    e.currentTarget.querySelectorAll<HTMLButtonElement>('.chip')[next]?.focus()
+  }
 
   return (
     <>
       <PageHeader
         title={deck.name}
         back={selecting ? undefined : { to: '/', label: '牌組' }}
-        leading={selecting ? <button className="btn plain" onClick={exitSelecting}>完成</button> : undefined}
+        leading={selecting ? <button className="btn plain" onClick={() => exitSelecting()}>完成</button> : undefined}
         actions={selecting ? (
-          <button className="btn plain" onClick={() => setSelected(new Set(filtered.map((n) => n.id)))}>全選</button>
+          <button className="btn plain" onClick={() => setSelected(allSelected ? new Set() : new Set(filtered.map((n) => n.id)))}>
+            {allSelected ? '取消全選' : '全選'}
+          </button>
         ) : (
           <button className="icon-btn" aria-label="更多動作" aria-haspopup="dialog" onClick={() => setMenuOpen(true)}>
             <MoreIcon />
@@ -662,9 +728,9 @@ export default function DeckDetail() {
               onClick={() => setSortOpen(true)}><SortIcon /></button>
           </div>
           {(hasParked || status !== 'all') && (
-            <div className="chips" role="radiogroup" aria-label="狀態篩選">
+            <div className="chips" role="radiogroup" aria-label="狀態篩選" onKeyDown={onChipsKeyDown}>
               {statusChips.map(([key, label, count]) => (
-                <button key={key} type="button" role="radio" aria-checked={status === key}
+                <button key={key} type="button" role="radio" aria-checked={status === key} tabIndex={status === key ? 0 : -1}
                   className={`chip${status === key ? ' active' : ''}`} onClick={() => setStatus(key)}>
                   {label}<span className="chip-count">{count}</span>
                 </button>
@@ -700,24 +766,31 @@ export default function DeckDetail() {
           </ul>
           {filtered.length === 0 && (
             <div className="list-empty">
-              <p>{search !== '' ? `找不到「${search}」` : '這個分類裡沒有卡片'}</p>
+              <p>{emptyMsg}</p>
+              {emptyHint !== undefined && <p className="hint">{emptyHint}</p>}
               <button className="btn plain" onClick={() => { setSearch(''); setStatus('all') }}>
                 {search !== '' ? '清除搜尋' : '顯示全部'}
               </button>
             </div>
           )}
           <div ref={setSentinel} />
-          <p className="list-count">
-            顯示 {shown.length} / {filtered.length} 個字
-            {shown.length < filtered.length && (
-              <> · <button className="link" onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}>顯示更多</button></>
-            )}
-          </p>
+          {/* 空的時候上面已經說了找不到;全部顯示了就只說幾個字(「45 / 45」只是重複) */}
+          {filtered.length > 0 && (
+            <p className="list-count">
+              {shown.length < filtered.length ? (
+                <>
+                  顯示 {shown.length} / {filtered.length} 個字 · <button className="link" onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}>顯示更多</button>
+                </>
+              ) : `共 ${filtered.length} 個字`}
+            </p>
+          )}
         </>
       )}
 
       {selecting && (
         <div ref={batchBar} className="batch-bar" role="region" aria-label="批次操作">
+          {/* 寬螢幕的導覽列會跟著內容捲走(手機上是固定的,那裡已經有「完成」):捲到一半也要找得到出口 */}
+          <button type="button" className="btn sm plain batch-done" onClick={() => exitSelecting(true)}>完成</button>
           <span className="batch-count">已選 <b>{selected.size}</b> 個字</span>
           <div className="batch-actions">
             <button className="btn sm" disabled={busy || selected.size === 0} onClick={(e) => void applyStatus(2, e.detail === 0)}>已經會了</button>
@@ -738,22 +811,32 @@ export default function DeckDetail() {
       ]} />
 
       <ActionSheet open={sortOpen} onClose={() => setSortOpen(false)} title="排序" actions={SORTS.map(([key, label]) => ({
-        label: sort === key ? `✓ ${label}` : label, onSelect: () => setSort(key),
+        label, icon: sort === key ? <CheckIcon size={18} /> : undefined, current: sort === key, onSelect: () => setSort(key),
       }))} />
 
       <Sheet open={noteSheetOpen} onClose={closeNote} full title={isNew ? '新增卡片' : '編輯卡片'} dirty={noteDirty}
         cancelLabel={isNew && addedLabel !== null && !noteDirty ? '完成' : '取消'}
         end={<button type="button" className="btn plain strong" disabled={busy} onClick={() => void saveNote()}>{isNew ? '新增' : '儲存'}</button>}>
         <form className="form note-form" onSubmit={(e) => { e.preventDefault(); void saveNote() }}>
-          {isNew && addedLabel !== null && (
+          {/* 有必填的錯誤時先收起來:綠色的「已新增」還在,看起來像這一個也存好了 */}
+          {isNew && addedLabel !== null && requiredErr === null && (
             <p className="added-line" role="status"><CheckIcon size={16} />已新增「{addedLabel}」，可以繼續輸入下一個</p>
           )}
           <label className="field"><span className="field-label">單字</span>
             <input ref={firstField} lang="ja" placeholder="例如 勉強" value={form.expression} data-autofocus={isNew ? '' : undefined}
               maxLength={MAX_FIELD_CHARS}
               enterKeyHint="next" onKeyDown={nextOnEnter(readingField)}
-              onChange={(e) => setForm({ ...form, expression: e.target.value })} />
+              aria-invalid={requiredErr === 'expression' || undefined}
+              aria-describedby={requiredErr === 'expression' ? 'note-expr-err' : undefined}
+              onChange={(e) => {
+                setForm({ ...form, expression: e.target.value })
+                setRequiredErr((r) => (r === 'expression' ? null : r))
+              }} />
           </label>
+          {/* 錯誤放在 label 外面:放在裡面會變成欄位名稱的一部分 */}
+          {requiredErr === 'expression' && (
+            <p ref={requiredErrRef} id="note-expr-err" className="err field-err" role="alert">請輸入單字</p>
+          )}
           <div className="field-row">
             <label className="field"><span className="field-label">讀音（可空）</span>
               <input ref={readingField} lang="ja" placeholder="例如 べんきょう" value={form.reading} maxLength={MAX_FIELD_CHARS}
@@ -767,21 +850,29 @@ export default function DeckDetail() {
           </div>
           <label className="field"><span className="field-label">意思</span>
             <input ref={meaningField} placeholder="例如 讀書、用功" value={form.meaning} enterKeyHint="done" maxLength={MAX_FIELD_CHARS}
-              onChange={(e) => setForm({ ...form, meaning: e.target.value })} />
+              aria-invalid={requiredErr === 'meaning' || undefined}
+              aria-describedby={requiredErr === 'meaning' ? 'note-meaning-err' : undefined}
+              onChange={(e) => {
+                setForm({ ...form, meaning: e.target.value })
+                setRequiredErr((r) => (r === 'meaning' ? null : r))
+              }} />
           </label>
+          {requiredErr === 'meaning' && (
+            <p ref={requiredErrRef} id="note-meaning-err" className="err field-err" role="alert">請輸入意思</p>
+          )}
           <div className="field-row">
             <label className="field"><span className="field-label">重音（可空）</span>
               {/* 不用 numeric 鍵盤:iPhone 的數字鍵盤打不出「0,3」的逗號 */}
               <input ref={accentField} placeholder="例如 0 或 0,3" value={form.accent} autoCapitalize="off" autoCorrect="off" maxLength={MAX_FIELD_CHARS}
+                aria-invalid={accentInvalid || undefined} aria-describedby={accentInvalid ? 'note-accent-err' : undefined}
                 onChange={(e) => { setForm({ ...form, accent: e.target.value }); setAccentHint(''); setAccentErr('') }} />
             </label>
             <button type="button" className="btn secondary field-btn" disabled={looking} onClick={() => void lookupOne()}>
               {looking ? '查詢中…' : '查字典'}
             </button>
           </div>
-          {/* 改對了(手打、查字典補上)就不再顯示 */}
-          {accentErr !== '' && !isValidAccent(normalizeAccent(form.accent)) && (
-            <p ref={accentErrRef} className="err accent-hint" role="alert">{accentErr}</p>
+          {accentInvalid && (
+            <p ref={accentErrRef} id="note-accent-err" className="err field-err" role="alert">{accentErr}</p>
           )}
           {accentHint !== '' && <p className="field-hint accent-hint">{accentHint}</p>}
           {form.reading.trim() !== '' && form.accent.trim() !== '' && isValidAccent(form.accent.trim()) && (
@@ -794,7 +885,7 @@ export default function DeckDetail() {
             </label>
           </ListSection>
           {!isNew && allDecks !== undefined && allDecks.length > 1 && (
-            <label className="field"><span className="field-label">牌組（換一副 = 搬過去，進度保留）</span>
+            <label className="field"><span className="field-label">牌組（換一副就會搬過去，進度保留）</span>
               <select value={moveTo ?? deck.id} onChange={(e) => setMoveTo(e.target.value)}>
                 {allDecks.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
@@ -842,8 +933,14 @@ export default function DeckDetail() {
         <div className="share-sheet">
           <p className="hint">朋友打開連結就能匯入「{deck.name}」的單字，不含你的複習進度。連結半年後失效。</p>
           {shareLink === null ? (
-            <div className="share-uploading" role="status">
-              {shareMsg?.startsWith('分享失敗') ? <p className="err">{shareMsg}</p> : <><span className="spinner" aria-hidden="true" />{shareMsg ?? '準備中…'}</>}
+            <div className="share-uploading">
+              {/* 上傳中 → 失敗都寫在同一塊播報區(換字,不換節點),讀螢幕才唸得到;「重試」不放進播報區 */}
+              <p className={`share-status${shareFailed ? ' err' : ''}`} role="status">
+                {!shareFailed && <span className="spinner" aria-hidden="true" />}{shareMsg ?? '準備中…'}
+              </p>
+              {shareFailed && shareCanRetry && (
+                <button type="button" className="btn secondary" onClick={() => void shareDeck()}>重試</button>
+              )}
             </div>
           ) : (
             <>

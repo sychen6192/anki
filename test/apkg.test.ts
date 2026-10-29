@@ -150,7 +150,7 @@ describe('parseApkg', () => {
 
   it('沒有 collection 檔時給明確錯誤', async () => {
     const apkg = zipSync({ media: new Uint8Array([1, 2, 3]) })
-    await expect(parseApkg(apkg, loadSql)).rejects.toThrow('找不到 collection 資料')
+    await expect(parseApkg(apkg, loadSql)).rejects.toThrow('找不到單字資料')
   })
 
   it('不是 zip 時給明確錯誤', async () => {

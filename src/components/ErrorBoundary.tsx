@@ -1,4 +1,4 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { Component, createRef, type ErrorInfo, type ReactNode } from 'react'
 
 interface Props {
   children: ReactNode
@@ -13,13 +13,21 @@ interface State { error: Error | null }
  */
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { error: null }
+  // 出錯時焦點移到標題:不然焦點留在 body,讀螢幕什麼都不唸,不知道頁面壞了
+  private heading = createRef<HTMLHeadingElement>()
 
   static getDerivedStateFromError(error: Error): State {
     return { error }
   }
 
-  componentDidUpdate(prev: Props) {
+  // 一打開 app 就出錯時,錯誤畫面是第一次 render,走的是這裡不是 componentDidUpdate
+  componentDidMount() {
+    if (this.state.error !== null) this.heading.current?.focus()
+  }
+
+  componentDidUpdate(prev: Props, prevState: State) {
     if (this.state.error !== null && prev.resetKey !== this.props.resetKey) this.setState({ error: null })
+    else if (prevState.error === null && this.state.error !== null) this.heading.current?.focus()
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -30,15 +38,17 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!this.state.error) return this.props.children
     return (
       <div className="crash">
-        <h1>出了點問題</h1>
+        <h1 ref={this.heading} tabIndex={-1}>出了點問題</h1>
         <p className="hint">你的資料還在本機，沒有遺失。重新載入通常就能繼續。</p>
-        <pre className="crash-detail">{this.state.error.message}</pre>
         <div className="btn-stack">
           <button className="btn" onClick={() => window.location.reload()}>重新載入</button>
           <button className="btn secondary" onClick={() => { window.location.href = '/' }}>回牌組</button>
           {/* 牌組頁本身就壞掉時,從這裡去設定頁用「從備份還原」「清空這台並重新下載」 */}
           <button className="btn secondary" onClick={() => { window.location.href = '/settings' }}>前往設定</button>
         </div>
+        {/* 英文的錯誤訊息是給回報問題用的:放在按鈕後面,不擋在安撫的話和「重新載入」中間 */}
+        <p className="hint crash-detail-label">錯誤內容（回報問題時可以附上）：</p>
+        <pre className="crash-detail">{this.state.error.message}</pre>
       </div>
     )
   }

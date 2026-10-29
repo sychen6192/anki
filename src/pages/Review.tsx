@@ -21,6 +21,7 @@ import {
   buildMultiDeckQueue, countKind, deckQueue, newOverLimit, splitCounts, startOfToday, todayCards, type QueueCounts,
 } from '../lib/queue'
 import { reviewKeyAction, type KeyTarget } from '../lib/reviewKeys'
+import { nextOnEnter } from '../lib/formKeys'
 import { requestSync } from '../lib/sync'
 import { pageScrollTop, scrollPageTo } from '../lib/scroller'
 import type { CardRecord, DeckRecord, NoteRecord } from '../../shared/types'
@@ -62,6 +63,9 @@ function sizeClass(text: string): string {
 
 interface EditState { noteId: string; expression: string; reading: string; meaning: string; accent: string }
 
+/** 評分後的提示:word 會加上「」並標成日文 */
+interface ToastParts { before?: string; word?: string; after?: string }
+
 /** 翻面後的答案(給讀螢幕唸):正向卡是讀音與意思,反向卡是日文單字與讀音 */
 function answerText(card: CardRecord, note: NoteRecord): string {
   const parts = card.direction === 'reverse' ? [note.expression, note.reading] : [note.reading, note.meaning]
@@ -94,7 +98,10 @@ export default function Review() {
   // 還有幾張,分新卡/學習中/待複習(和首頁的三色計數同一個算法:到期的、今天的新卡、幾分鐘內回來的學習中卡片)
   const [counts, setCounts] = useState<QueueCounts>({ news: 0, learn: 0, rev: 0 })
   const remaining = counts.news + counts.learn + counts.rev
+  const countsLabel = `還有 ${remaining} 張：新卡 ${counts.news}、學習中 ${counts.learn}、待複習 ${counts.rev}`
   const [done, setDone] = useState(false)
+  // 評分存好了、下一張卻沒載入:完成畫面換成「再試一次」,不能說「完成了」
+  const [failed, setFailed] = useState(false)
   const [nextDue, setNextDue] = useState<number | null>(null)
   const [missing, setMissing] = useState(false)
   const [errMsg, setErrMsg] = useState<string | null>(null)
@@ -106,12 +113,13 @@ export default function Review() {
   const [othersDue, setOthersDue] = useState(0)
   // 動作後短暫出現的回饋(評了什麼、多久後再見;或已標為已會/先不學),可立即復原
   // undoable:這則回饋對應復原堆疊最上面那一步,才顯示「復原」(切換設定之類的只是告知)
-  const [toast, setToast] = useState<{ text: string; undoable: boolean } | null>(null)
+  // 訊息拆成前、單字、後三段:單字要標 lang="ja" 才是日文字形(跟著整句的 zh-TW,漢字會變成台版的寫法)
+  const [toast, setToast] = useState<(ToastParts & { undoable: boolean }) | null>(null)
   const toastTimer = useRef(0)
   useEffect(() => () => clearTimeout(toastTimer.current), [])
-  const showToast = useCallback((text: string, undoable = true) => {
-    setToast({ text, undoable })
-    setAnnouncement(text)
+  const showToast = useCallback((parts: ToastParts, undoable = true) => {
+    setToast({ ...parts, undoable })
+    setAnnouncement(`${parts.before ?? ''}${parts.word !== undefined ? `「${parts.word}」` : ''}${parts.after ?? ''}`)
     clearTimeout(toastTimer.current)
     toastTimer.current = window.setTimeout(() => setToast(null), 4500)
   }, [])
@@ -123,6 +131,10 @@ export default function Review() {
   // 這次 session 裡跳過的卡片。只存在記憶體,離開複習畫面就重來 —— 跳過是
   // 「現在不想看」,不是 Anki 的 bury,不該寫進資料庫影響排程。
   const skipped = useRef(new Set<string>())
+  // 找不到字的卡片(note 不見了:同步曾推出這種卡,見 sync.ts 的 holdBack)。這次複習都不再排進來,
+  // 一張壞卡不該擋住整副牌組。不跟 skipped 一起清:清掉的話 loadNext 會一直繞回同一張
+  const missingNotes = useRef(new Set<string>())
+  const [missingCount, setMissingCount] = useState(0)
   // 進度條:這次答了幾次 /(答了幾次 + 照「普通」答完還要幾次)。學習中的卡答完一步還會回來,
   // 只數張數的話會停住;數答題次數,每答一次都往前。0~1
   const answeredCount = useRef(0)
@@ -154,6 +166,8 @@ export default function Review() {
   const [newbie, setNewbie] = useState(false)
   useEffect(() => { void db.review_logs.count().then((n) => setNewbie(n < 30)) }, [])
   const wordRef = useRef<HTMLParagraphElement>(null)
+  const editReadingRef = useRef<HTMLInputElement>(null)
+  const editMeaningRef = useRef<HTMLInputElement>(null)
   const answerRef = useRef<HTMLDivElement>(null)
   const doneRef = useRef<HTMLHeadingElement>(null)
   // 最近一次是用 Tab 移動焦點(true),還是用滑鼠/手指點的(false),見 keyTarget
@@ -181,7 +195,7 @@ export default function Review() {
    * preferCardId:復原時用,讓剛還原的那張卡直接回到眼前,而不是排到佇列尾端。
    * keepProgress:復原已經把進度條放回動作之前的值,這裡不要再算
    */
-  const loadNext = useCallback(async (preferCardId?: string, keepProgress = false) => {
+  const loadNext = useCallback(async (preferCardId?: string, keepProgress = false): Promise<void> => {
     let decks: DeckRecord[]
     if (allMode) {
       // 依名稱排:跨牌組時新卡照這個順序一副一副出,不是照隨機 id
@@ -196,9 +210,12 @@ export default function Review() {
     // 下一張卡的按鈕與排程就用新的,不必離開複習畫面
     applyFsrsSettings(await getFsrsSettings())
     const liveDeckIds = new Set(decks.map((d) => d.id))
-    const cards = allMode
+    // 找不到字的卡在這裡就拿掉(不是只從佇列濾):新卡額度才會補下一張,完成畫面的
+    // 「再學 N 張」和學習中卡片的倒數也不會等一張永遠載不出來的卡
+    const cards = (allMode
       ? (await db.cards.toArray()).filter((c) => liveDeckIds.has(c.deck_id))
       : await db.cards.where('deck_id').equals(deckId!).toArray()
+    ).filter((c) => !missingNotes.current.has(c.id))
     const logs = await db.review_logs.where('reviewed_at').aboveOrEqual(startOfToday()).toArray()
     // 「再學 N 張」的單位:單副是它的每日上限;全部時取最大的那副
     newPerDayRef.current = Math.max(...decks.map((d) => d.new_per_day))
@@ -253,6 +270,7 @@ export default function Review() {
       }
       setCurrent(null)
       setDone(true)
+      setFailed(false)
       setNextDue(nextLearningDue)
       setTick(Date.now())
       // 做完了也不立刻推:完成畫面上還能「復原上一次評分」
@@ -262,10 +280,13 @@ export default function Review() {
     const card = preferred ?? queue[0]
     const note = await db.notes.get(card.note_id)
     if (!note) {
-      setErrMsg('卡片資料缺失')
-      setCurrent(null)
-      setDone(true)
-      return
+      // 每次多記一張、下一輪就不會再拿到它,所以遞迴一定會停
+      missingNotes.current.add(card.id)
+      setMissingCount(missingNotes.current.size)
+      showToast({ before: '有一張卡片的資料不見了，先跳過' }, false)
+      // 加碼一輪的第一張就是它:進度先在這裡歸零(遞迴進去 newRound 已經是 false)
+      if (newRound) { answeredCount.current = 0; showProgress(0) }
+      return loadNext(undefined, keepProgress)
     }
     setCurrent({ card, note, deckName: allMode ? decks.find((d) => d.id === card.deck_id)?.name ?? null : null })
     // 計數算「今天這一輪還要看的」全部,跳過的也算(等一下還會回來)。只算眼前這段佇列的話,
@@ -282,10 +303,11 @@ export default function Review() {
     }
     setShowBack(false)
     setDone(false)
+    setFailed(false)
     setNextDue(null)
     shownAt.current = performance.now()
     scrollPageTo(0, false, true)
-  }, [deckId, allMode, showProgress])
+  }, [deckId, allMode, showProgress, showToast])
 
   // 換到另一個複習(例如完成後按「繼續複習其他牌組」,同一個畫面換網址):這一輪的進度、
   // 加碼、跳過都從頭算,不然進度條一開始就是 80%、上一副的加碼也會帶過來。復原紀錄保留。
@@ -320,8 +342,9 @@ export default function Review() {
     if (cardId === undefined) return
     const el = showBack ? answerRef.current : wordRef.current
     el?.focus({ preventScroll: true })
-    // 只在換卡、翻面、做完時移動(menuOpen/editing 故意不列):選單關掉時由對話框把焦點還給「⋯」
-  }, [cardId, showBack, done])
+    // 只在換卡、翻面、做完時移動(menuOpen/editing 故意不列):選單關掉時由對話框把焦點還給「⋯」。
+    // failed 也列:「再試一次」落到完成畫面時按鈕會消失,焦點要接到新的標題
+  }, [cardId, showBack, done, failed])
 
   // 同步拉到別台對這張卡的改動(那邊複習過、標成已會、刪掉):畫面上的是舊資料,直接換下一張。
   // 自己的評分、復原也會改到這張卡,那段期間 answering 為 true,做完時畫面上已經是新的那份
@@ -332,7 +355,7 @@ export default function Review() {
     if (dialogOpen || liveCard === undefined || current === null || liveCard.id !== current.card.id) return
     if (answering.current || liveCard.updated_at === current.card.updated_at) return
     answering.current = true
-    showToast(`「${current.note.expression}」在其他裝置更新過了，換下一張`, false)
+    showToast({ word: current.note.expression, after: '在其他裝置更新過了，換下一張' }, false)
     void loadNext().finally(() => { answering.current = false })
     // 只在這張卡的資料變了、或對話框關掉時檢查
   }, [liveCard, dialogOpen]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -356,7 +379,7 @@ export default function Review() {
       // 那筆紀錄多半還沒上傳 —— 上傳後就收不回來,別台會多算一次。切到背景時會補推(sync.ts)
       requestSync(SYNC_DELAY_MS)
       // 顯示實際排進去的間隔,不是再算一次的預覽
-      showToast(`「${word}」${RATING_LABELS[rating]} · ${formatInterval(fields.due - log.reviewed_at)}後`)
+      showToast({ word, after: `${RATING_LABELS[rating]} · ${formatInterval(fields.due - log.reviewed_at)}後` })
       try {
         await loadNext()
       } catch {
@@ -364,12 +387,12 @@ export default function Review() {
         // 否則評分按鈕還掛著舊狀態,再按一次會用過期資料重複評分。
         setCurrent(null)
         setDone(true)
-        setErrMsg('載入下一張失敗，請回列表重新進入')
+        setFailed(true)
       }
     } catch (e) {
       if (e instanceof StaleCardError) {
         // 畫面上這張在別台複習過(同步拉下來了):沒有評分,換成資料庫裡現在的佇列
-        showToast(`「${word}」在其他裝置更新過了，換下一張`, false)
+        showToast({ word, after: '在其他裝置更新過了，換下一張' }, false)
         await loadNext().catch(() => {})
       } else {
         setErrMsg(`評分未儲存：${e instanceof Error ? e.message : String(e)}`)
@@ -385,7 +408,7 @@ export default function Review() {
     try {
       skipped.current.add(current.card.id)
       pushUndo({ kind: 'skip', cardId: current.card.id })
-      showToast(`已跳過「${current.note.expression}」`)
+      showToast({ before: '已跳過', word: current.note.expression })
       await loadNext()
     } finally {
       answering.current = false
@@ -406,7 +429,7 @@ export default function Review() {
       pushUndo({ kind: 'suspend', cardId: current.card.id, prev })
       answeredCount.current += 1
       requestSync(SYNC_DELAY_MS)
-      showToast(value === 2 ? `「${word}」已標為會了，不會再出現` : `「${word}」先不學了，牌組頁的「先不學」可以恢復`)
+      showToast({ word, after: value === 2 ? '已標為會了，不會再出現' : '先不學了，牌組頁的「先不學」可以恢復' })
       await loadNext()
     } catch (e) {
       setErrMsg(`標記失敗：${e instanceof Error ? e.message : String(e)}`)
@@ -519,7 +542,7 @@ export default function Review() {
     const next = !autoSpeakRef.current
     setAutoSpeak(next)
     writeAutoSpeak(next)
-    showToast(next ? '翻面時會自動唸讀音' : '已關閉自動唸讀音', false)
+    showToast({ before: next ? '翻面時會自動唸讀音' : '已關閉自動唸讀音' }, false)
   }, [showToast])
   useEffect(() => {
     // 只在翻面(或換卡)時唸;切換開關本身不觸發
@@ -567,6 +590,29 @@ export default function Review() {
       </div>
     )
   }
+  const undoButton = lastAction && (
+    <button className="btn plain" onClick={() => void undo()}>
+      <UndoIcon size={16} />{lastAction.kind === 'rate' ? '復原上一次評分' : '復原上一個動作'}
+    </button>
+  )
+  if (done && failed) {
+    // 不放打勾、不說「完成了」:牌組裡多半還有卡。評分已經存好,再試一次通常就接得上
+    return (
+      <div className="review-done">
+        <p className="visually-hidden" aria-live="polite">{announcement}</p>
+        <h1 ref={doneRef} tabIndex={-1}>沒辦法載入下一張</h1>
+        <p className="err" role="alert">{errMsg ?? '評分已經存好了，但下一張沒有載入。'}</p>
+        <div className="btn-stack">
+          <button className="btn lg" onClick={() => {
+            setErrMsg(null)
+            void loadNext().catch(() => setErrMsg('還是載入不了。評分已經存好了，可以回牌組重新進來。'))
+          }}>再試一次</button>
+          <button className="btn lg secondary" onClick={exit}>回牌組</button>
+          {undoButton}
+        </div>
+      </div>
+    )
+  }
   if (done) {
     const waitMs = nextDue === null ? null : nextDue - tick
     const moreCount = Math.min(newPerDayRef.current > 0 ? newPerDayRef.current : 20, moreNew)
@@ -589,6 +635,8 @@ export default function Review() {
             還有學習中的卡片，{waitMs > 0 ? `${Math.ceil(waitMs / 1000)} 秒後自動繼續` : '正在繼續…'}
           </p>
         ))}
+        {/* 跳過的那張首頁還是會算到期:說一聲,不然兩邊的數字對不上 */}
+        {missingCount > 0 && <p className="done-note">有 {missingCount} 張卡片的資料不見了，這次先跳過</p>}
         <div className="btn-stack">
           {!allMode && othersDue > 0 && (
             <Link to="/review/all" replace className="btn lg">繼續複習其他牌組 · {othersDue}</Link>
@@ -603,11 +651,7 @@ export default function Review() {
             </button>
           )}
           <button className={!allMode && othersDue > 0 ? 'btn lg secondary' : 'btn lg'} onClick={exit}>完成</button>
-          {lastAction && (
-            <button className="btn plain" onClick={() => void undo()}>
-              <UndoIcon size={16} />{lastAction.kind === 'rate' ? '復原上一次評分' : '復原上一個動作'}
-            </button>
-          )}
+          {undoButton}
         </div>
       </div>
     )
@@ -655,8 +699,8 @@ export default function Review() {
           <span style={{ width: `${pct}%` }} />
         </div>
         {/* 和首頁同一套三色:新卡 → 學習中 → 待複習;眼前這張屬於哪一類就畫底線 */}
-        <span className="review-counts" role="img"
-          aria-label={`還有 ${remaining} 張：新卡 ${counts.news}、學習中 ${counts.learn}、待複習 ${counts.rev}`}>
+        {/* title 和 aria-label 同一句:滑鼠移上去看得到三個數字是什麼(Chrome 遇到一樣的 title 不會再唸一次) */}
+        <span className="review-counts" role="img" aria-label={countsLabel} title={countsLabel}>
           {([['news', 'new'], ['learn', 'learn'], ['rev', 'due']] as const).map(([k, dot]) => (
             <span key={k} className={`count${counts[k] === 0 ? ' zero' : ''}${k === kind ? ' current' : ''}`}>
               <span className={`dot ${dot}`} /><b>{counts[k]}</b>
@@ -665,13 +709,13 @@ export default function Review() {
         </span>
         <button className="icon-btn" aria-label="復原上一步" disabled={lastAction === null}
           onClick={() => void undo()} title="復原上一步（U）"><UndoIcon size={21} /></button>
-        <button className="icon-btn" aria-label="更多動作" aria-haspopup="dialog"
+        <button className="icon-btn" aria-label="更多動作" title="更多動作" aria-haspopup="dialog"
           onClick={() => setMenuOpen(true)}><MoreIcon /></button>
         {toast !== null && (!toast.undoable || lastAction !== null) && (
           // 放在頂列裡:直向時照樣固定在底部;橫放時疊在頂列上,位置照頂列(寬螢幕時頂列比畫面窄)算。
           // 不當 live region:同一句已經寫進上面常駐的 aria-live,兩邊都唸會唸兩次
           <div className="toast review-toast">
-            <span>{toast.text}</span>
+            <span>{toast.before}{toast.word !== undefined && <>「<span lang="ja">{toast.word}</span>」</>}{toast.after}</span>
             {toast.undoable && <button className="link" onClick={() => void undo()}>復原</button>}
           </div>
         )}
@@ -686,7 +730,6 @@ export default function Review() {
         {reverse && !showBack ? (
           // 反向卡的正面是中文意思:提示要想的是日文
           <div className="card-face" key={`${card.id}-front`}>
-            <span className="card-prompt">中 → 日</span>
             <p ref={wordRef} tabIndex={-1} className={`expression prompt-text${sizeClass(note.meaning)}`}
               style={charCount(note.meaning)}>{note.meaning}</p>
             <p className="card-hint">日文怎麼說？</p>
@@ -725,9 +768,10 @@ export default function Review() {
       </div>
 
       <ActionSheet open={menuOpen} onClose={() => setMenuOpen(false)} actions={[
-        { label: '編輯這張', icon: <PencilIcon size={20} />, onSelect: openEdit },
-        { label: '跳過，等一下再看', icon: <SkipIcon size={20} />, onSelect: () => void skip() },
-        { label: '已經會了，不用再出現', icon: <CheckIcon size={20} />, onSelect: () => void markSuspended(2) },
+        // 快捷鍵寫在選單裡(只在有實體鍵盤時顯示):不然只有翻到使用說明才知道
+        { label: '編輯這張', icon: <PencilIcon size={20} />, hint: 'E', onSelect: openEdit },
+        { label: '跳過，等一下再看', icon: <SkipIcon size={20} />, hint: 'S', onSelect: () => void skip() },
+        { label: '已經會了，不用再出現', icon: <CheckIcon size={20} />, hint: 'K', onSelect: () => void markSuspended(2) },
         { label: '先不學這個字', icon: <ArchiveIcon size={20} />, onSelect: () => void markSuspended(1) },
         ...(isSpeechSupported() ? [{
           label: autoSpeak ? '關閉自動唸讀音' : '翻面時自動唸讀音', icon: <SpeakerIcon size={20} />, onSelect: toggleAutoSpeak,
@@ -741,24 +785,27 @@ export default function Review() {
         {editing !== null && (
           <form className="form" onSubmit={(e) => { e.preventDefault(); void saveEdit() }}>
             {!showBack && <p className="hint">打開編輯就會看到答案，這張等一下建議按「重來」。</p>}
+            {/* 和牌組頁的編輯面板同一套:單字、讀音按 return 到下一欄,意思、重音按 return 才儲存 */}
             <label className="field"><span className="field-label">單字</span>
-              <input value={editing.expression} lang="ja" maxLength={MAX_FIELD_CHARS}
+              <input value={editing.expression} lang="ja" placeholder="例如 勉強" maxLength={MAX_FIELD_CHARS}
+                enterKeyHint="next" onKeyDown={nextOnEnter(editReadingRef)}
                 onChange={(e) => setEditing({ ...editing, expression: e.target.value })} />
             </label>
-            <label className="field"><span className="field-label">讀音</span>
-              <input value={editing.reading} lang="ja" maxLength={MAX_FIELD_CHARS}
+            <label className="field"><span className="field-label">讀音（可空）</span>
+              <input ref={editReadingRef} value={editing.reading} lang="ja" placeholder="例如 べんきょう" maxLength={MAX_FIELD_CHARS}
+                enterKeyHint="next" onKeyDown={nextOnEnter(editMeaningRef)}
                 onChange={(e) => setEditing({ ...editing, reading: e.target.value })} />
             </label>
             <label className="field"><span className="field-label">意思</span>
-              <input value={editing.meaning} maxLength={MAX_FIELD_CHARS}
+              <input ref={editMeaningRef} value={editing.meaning} placeholder="例如 讀書、用功" maxLength={MAX_FIELD_CHARS} enterKeyHint="done"
                 onChange={(e) => setEditing({ ...editing, meaning: e.target.value })} />
             </label>
-            <label className="field"><span className="field-label">重音</span>
+            <label className="field"><span className="field-label">重音（可空）</span>
               <input value={editing.accent} placeholder="例如 0 或 0,3" autoCapitalize="off" autoCorrect="off" maxLength={MAX_FIELD_CHARS}
                 onChange={(e) => setEditing({ ...editing, accent: e.target.value })} />
             </label>
             {editErr && <p className="err" role="alert">{editErr}</p>}
-            {/* 讓鍵盤的「前往」也能送出 */}
+            {/* 意思、重音欄按 return(鍵盤上的「完成」「前往」)送出 */}
             <button type="submit" hidden />
           </form>
         )}
