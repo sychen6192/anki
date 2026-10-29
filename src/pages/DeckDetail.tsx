@@ -119,6 +119,9 @@ export default function DeckDetail() {
   const [form, setForm] = useState<NoteInput>(EMPTY)
   const [moveTo, setMoveTo] = useState<string | null>(null)
   const [addedLabel, setAddedLabel] = useState<string | null>(null)
+  // 這次打開新增面板後加過字:標題列的鈕是「完成」不是「取消」。不跟 addedLabel 綁在一起 ——
+  // 必填錯誤會清掉綠色那行,但已經加進去的字還在
+  const [addedAny, setAddedAny] = useState(false)
   const [deckName, setDeckName] = useState<string | null>(null)
   const [newPerDay, setNewPerDay] = useState<number | null>(null)
   // 牌組設定面板裡的動作結果(為整副開啟反向卡)
@@ -390,7 +393,7 @@ export default function DeckDetail() {
 
   const openNew = () => {
     lookupSeq.current++
-    setEditingId('new'); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setErrMsg(null); setAccentHint(''); setAccentErr(''); setRequiredErr(null); setLooking(false)
+    setEditingId('new'); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setAddedAny(false); setErrMsg(null); setAccentHint(''); setAccentErr(''); setRequiredErr(null); setLooking(false)
   }
   const openEdit = (n: NoteRecord) => {
     lookupSeq.current++
@@ -406,7 +409,7 @@ export default function DeckDetail() {
   }
   const closeNote = () => {
     lookupSeq.current++
-    setEditingId(null); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setErrMsg(null); setAccentErr(''); setRequiredErr(null); setLooking(false)
+    setEditingId(null); setForm(EMPTY); setMoveTo(null); setAddedLabel(null); setAddedAny(false); setErrMsg(null); setAccentErr(''); setRequiredErr(null); setLooking(false)
   }
 
   const saveNote = () => run(async () => {
@@ -465,6 +468,7 @@ export default function DeckDetail() {
         lookupSeq.current++
         setLooking(false)
         setAddedLabel(form.expression.trim())
+        setAddedAny(true)
         setForm({ ...EMPTY, reversed: form.reversed })
         setAccentHint('')
         setRequiredErr(null)
@@ -833,7 +837,7 @@ export default function DeckDetail() {
       }))} />
 
       <Sheet open={noteSheetOpen} onClose={closeNote} full title={isNew ? '新增卡片' : '編輯卡片'} dirty={noteDirty}
-        cancelLabel={isNew && addedLabel !== null && !noteDirty ? '完成' : '取消'}
+        cancelLabel={isNew && addedAny && !noteDirty ? '完成' : '取消'}
         end={<button type="button" className="btn plain strong" disabled={busy} onClick={() => void saveNote()}>{isNew ? '新增' : '儲存'}</button>}>
         <form className="form note-form" onSubmit={(e) => { e.preventDefault(); void saveNote() }}>
           {isNew && addedLabel !== null && (

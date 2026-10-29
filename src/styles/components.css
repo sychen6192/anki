@@ -31,7 +31,7 @@
 .btn.plain, .link {
   background: none; color: var(--accent); padding: 0 8px; font-weight: 500;
 }
-@media (hover: hover) { .btn.plain:not(:disabled, [aria-disabled="true"]):hover, .link:not(:disabled):hover { background: var(--accent-tint); } }
+@media (hover: hover) { .btn.plain:not(:disabled, [aria-disabled="true"]):hover, .link:not(:disabled, [aria-disabled="true"]):hover { background: var(--accent-tint); } }
 .btn.danger { background: var(--danger-tint); color: var(--danger); }
 @media (hover: hover) { .btn.danger:not(:disabled, [aria-disabled="true"]):hover { background: color-mix(in srgb, var(--danger-tint) 100%, var(--danger) 8%); } }
 .btn.lg { min-height: 52px; font-size: var(--fs-headline); border-radius: var(--radius-button-lg); width: 100%; }
