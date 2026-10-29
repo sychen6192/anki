@@ -130,6 +130,8 @@
 
 /* 分享 */
 .share-sheet { display: flex; flex-direction: column; gap: 14px; }
+/* 按「重試」時鍵盤焦點暫放在這一塊(tabIndex -1),不畫焦點框:跟 .crash h1、.review-done h1 一樣 */
+.share-sheet:focus { outline: none; }
 .share-uploading {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
   min-height: 120px; color: var(--text-2); text-align: center;

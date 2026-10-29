@@ -114,7 +114,8 @@
 }
 .review-actions > * { max-width: 688px; margin: 0 auto; }
 /* 和評分鍵同一個大小與位置:翻面時拇指底下那顆不會長高、換圓角。
-   .btn.lg 是 0,2,0,要寫成三個 class 才蓋得過;display: flex 才會被上面的 margin: 0 auto 置中(inline-flex 不會) */
+   .btn.lg 也設了 min-height 和圓角:寫成 .btn.lg.show-answer(0,3,0),不靠 main.tsx 的載入順序也蓋得過;
+   display: flex 才會被上面的 margin: 0 auto 置中(inline-flex 不會) */
 .btn.lg.show-answer { display: flex; min-height: 60px; border-radius: var(--radius-lg); }
 .show-answer .kbd-hint { font-size: var(--fs-footnote); font-weight: 500; }
 
@@ -160,8 +161,10 @@
 .done-stats { color: var(--text-2); font-size: var(--fs-body); }
 .done-stats b { color: var(--text); font-variant-numeric: tabular-nums; }
 .done-wait, .done-note { color: var(--text-2); font-size: var(--fs-subhead); max-width: 24em; text-wrap: balance; }
-/* 置中的兩行錯誤:不平衡的話第二行只剩「來。」 */
-.review-done .err { max-width: 24em; text-wrap: balance; }
+/* 置中的兩行錯誤:中文字字之間都能斷,只靠 balance 會把斷點挪進詞中間(「存好／了，」)。
+   keep-all 讓中文只在標點、空白斷行,balance 再從這幾個點挑最平均的;
+   anywhere 只是保險:沒有標點的一長串中文還是能斷,不會撐出畫面 */
+.review-done .err { max-width: 24em; word-break: keep-all; overflow-wrap: anywhere; text-wrap: balance; }
 .review-done .btn-stack { width: 100%; max-width: 340px; margin-top: 16px; }
 /* 不調透明度(淡色鈕上只剩 3.3:1):13px、一般字重,已經比 17px 粗體的按鈕字低一階 */
 .btn-note { font-size: var(--fs-footnote); font-weight: 400; }

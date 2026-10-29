@@ -1,12 +1,14 @@
 /* ---------- 牌組(首頁) ---------- */
 
-/* 今天:整頁最重要的一塊,只有一顆主按鈕 */
-.today { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; padding: 18px; }
+/* 今天:整頁最重要的一塊,只有一顆主按鈕。左右 16px:字和下面列表的牌組名稱、「我的牌組」對在同一條線上 */
+.today { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; padding: 18px 16px; }
 /* 不另放「今天」小標:標題自己就講了(今天還有…、今天完成了),區塊也有 aria-label */
 .today-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .today-headline { font-size: var(--fs-title2); font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
 .today-headline b { font-size: var(--fs-large); font-weight: 700; letter-spacing: -0.02em; margin-right: 2px; }
-.today-headline.done { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-title3); color: var(--success); }
+/* balance:320 寬旁邊有連續天數時,「今天沒有要複習的卡」會剩「的卡」一行;只放在這裡,
+   放到整個 .today-headline 會把「今天還有 128 張」拆成「今天還 / 有 128 張」 */
+.today-headline.done { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-title3); color: var(--success); text-wrap: balance; }
 .today-headline.small { font-size: var(--fs-title3); }
 .today-sub { font-size: var(--fs-small); color: var(--text-2); }
 .today-cta { margin-top: 4px; }
@@ -19,6 +21,8 @@
 
 .today + .notice, .notice + .deck-section, .today + .deck-section { margin-top: 16px; }
 .nav-bar + .notice, .large-title + .notice { margin-top: 16px; }
+/* 同步橫幅的「重試」忙碌時是 aria-disabled(焦點才留得住),按了會被擋:游標同 .btn 的 aria-busy,不是手指 */
+.notice .link[aria-busy="true"] { cursor: progress; }
 
 /* 牌組列:點名稱那一大塊進詳情,右邊的小膠囊直接開始複習這一副 */
 .deck-row { padding: 0 12px 0 0; gap: 8px; min-height: 64px; }

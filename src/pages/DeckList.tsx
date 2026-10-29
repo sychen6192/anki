@@ -223,11 +223,16 @@ export default function DeckList() {
           {/* 句號加在這裡:humanizeSyncError 的字也拿去當 toast,那邊不收句號 */}
           <span className="notice-text">超過一天沒同步成功：{humanizeSyncError(String(syncError.value))}。</span>
           <span className="notice-actions">
-            <button className="link" disabled={retrying} onClick={() => void runRetry(async () => {
-              const r = await syncNow() // 成功會清掉 sync_error meta,這條橫幅跟著消失
-              // 還是失敗(或離線)也要有回應,不然會以為沒按到、一直按
-              toast.show(syncMessage(r, '同步完成'))
-            })}>{retrying ? '同步中…' : '重試'}</button>
+            {/* 一直留在畫面上的按鈕,忙碌時用 aria-disabled 不用 disabled(同設定頁的「立即同步」):
+                停用正在按的那顆,鍵盤焦點會掉到頁首,失敗之後也回不到「重試」上 */}
+            <button className="link" aria-disabled={retrying || undefined} aria-busy={retrying || undefined} onClick={() => {
+              if (retrying) return
+              void runRetry(async () => {
+                const r = await syncNow() // 成功會清掉 sync_error meta,這條橫幅跟著消失
+                // 還是失敗(或離線)也要有回應,不然會以為沒按到、一直按
+                toast.show(syncMessage(r, '同步完成'))
+              })
+            }}>{retrying ? '同步中…' : '重試'}</button>
           </span>
         </div>
       )}

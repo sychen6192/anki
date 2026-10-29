@@ -12,7 +12,12 @@
 .stat-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .stat-card-head h2 { font-size: var(--fs-headline); font-weight: 700; }
 .stat-card-note { font-size: var(--fs-footnote); color: var(--text-2); }
-.stat-empty { color: var(--text-2); font-size: var(--fs-subhead); text-align: center; padding: 20px 8px; text-wrap: balance; }
+/* 這幾句都是一兩個短句:keep-all 只在標點(。、「)換行,balance 才不會把「複習」「第一」拆在兩行
+   (跟 deck.css 的 .list-empty .hint 一樣) */
+.stat-empty {
+  color: var(--text-2); font-size: var(--fs-subhead); text-align: center; padding: 20px 8px;
+  word-break: keep-all; overflow-wrap: anywhere; text-wrap: balance;
+}
 
 /* 真實保持率:三個區間並排,低於/高於目標上色 */
 .retention-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -86,7 +91,7 @@
   transition: height .25s cubic-bezier(.2, .8, .2, 1);
 }
 @keyframes bar-grow { from { transform: scaleY(0); } }
-/* 點一根(滑鼠移過去)浮出那天的數字;靠邊的幾根由 Charts.tsx 改成貼齊那根外緣(--tip-x) */
+/* 點一根(滑鼠移過去)浮出那天的數字;左右位置由 Charts.tsx 給:left 和 --tip-x 一起從 0 走到 100% */
 .bar-tip {
   position: absolute; top: -6px; transform: translate(var(--tip-x, -50%), -100%); z-index: 1;
   padding: 4px 8px; border-radius: var(--radius-sm); white-space: nowrap; pointer-events: none;

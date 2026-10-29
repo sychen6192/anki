@@ -24,9 +24,10 @@
 .license-body { display: flex; flex-direction: column; align-items: flex-start; padding: 0 16px 14px; }
 /* 網址緊貼在 <summary> 下面,字只有 20px 高,點高一點就變成把整項收起來。上下各墊 12px 撐到 44px,
    用 padding 不用 min-height:網址斷成兩行時 min-height 就沒有留白了。長網址照樣斷行,不撐寬頁面。
-   圓角給鍵盤焦點框用:框現在包住整個 44px 的範圍,直角的大框像一個輸入框 */
+   圓角給鍵盤焦點框用:框現在包住整個 44px 的範圍,直角的大框像一個輸入框。
+   左右也墊 6px 再用負 margin 抵掉:焦點框不貼著字,字照樣和上面的標題對齊(.license-body 有 16px 內距,框不會被 .list 切掉) */
 .license-body .inline-link {
-  padding: 12px 0; border-radius: var(--radius-sm);
+  padding: 12px 6px; margin: 0 -6px; border-radius: var(--radius-sm);
   font-size: var(--fs-footnote); white-space: normal; overflow-wrap: anywhere;
 }
 /* 條款全文:自動換行,長網址也斷開,窄螢幕不會橫向捲動 */

@@ -21,7 +21,7 @@ import { deckQueue, LEARN_AHEAD_MS, startOfToday, todayCards } from '../lib/queu
 import { nextLearningDue, useNow } from '../lib/useNow'
 import { pageScroller } from '../lib/scroller'
 import { useBusy } from '../lib/useBusy'
-import { nextOnEnter } from '../lib/formKeys'
+import { isImeKey, nextOnEnter } from '../lib/formKeys'
 import { Loading } from '../components/Loading'
 import { SpeakerIcon } from '../components/SpeakerIcon'
 import { PageHeader } from '../components/PageHeader'
@@ -131,6 +131,7 @@ export default function DeckDetail() {
   const meaningField = useRef<HTMLInputElement | null>(null)
   const accentField = useRef<HTMLInputElement | null>(null)
   const batchBar = useRef<HTMLDivElement | null>(null)
+  const sortBtn = useRef<HTMLButtonElement | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [sortOpen, setSortOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -139,6 +140,7 @@ export default function DeckDetail() {
   const [shareOpen, setShareOpen] = useState(false)
   const [shareLink, setShareLink] = useState<string | null>(null)
   const shareInput = useRef<HTMLInputElement | null>(null)
+  const shareBox = useRef<HTMLDivElement | null>(null)
 
   // 搜尋、排序或狀態篩選變了就從頭算起
   useEffect(() => { setVisibleCount(PAGE_SIZE) }, [search, sort, status])
@@ -252,12 +254,14 @@ export default function DeckDetail() {
    * 離開選取模式。上面的「開始複習/新增」會回來,捲到列表中間時眼前的字會往下跳一截:
    * 搜尋列已經捲出畫面的話,把捲動位置補回去。Chrome 的捲動錨定在這裡不作用
    * (.page 的下內距跟著批次列一起變了),Safari 根本沒有。
-   * 按的那顆「完成」會跟著拆掉,焦點會掉到 <body>。focusRow:寬螢幕批次列上的那顆,
-   * 焦點改放到畫面裡第一個字(列會留著,只是換回點了開編輯);導覽列上的那顆換回「‹ 牌組」,
-   * 用鍵盤的人焦點就跟到同一個位置
+   * 按的那顆「完成」會跟著拆掉,焦點會掉到 <body>。用鍵盤或讀螢幕軟體按的(byKey:click 的 detail 是 0,
+   * 或焦點是鍵盤走過去的)才把焦點接住:focusRow 是寬螢幕批次列上的那顆,焦點放到畫面裡第一個字
+   * (列會留著,只是換回點了開編輯);導覽列上的那顆換回「‹ 牌組」,焦點放到那裡。
+   * 滑鼠、手指按的不動焦點:列上藏著一個看不見的焦點,下一次按空白鍵就變成打開那個字,不是捲頁
+   * (見 controls.tsx 的 keyboardFocused、useToast)
    */
-  const exitSelecting = (focusRow = false) => {
-    const viaKeyboard = keyboardFocused()
+  const exitSelecting = (focusRow = false, byKey = false) => {
+    const viaKeyboard = byKey || keyboardFocused()
     const scroller = pageScroller()
     const nav = document.querySelector('.nav-bar')
     // 手機的導覽列固定在上面、蓋著捲動區:看得到的範圍從它底下算起
@@ -267,7 +271,7 @@ export default function DeckDetail() {
     const anchor = rows.find((r) => r.getBoundingClientRect().top >= viewTop) ?? rows[rows.length - 1]
     const before = anchor?.getBoundingClientRect().top
     const keepPlace = (document.querySelector('.list-tools')?.getBoundingClientRect().top ?? 0) < viewTop
-    if (focusRow) anchor?.focus({ preventScroll: true })
+    if (focusRow && viaKeyboard) anchor?.focus({ preventScroll: true })
     flushSync(() => { setSelecting(false); setSelected(new Set()) })
     if (!focusRow && viaKeyboard) document.querySelector<HTMLElement>('.nav-bar .back-btn')?.focus({ preventScroll: true })
     if (keepPlace && scroller !== null && anchor !== undefined && before !== undefined) {
@@ -408,9 +412,13 @@ export default function DeckDetail() {
   const saveNote = () => run(async () => {
     if (!form.expression.trim() || !form.meaning.trim()) {
       // 寫在缺的那一欄底下(以前寫在表單最下面,鍵盤一跳出來就被蓋住,上面又還留著綠色的「已新增…」,
-      // 看起來像存好了,接著打下一個字,這個字就沒加進去)
+      // 看起來像存好了,接著打下一個字,這個字就沒加進去)。
+      // 綠色那行直接清掉,不是有錯時先藏起來:打第一個字錯誤就消失,它要是跟著回來,正在打的那一欄
+      // 會被往下推一截(Safari 沒有捲動錨定,可能推到鍵盤底下),讀螢幕也再唸一次「可以繼續輸入下一個」。
+      // 下一個字新增成功才再出現
       const missing = form.expression.trim() ? 'meaning' : 'expression'
       setRequiredErr(missing)
+      setAddedLabel(null)
       ;(missing === 'meaning' ? meaningField : firstField).current?.focus()
       return
     }
@@ -639,14 +647,24 @@ export default function DeckDetail() {
   // 「全部」又沒有搜尋時不會是空的(空牌組走上面的空狀態)
   const [emptyMsg, emptyHint]: readonly [string, string?] = search !== '' ? [`找不到「${search}」`]
     : status === 'all' ? [''] : EMPTY_STATUS_TEXT[status]
+  /**
+   * 換狀態篩選。moveFocus:用鍵盤換的,焦點跟著走 —— 方向鍵停到新的那顆 chip。
+   * 「全部」又沒有已會/先不學時整排 chip 會收掉:焦點交給旁邊的排序鈕(搜尋框會叫出 iPhone 鍵盤)。
+   * 滑鼠、手指點的不動焦點(見 controls.tsx 的 keyboardFocused)
+   */
+  const pickStatus = (key: 'all' | NoteStatus, moveFocus: boolean, chip?: HTMLButtonElement) => {
+    setStatus(key)
+    if (!moveFocus) return
+    if (key === 'all' && !hasParked) sortBtn.current?.focus()
+    else chip?.focus()
+  }
   /** 狀態 chip 是一組單選:左右鍵換一個(和 Segmented 一樣),Tab 只停在選中的那顆 */
   const onChipsKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
     e.preventDefault()
     const i = statusChips.findIndex(([k]) => k === status)
     const next = (i + (e.key === 'ArrowRight' ? 1 : statusChips.length - 1)) % statusChips.length
-    setStatus(statusChips[next][0])
-    e.currentTarget.querySelectorAll<HTMLButtonElement>('.chip')[next]?.focus()
+    pickStatus(statusChips[next][0], true, e.currentTarget.querySelectorAll<HTMLButtonElement>('.chip')[next])
   }
 
   return (
@@ -654,7 +672,7 @@ export default function DeckDetail() {
       <PageHeader
         title={deck.name}
         back={selecting ? undefined : { to: '/', label: '牌組' }}
-        leading={selecting ? <button className="btn plain" onClick={() => exitSelecting()}>完成</button> : undefined}
+        leading={selecting ? <button className="btn plain" onClick={(e) => exitSelecting(false, e.detail === 0)}>完成</button> : undefined}
         actions={selecting ? (
           <button className="btn plain" onClick={() => setSelected(allSelected ? new Set() : new Set(filtered.map((n) => n.id)))}>
             {allSelected ? '取消全選' : '全選'}
@@ -715,23 +733,23 @@ export default function DeckDetail() {
           <div className="list-tools">
             <div className="search-field">
               <SearchIcon />
-              {/* 按鍵盤的「搜尋」就收起鍵盤,結果才不會被擋住一半 */}
+              {/* 按鍵盤的「搜尋」就收起鍵盤,結果才不會被擋住一半(日文選字時的 Enter 不算) */}
               <input type="search" placeholder="搜尋單字、讀音或意思" value={search} aria-label="搜尋卡片" enterKeyHint="search"
                 onChange={(e) => setSearch(e.target.value)}
-                // Safari 用 Enter 確定日文選字時,keydown 的 isComposing 已經是 false,只剩 keyCode 229 看得出來
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) e.currentTarget.blur() }} />
+                onKeyDown={(e) => { if (e.key === 'Enter' && !isImeKey(e)) e.currentTarget.blur() }} />
               {search !== '' && (
                 <button className="search-clear" aria-label="清除搜尋" onClick={() => setSearch('')}><CloseIcon size={16} /></button>
               )}
             </div>
-            <button className="icon-btn filled" aria-label={`排序：${SORTS.find(([k]) => k === sort)?.[1]}`}
+            <button ref={sortBtn} className="icon-btn filled" aria-label={`排序：${SORTS.find(([k]) => k === sort)?.[1]}`}
               onClick={() => setSortOpen(true)}><SortIcon /></button>
           </div>
           {(hasParked || status !== 'all') && (
             <div className="chips" role="radiogroup" aria-label="狀態篩選" onKeyDown={onChipsKeyDown}>
               {statusChips.map(([key, label, count]) => (
                 <button key={key} type="button" role="radio" aria-checked={status === key} tabIndex={status === key ? 0 : -1}
-                  className={`chip${status === key ? ' active' : ''}`} onClick={() => setStatus(key)}>
+                  className={`chip${status === key ? ' active' : ''}`}
+                  onClick={(e) => pickStatus(key, e.detail === 0 || keyboardFocused(e.currentTarget))}>
                   {label}<span className="chip-count">{count}</span>
                 </button>
               ))}
@@ -790,7 +808,7 @@ export default function DeckDetail() {
       {selecting && (
         <div ref={batchBar} className="batch-bar" role="region" aria-label="批次操作">
           {/* 寬螢幕的導覽列會跟著內容捲走(手機上是固定的,那裡已經有「完成」):捲到一半也要找得到出口 */}
-          <button type="button" className="btn sm plain batch-done" onClick={() => exitSelecting(true)}>完成</button>
+          <button type="button" className="btn sm plain batch-done" onClick={(e) => exitSelecting(true, e.detail === 0)}>完成</button>
           <span className="batch-count">已選 <b>{selected.size}</b> 個字</span>
           <div className="batch-actions">
             <button className="btn sm" disabled={busy || selected.size === 0} onClick={(e) => void applyStatus(2, e.detail === 0)}>已經會了</button>
@@ -818,8 +836,7 @@ export default function DeckDetail() {
         cancelLabel={isNew && addedLabel !== null && !noteDirty ? '完成' : '取消'}
         end={<button type="button" className="btn plain strong" disabled={busy} onClick={() => void saveNote()}>{isNew ? '新增' : '儲存'}</button>}>
         <form className="form note-form" onSubmit={(e) => { e.preventDefault(); void saveNote() }}>
-          {/* 有必填的錯誤時先收起來:綠色的「已新增」還在,看起來像這一個也存好了 */}
-          {isNew && addedLabel !== null && requiredErr === null && (
+          {isNew && addedLabel !== null && (
             <p className="added-line" role="status"><CheckIcon size={16} />已新增「{addedLabel}」，可以繼續輸入下一個</p>
           )}
           <label className="field"><span className="field-label">單字</span>
@@ -930,7 +947,7 @@ export default function DeckDetail() {
       <Sheet open={shareOpen} onClose={closeShare} title="分享牌組"
         start={<span />}
         end={<button type="button" className="btn plain strong" onClick={closeShare}>完成</button>}>
-        <div className="share-sheet">
+        <div className="share-sheet" ref={shareBox} tabIndex={-1}>
           <p className="hint">朋友打開連結就能匯入「{deck.name}」的單字，不含你的複習進度。連結半年後失效。</p>
           {shareLink === null ? (
             <div className="share-uploading">
@@ -939,7 +956,13 @@ export default function DeckDetail() {
                 {!shareFailed && <span className="spinner" aria-hidden="true" />}{shareMsg ?? '準備中…'}
               </p>
               {shareFailed && shareCanRetry && (
-                <button type="button" className="btn secondary" onClick={() => void shareDeck()}>重試</button>
+                // 「重試」一按就收掉(開始上傳),連結出來時狀態那行也收掉;只有面板這一塊從上傳、失敗到成功都在。
+                // 用鍵盤、讀螢幕按的,焦點先停在這一塊,不掉到 <body>(Tab 一下就回到「重試」或連結)。
+                // 不交給「完成」:再按一次 Enter 就把面板關了。滑鼠、手指按的不動焦點
+                <button type="button" className="btn secondary" onClick={(e) => {
+                  if (e.detail === 0 || keyboardFocused()) shareBox.current?.focus({ preventScroll: true })
+                  void shareDeck()
+                }}>重試</button>
               )}
             </div>
           ) : (

@@ -1,4 +1,4 @@
-import { Component, createRef, type ErrorInfo, type ReactNode } from 'react'
+import { Component, type ErrorInfo, type ReactNode } from 'react'
 
 interface Props {
   children: ReactNode
@@ -13,21 +13,16 @@ interface State { error: Error | null }
  */
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { error: null }
-  // 出錯時焦點移到標題:不然焦點留在 body,讀螢幕什麼都不唸,不知道頁面壞了
-  private heading = createRef<HTMLHeadingElement>()
+  // 錯誤畫面一掛上去就把焦點移到標題:不然焦點留在 body,讀螢幕什麼都不唸,不知道頁面壞了。
+  // 不在 componentDidUpdate 比對前後狀態:換頁時出錯會先被 resetKey 清掉再錯一次,比對會漏掉(焦點留在 body)
+  private focusHeading = (el: HTMLHeadingElement | null) => { el?.focus() }
 
   static getDerivedStateFromError(error: Error): State {
     return { error }
   }
 
-  // 一打開 app 就出錯時,錯誤畫面是第一次 render,走的是這裡不是 componentDidUpdate
-  componentDidMount() {
-    if (this.state.error !== null) this.heading.current?.focus()
-  }
-
-  componentDidUpdate(prev: Props, prevState: State) {
+  componentDidUpdate(prev: Props) {
     if (this.state.error !== null && prev.resetKey !== this.props.resetKey) this.setState({ error: null })
-    else if (prevState.error === null && this.state.error !== null) this.heading.current?.focus()
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -38,7 +33,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!this.state.error) return this.props.children
     return (
       <div className="crash">
-        <h1 ref={this.heading} tabIndex={-1}>出了點問題</h1>
+        <h1 ref={this.focusHeading} tabIndex={-1}>出了點問題</h1>
         <p className="hint">你的資料還在本機，沒有遺失。重新載入通常就能繼續。</p>
         <div className="btn-stack">
           <button className="btn" onClick={() => window.location.reload()}>重新載入</button>

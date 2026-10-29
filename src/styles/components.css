@@ -39,8 +39,9 @@
 .btn.block { width: 100%; }
 .btn:disabled, .btn[aria-disabled="true"] { opacity: var(--disabled-opacity); cursor: default; transform: none; }
 /* 正在跑的那顆(aria-busy)不調淡:淡掉的白字只剩 1.8:1,查重音那幾秒唯一的進度看起來像按壞了。
+   用 disabled 或 aria-disabled 停用的都算(設定頁的「立即同步」忙碌時留著焦點,用的是 aria-disabled);
    同時被 busy 停用的其他按鈕照樣調淡 */
-.btn[aria-busy="true"]:disabled { opacity: 1; cursor: progress; }
+.btn[aria-busy="true"]:is(:disabled, [aria-disabled="true"]) { opacity: 1; cursor: progress; }
 /* 按鈕裡的轉圈用字的顏色(實心主色鈕上 --accent 的那一截看不見);
    flex-shrink: 0:長字換行時空的 flex 子元素會被擠成橢圓 */
 .btn .spinner { flex-shrink: 0; border-color: color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; }
@@ -92,8 +93,6 @@
 /* 說明句子短:text-wrap: pretty 避免最後一行只剩一兩個字(「…保持 / 率」。) */
 .list-footer { font-size: var(--fs-footnote); color: var(--text-2); padding: 7px 16px 0; line-height: 1.5; text-wrap: pretty; }
 .list-footer + .list-footer { padding-top: 4px; }
-/* footer 只有一塊播報區、而且現在是空的(例如設定頁的同步區):收成 0 高,不在列表底下多留 7px */
-.list-footer:has(> [role="status"]:only-child:empty) { padding: 0; }
 .list {
   list-style: none; padding: 0;
   background: var(--surface); border-radius: var(--radius);
@@ -302,7 +301,13 @@ input.switch:disabled { opacity: var(--disabled-opacity); cursor: default; }
   font-size: var(--fs-subhead); line-height: 1.5;
 }
 .notice > .notice-text { flex: 1; min-width: 12em; text-wrap: pretty; }
-.notice .notice-actions { display: flex; gap: 4px; align-items: center; margin-left: auto; }
+/* margin-block:連結框(下面 .notice .link 的 min-height 32px)比一行字(.notice 的 1.5 行高)高,
+   上下各收半個差,連結的字就對齊第一行的中間,不往下掉 5px;整條照樣 flex-start,說明換成好幾行時
+   動作還是靠著第一行。兩個數字要一起改 */
+.notice .notice-actions {
+  display: flex; gap: 4px; align-items: center; margin-left: auto;
+  margin-block: calc((1.5em - 32px) / 2);
+}
 /* 淡色底上的連結用深一階的 --accent-text,疊在灰底上才有 4.5:1 */
 .notice .link { min-height: 32px; font-weight: 600; color: var(--accent-text); }
 /* 淺色:滑過去時再疊一層淡主色只剩 4.4:1,改成提亮(6:1,和提示條還分得出來);

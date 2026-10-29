@@ -15,8 +15,8 @@ export function DayBars({ data, color, unit, label, today }: {
   data: DayCount[]; color: string; unit: string; label: string; today: 'start' | 'end'
 }) {
   const [selected, setSelected] = useState<number | null>(null)
-  // 手指按下去的那一格;移到別格就算在滑,放開時不再當成點一下
-  const gesture = useRef<{ start: number; moved: boolean } | null>(null)
+  // 手指按下去的位置、那一格、當時選著哪根;左右移超過 8px 才算在滑,滑過之後放開就不是點一下
+  const gesture = useRef<{ x: number; y: number; start: number; prev: number | null; moved: boolean } | null>(null)
   const ticks = niceTicks(Math.max(0, ...data.map((d) => d.count)))
   const top = ticks[ticks.length - 1]
   const n = data.length
@@ -24,11 +24,9 @@ export function DayBars({ data, color, unit, label, today }: {
   const todayIndex = today === 'end' ? last : 0
   const current = selected ?? todayIndex
   const pick = selected === null ? null : data[selected]
-  // 提示框置中在那根上面;最靠邊的三根改成貼齊那根的外緣往內長,不會跑出圖外、也不會離那根太遠
-  const tip = selected === null ? null
-    : selected < 3 ? { left: selected / n, x: '0' }
-      : selected > n - 4 ? { left: (selected + 1) / n, x: '-100%' }
-        : { left: (selected + 0.5) / n, x: '-50%' }
+  // 提示框跟著那根從左滑到右:那根在提示框裡的位置 = 那根在整張圖裡的位置,
+  // 所以永遠在那根上面、不會跑出圖外;也不會在「貼邊」換成「置中」的那根往回跳
+  const tip = selected === null ? null : (selected + 0.5) / n
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === 'Escape' && selected !== null) { e.preventDefault(); setSelected(null); return }
@@ -58,22 +56,33 @@ export function DayBars({ data, color, unit, label, today }: {
         aria-valuetext={`${data[current].day}，${data[current].count} ${unit}`}
         onKeyDown={onKeyDown} onBlur={() => setSelected(null)}
         // 手指:點一下出現、再點同一根收起來;左右滑一路換。上下拖是捲頁面,瀏覽器會送 pointercancel
-        onPointerDown={(e) => { if (e.pointerType !== 'mouse') gesture.current = { start: indexAt(e), moved: false } }}
+        onPointerDown={(e) => {
+          if (e.pointerType !== 'mouse') gesture.current = { x: e.clientX, y: e.clientY, start: indexAt(e), prev: selected, moved: false }
+        }}
         onPointerMove={(e) => {
           const g = gesture.current
           if (!g || e.pointerType === 'mouse') return
-          const i = indexAt(e)
-          if (i !== g.start) g.moved = true
-          if (g.moved) setSelected(i)
+          // 瀏覽器決定要捲頁面之前會先送幾個 move,手指也一定會飄;一格只有 7–10px,
+          // 飄幾 px 就跨格。明顯往左右滑才開始換,不然往上捲頁面會留下一根選著的
+          if (!g.moved) {
+            const dx = Math.abs(e.clientX - g.x)
+            if (dx < 8 || dx <= Math.abs(e.clientY - g.y)) return
+            g.moved = true
+          }
+          setSelected(indexAt(e))
         }}
         onPointerUp={(e) => {
           const g = gesture.current
           gesture.current = null
           if (!g || e.pointerType === 'mouse' || g.moved) return
-          const i = indexAt(e)
-          setSelected((s) => (s === i ? null : i))
+          setSelected((s) => (s === g.start ? null : g.start))
         }}
-        onPointerCancel={() => { gesture.current = null }}>
+        onPointerCancel={() => {
+          // 瀏覽器最後還是拿去捲頁面:滑到一半換過的那根還原回去
+          const g = gesture.current
+          gesture.current = null
+          if (g?.moved) setSelected(g.prev)
+        }}>
         <div className="bars-grid" aria-hidden="true">
           {ticks.slice(1).map((t) => <span key={t} style={{ bottom: `${(t / top) * 100}%` }} />)}
         </div>
@@ -84,7 +93,7 @@ export function DayBars({ data, color, unit, label, today }: {
           </div>
         ))}
         {pick !== null && tip !== null && (
-          <div className="bar-tip" aria-hidden="true" style={{ left: `${tip.left * 100}%`, '--tip-x': tip.x } as CSSProperties}>
+          <div className="bar-tip" aria-hidden="true" style={{ left: `${tip * 100}%`, '--tip-x': `${-tip * 100}%` } as CSSProperties}>
             {pick.day} · <b>{pick.count}</b> {unit}
           </div>
         )}

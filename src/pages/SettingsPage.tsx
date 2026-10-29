@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import Dexie, { type ObservabilitySet } from 'dexie'
@@ -22,8 +22,9 @@ import { readAutoSpeak, writeAutoSpeak } from '../lib/speak'
 import { clampRetention, getFsrsSettings, saveFsrsSettings, MAX_RETENTION_PCT, MIN_RETENTION_PCT } from '../lib/fsrsSettings'
 import { buildTrainingSet, optimizeParameters, MIN_REVIEWS_TO_OPTIMIZE, RECOMMENDED_REVIEWS } from '../lib/fsrsOptimizer'
 import { useBusy } from '../lib/useBusy'
+import { isImeKey } from '../lib/formKeys'
 import { PageHeader } from '../components/PageHeader'
-import { ListSection, Segmented, Switch } from '../components/controls'
+import { ListSection, Segmented, softDisabled, Switch } from '../components/controls'
 import { ActionSheet, Sheet } from '../components/Sheet'
 import { useConfirm } from '../components/Confirm'
 import { AlertIcon, BookIcon, CheckIcon, ChevronRightIcon, DownloadIcon, FileIcon, KeyIcon, SyncIcon, UploadIcon } from '../components/icons'
@@ -43,9 +44,10 @@ const maskKey = (key: string) => key.replace(/[^-]/g, '•')
 
 /**
  * 動作的結果。tone:done = 做完了(前面打勾)、error = 沒做成(紅字);沒有 tone 的是進行中或提醒。
- * 以前全部同一個樣子,「還原失敗」看起來和「還原完成」一樣,掃一眼不會發現什麼都沒發生
+ * 以前全部同一個樣子,「還原失敗」看起來和「還原完成」一樣,掃一眼不會發現什麼都沒發生。
+ * spoken:只唸不顯示、接在字後面的補充(原因畫面上別處已經寫了,眼睛不必看兩次,讀螢幕卻要一起聽到)
  */
-interface Status { text: string; tone?: 'done' | 'error' }
+interface Status { text: string; tone?: 'done' | 'error'; spoken?: string }
 const NO_STATUS: Status = { text: '' }
 const okMsg = (text: string): Status => ({ text, tone: 'done' })
 const failMsg = (text: string): Status => ({ text, tone: 'error' })
@@ -60,7 +62,12 @@ const toneClass = (m: Status) => (m.tone === 'error' ? ' error' : '')
  * 剛插進頁面就帶著字的 role=status,iOS VoiceOver 常常不唸(見 controls.tsx 的 useToast)
  */
 function StatusText({ status }: { status: Status }) {
-  return <>{status.tone === 'done' && <CheckIcon size={14} />}{status.text}</>
+  return (
+    <>
+      {status.tone === 'done' && <CheckIcon size={14} />}{status.text}
+      {status.spoken !== undefined && <span className="visually-hidden">：{status.spoken}</span>}
+    </>
+  )
 }
 
 export default function SettingsPage() {
@@ -110,7 +117,10 @@ export default function SettingsPage() {
     && (normalizeSyncKey(input).key === currentSpace || input.trim() === currentSpace)
   // 手打的金鑰不像產生器的格式(可能打錯,也可能是舊版自訂的):提醒但不擋
   const keyLooksOff = keyInput.trim() !== '' && !normalizeSyncKey(keyInput).standard
+  // 「換成這組」現在按了也沒用(還沒打、打的就是目前這組):按鈕和輸入框的 return 看同一個條件
+  const cannotSwitch = keyInput.trim() === '' || isCurrentKey(keyInput)
   const closeKeySheet = () => setKeyOpen(false)
+  const doneRef = useRef<HTMLButtonElement>(null)
   // 打了金鑰還沒用上:首頁做同一件事的面板,右上角是套用金鑰的「連上」,這裡的「完成」卻默默丟掉,會以為同步壞了。
   // 正在用那組(busy)就不問:關掉面板,那次連線照樣跑完。Esc、點背景由 Sheet 的 dirty 問
   const keyUnsent = !busy && keyInput.trim() !== ''
@@ -179,9 +189,12 @@ export default function SettingsPage() {
     try {
       setMsg(plainMsg('同步中…'))
       const r = await syncNow()
-      // 帶著錯誤的失敗,syncNow 已經寫進 sync_error,上面那一列「上次同步沒成功：…」就是原因:這裡不再抄一次。
+      // 帶著錯誤的失敗,syncNow 已經寫進 sync_error,上面那一列「上次同步沒成功：…」就是原因:畫面上不再抄一次。
+      // 讀螢幕照樣唸原因(spoken):那一列不是播報區,只聽到「沒有同步成功」還得自己往回找為什麼。
       // 不說「又試了一次」:按的可能是第一次
-      setMsg(r.error !== undefined ? failMsg('沒有同步成功，原因寫在上面') : syncedMsg(r, '同步完成'))
+      setMsg(r.error !== undefined
+        ? { ...failMsg('沒有同步成功，原因寫在上面'), spoken: humanizeSyncError(r.error) }
+        : syncedMsg(r, '同步完成'))
     } finally {
       setSyncing(false)
     }
@@ -232,6 +245,9 @@ export default function SettingsPage() {
     const key = generateSyncKey()
     await dropDeletedLastSpace()
     await adoptSyncSpace(key)
+    // 金鑰用上了才清掉輸入框(同 mergeInto):剛才打到一半的字留著,會跑到同步開啟後的「換成另一組金鑰」裡,
+    // 按「完成」還會問要不要捨棄、叫人按「換成這組」—— 剛開始同步就被指去清空這台
+    setKeyInput('')
     setShowKey(true)
     setMsg(plainMsg('已開始同步，上傳中…'))
     const r = await syncNow()
@@ -511,6 +527,15 @@ export default function SettingsPage() {
     return () => { off = true; clearTimeout(timer); Dexie.on.storagemutated.unsubscribe(onChange) }
   }, [backupFile])
 
+  // 面板裡按的那一列做完就不在了(刪除雲端資料、開始同步、連上金鑰之後整塊換掉,換成新金鑰後那一區收起來):
+  // 焦點會掉到 body,放到「完成」。要在換掉之後才看:換掉的是 liveQuery 讀到新空間的那一次重繪,
+  // 比動作做完、寫出結果還晚,動作裡排 requestAnimationFrame 常常還沒換
+  useEffect(() => {
+    if (!keyOpen) return
+    const a = document.activeElement
+    if (a === null || a === document.body) doneRef.current?.focus()
+  }, [keyOpen, localOnly, lastSpace, legacyKey])
+
   const copyKey = () => {
     if (!currentSpace) return
     const key = currentSpace
@@ -522,8 +547,8 @@ export default function SettingsPage() {
       <PageHeader title="設定" />
 
       {/* 同步放最前面:換裝置、看金鑰、確認有沒有同步,是最常來設定頁做的事。
-          結果的播報區一直掛著(空的時候 footer 收成 0 高,見 components.css),換字才唸得到 */}
-      <ListSection header="同步" withIcons footer={
+          結果的播報區一直掛著(空的時候 footer 收成 0 高,見 settings.css),換字才唸得到 */}
+      <ListSection header="同步" className="sync-section" withIcons footer={
         <span className={`sync-status${toneClass(msg)}`} role="status" aria-live="polite"><StatusText status={msg} /></span>
       }>
         <div className="row">
@@ -540,8 +565,8 @@ export default function SettingsPage() {
           {!localOnly && (
             // 一直留在畫面上的按鈕,忙碌時用 aria-disabled 不用 disabled(理由見「下載完整備份」):
             // 停用正在按的那顆,鍵盤焦點會掉到頁首;按確認框的「取消」之後焦點也回不到這顆上
-            <button type="button" className="btn sm tinted" aria-disabled={busy || undefined} aria-busy={syncing || undefined}
-              onClick={() => { if (!busy) void doSync() }}>{syncing ? '同步中…' : '立即同步'}</button>
+            <button type="button" className="btn sm tinted" {...softDisabled(busy, () => void doSync())}
+              aria-busy={syncing || undefined}>{syncing ? '同步中…' : '立即同步'}</button>
           )}
         </div>
         {syncError !== undefined && (
@@ -577,18 +602,14 @@ export default function SettingsPage() {
           <span className="stepper" role="group" aria-label="目標保持率">
             {/* 到了上下限也只是 aria-disabled:按到 97% 時焦點還在「提高」上,接著按 Shift+Tab 就到「降低」 */}
             <button type="button" aria-label="降低"
-              aria-disabled={busy || retentionPct === null || retentionPct <= MIN_RETENTION_PCT || undefined}
-              onClick={() => {
-                if (busy || retentionPct === null || retentionPct <= MIN_RETENTION_PCT) return
-                void saveRetention(retentionPct - 1)
-              }}>−</button>
+              {...softDisabled(busy || retentionPct === null || retentionPct <= MIN_RETENTION_PCT, () => {
+                if (retentionPct !== null) void saveRetention(retentionPct - 1)
+              })}>−</button>
             <output aria-live="polite">{retentionPct === null ? '…' : `${retentionPct}%`}</output>
             <button type="button" aria-label="提高"
-              aria-disabled={busy || retentionPct === null || retentionPct >= MAX_RETENTION_PCT || undefined}
-              onClick={() => {
-                if (busy || retentionPct === null || retentionPct >= MAX_RETENTION_PCT) return
-                void saveRetention(retentionPct + 1)
-              }}>+</button>
+              {...softDisabled(busy || retentionPct === null || retentionPct >= MAX_RETENTION_PCT, () => {
+                if (retentionPct !== null) void saveRetention(retentionPct + 1)
+              })}>+</button>
           </span>
         </div>
         <label className="row">
@@ -602,9 +623,7 @@ export default function SettingsPage() {
 
       <ListSection header="排程參數" footer={
         <>
-          {/* 說明要包成元素:components.css「footer 只有一塊空的播報區就收成 0 高」用 :only-child 判斷,
-              看不到純文字,沒包的話有說明的 footer 也會被收掉留白、貼著列表、不縮排(備份、進階同) */}
-          <span>用自己的複習紀錄調整排程，複習 {RECOMMENDED_REVIEWS} 次以上比較準；之後每累積一陣子再跑一次。跑的時候會佔滿 CPU 幾秒到一分鐘。</span>
+          用自己的複習紀錄調整排程，複習 {RECOMMENDED_REVIEWS} 次以上比較準；之後每累積一陣子再跑一次。跑的時候會佔滿 CPU 幾秒到一分鐘。
           <span className={`footer-status${toneClass(fsrsMsg)}`} role="status" aria-live="polite"><StatusText status={fsrsMsg} /></span>
         </>
       }>
@@ -619,8 +638,7 @@ export default function SettingsPage() {
         {/* 紀錄還不夠時只淡標題(unavailable):副標題寫的是什麼時候能用,整列調淡只剩 1.81:1。
             用 aria-disabled 不用 disabled:Tab 到得了、讀螢幕唸得到那一句;忙碌時一樣,焦點才不會掉到頁首 */}
         <button type="button" className={`row accent${canOptimize ? '' : ' unavailable'}`}
-          aria-disabled={busy || fsrs === undefined || !canOptimize || undefined}
-          onClick={() => { if (!busy && fsrs !== undefined && canOptimize) void optimize() }}>
+          {...softDisabled(busy || fsrs === undefined || !canOptimize, () => void optimize())}>
           <span className="row-main">
             <span className="row-title">用我的複習紀錄最佳化</span>
             <span className="row-subtitle">
@@ -631,8 +649,7 @@ export default function SettingsPage() {
           </span>
         </button>
         {fsrs !== undefined && fsrs.w !== null && (
-          <button type="button" className="row accent" aria-disabled={busy || undefined}
-            onClick={() => { if (!busy) void resetParams() }}>還原預設參數</button>
+          <button type="button" className="row accent" {...softDisabled(busy, () => void resetParams())}>還原預設參數</button>
         )}
       </ListSection>
 
@@ -645,20 +662,18 @@ export default function SettingsPage() {
 
       <ListSection header="備份" withIcons footer={
         <>
-          <span>備份是一個 JSON 檔，包含所有牌組、卡片和複習紀錄。</span>
+          備份是一個 JSON 檔，包含所有牌組、卡片和複習紀錄。
           <span className={`footer-status${toneClass(backupMsg)}`} role="status" aria-live="polite"><StatusText status={backupMsg} /></span>
         </>
       }>
         {backupFile === null ? (
           // aria-disabled 而不是 disabled:停用正在按的按鈕,鍵盤與讀螢幕的焦點會掉到頁首
-          <button type="button" className="row accent" aria-disabled={busy || undefined}
-            onClick={() => { if (!busy) void prepareBackup() }}>
+          <button type="button" className="row accent" {...softDisabled(busy, () => void prepareBackup())}>
             <span className="row-icon"><DownloadIcon size={17} /></span>下載完整備份
           </button>
         ) : (
           // 同一次點擊裡叫出分享面板(存到「檔案」、AirDrop、傳給別的 App)
-          <button type="button" className="row accent" aria-disabled={busy || undefined}
-            onClick={() => { if (!busy) void saveBackup(backupFile) }}>
+          <button type="button" className="row accent" {...softDisabled(busy, () => void saveBackup(backupFile))}>
             <span className="row-icon"><DownloadIcon size={17} /></span>
             <span className="row-main">
               <span className="row-title">儲存備份檔</span>
@@ -692,12 +707,11 @@ export default function SettingsPage() {
       {!localOnly && (
         <ListSection header="進階" footer={
           <>
-            <span>資料怪怪的時候用：清掉這台，再用目前的金鑰從雲端重新下載。</span>
+            資料怪怪的時候用：清掉這台，再用目前的金鑰從雲端重新下載。
             <span className={`footer-status${toneClass(resetMsg)}`} role="status" aria-live="polite"><StatusText status={resetMsg} /></span>
           </>
         }>
-          <button type="button" className="row destructive" aria-disabled={busy || undefined}
-            onClick={() => { if (!busy) void doClearLocal() }}>
+          <button type="button" className="row destructive" {...softDisabled(busy, () => void doClearLocal())}>
             清空這台並重新下載
           </button>
         </ListSection>
@@ -705,9 +719,10 @@ export default function SettingsPage() {
 
       <Sheet open={keyOpen} onClose={closeKeySheet} title="同步金鑰" full dirty={keyUnsent}
         start={<span />}
-        end={<button type="button" className="btn plain strong" onClick={() => void finishKeySheet()}>完成</button>}>
+        end={<button ref={doneRef} type="button" className="btn plain strong" onClick={() => void finishKeySheet()}>完成</button>}>
         {/* 面板開著時底下的頁面是 inert,同步區的播報區唸不到:面板自己要一塊。放在兩種內容外面,
-            「產生新金鑰」之後內容整個換掉,這塊還是同一個節點。畫面上那一行是給眼睛看的(aria-hidden,不唸兩次) */}
+            「產生新金鑰」之後內容整個換掉,這塊還是同一個節點。畫面上那一行不是播報區(不會唸兩次),
+            但也不藏起來:結果一直留著,摸到那一行、從按鈕往下滑都要讀得到 */}
         <p className="visually-hidden" aria-live="polite">{msg.text}</p>
         {localOnly ? (
           <div className="key-sheet">
@@ -728,11 +743,11 @@ export default function SettingsPage() {
               {keyLooksOff && <p className="field-hint">這不像字卡產生的金鑰，確定沒打錯？</p>}
               <button type="submit" className="btn lg tinted" disabled={busy || keyInput.trim() === ''}>使用這組金鑰</button>
             </form>
-            {msg.text !== '' && <p className={`hint${toneClass(msg)}`} aria-hidden="true"><StatusText status={msg} /></p>}
+            {msg.text !== '' && <p className={`hint${toneClass(msg)}`}><StatusText status={msg} /></p>}
             {lastSpace ? (
               <ListSection footer="停止同步時，雲端還留著一份，還在用這組金鑰的其他裝置同步的也是這份。刪掉之後這台的資料不受影響，但那些裝置會停止同步，這組金鑰也不能再用。">
-                <button type="button" className="row destructive" aria-disabled={busy || undefined}
-                  onClick={() => { if (!busy) void deleteCloud(lastSpace, false) }}>刪除之前的雲端資料</button>
+                <button type="button" className="row destructive"
+                  {...softDisabled(busy, () => void deleteCloud(lastSpace, false))}>刪除之前的雲端資料</button>
               </ListSection>
             ) : null}
           </div>
@@ -745,11 +760,10 @@ export default function SettingsPage() {
                 <button type="button" className="link" onClick={copyKey}>{copiedKey !== null && copiedKey === currentSpace ? '已複製' : '複製'}</button>
               </div>
             </ListSection>
-            {msg.text !== '' && <p className={`hint key-msg${toneClass(msg)}`} aria-hidden="true"><StatusText status={msg} /></p>}
+            {msg.text !== '' && <p className={`hint key-msg${toneClass(msg)}`}><StatusText status={msg} /></p>}
             {legacyKey && (
               <ListSection footer="舊版可以自訂金鑰，像這組這樣的字很容易被猜到，猜中的人就能看到、改掉你的牌組。換成產生的金鑰後，舊金鑰在雲端的資料會刪掉。">
-                <button type="button" className="row accent" aria-disabled={busy || undefined}
-                  onClick={() => { if (!busy) void upgradeKey() }}>換成新產生的金鑰</button>
+                <button type="button" className="row accent" {...softDisabled(busy, () => void upgradeKey())}>換成新產生的金鑰</button>
               </ListSection>
             )}
             <ListSection header="換成另一組金鑰" footer="這台會先清空，再下載那個空間的資料；目前空間的資料留在雲端。">
@@ -758,24 +772,21 @@ export default function SettingsPage() {
                 <input value={keyInput} onChange={(e) => setKeyInput(e.target.value)} placeholder="輸入另一組金鑰"
                   autoCapitalize="off" autoCorrect="off" spellCheck={false} enterKeyHint="go" aria-label="另一組同步金鑰"
                   onKeyDown={(e) => {
-                    if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.keyCode === 229) return
+                    if (e.key !== 'Enter' || isImeKey(e)) return
                     e.preventDefault()
-                    if (!busy && keyInput.trim() !== '' && !isCurrentKey(keyInput)) void switchKey()
+                    if (!busy && !cannotSwitch) void switchKey()
                   }} />
                 {canPaste && <button type="button" className="link" onClick={() => void pasteKey()}>貼上</button>}
               </div>
               {keyLooksOff && <div className="row"><span className="row-subtitle">這不像字卡產生的金鑰，確定沒打錯？</span></div>}
-              <button type="button" className="row accent"
-                aria-disabled={busy || keyInput.trim() === '' || isCurrentKey(keyInput) || undefined}
-                onClick={() => { if (!busy && keyInput.trim() !== '' && !isCurrentKey(keyInput)) void switchKey() }}>換成這組</button>
+              <button type="button" className="row accent" {...softDisabled(busy || cannotSwitch, () => void switchKey())}>換成這組</button>
             </ListSection>
             <ListSection footer="停止後這台的資料留著，只是不再同步；雲端那份也還在。">
-              <button type="button" className="row destructive" aria-disabled={busy || undefined}
-                onClick={() => { if (!busy) void stopSync() }}>停止同步</button>
+              <button type="button" className="row destructive" {...softDisabled(busy, () => void stopSync())}>停止同步</button>
             </ListSection>
             <ListSection footer="雲端上這組金鑰的資料會全部刪掉，這台的資料留著、改成只存在這台；其他裝置也會停止同步。分享出去的牌組連結不受影響，180 天後自動失效。">
-              <button type="button" className="row destructive" aria-disabled={busy || undefined}
-                onClick={() => { if (!busy) void deleteCloud(currentSpace ?? '', true) }}>刪除雲端資料</button>
+              <button type="button" className="row destructive"
+                {...softDisabled(busy, () => void deleteCloud(currentSpace ?? '', true))}>刪除雲端資料</button>
             </ListSection>
           </div>
         )}

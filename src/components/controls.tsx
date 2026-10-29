@@ -57,6 +57,15 @@ export function ListSection({ header, footer, children, withIcons, className }: 
   )
 }
 
+/**
+ * 一直留在畫面上、暫時不能按的按鈕(忙碌中、條件還不夠):停用(disabled)的按鈕焦點會掉到頁首,
+ * 用 aria-disabled 照樣能聚焦、讀螢幕唸得到,點下去由這裡擋。條件只寫一次,看起來能不能按和按下去的反應才不會對不上
+ */
+export const softDisabled = (blocked: boolean, action: () => void) => ({
+  'aria-disabled': blocked || undefined,
+  onClick: () => { if (!blocked) action() },
+})
+
 export interface ToastAction { label: string; onClick: () => void }
 
 /**

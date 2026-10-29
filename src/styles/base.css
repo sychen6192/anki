@@ -47,9 +47,11 @@ html, body { overflow: hidden; overscroll-behavior: none; }
    不然會以整個文件為準,把文件撐得比畫面高 —— 文件又可以捲了 */
 /* scrollbar-gutter: stable:有傳統捲軸的電腦上(Windows、接滑鼠的 Mac),短頁面也先留好捲軸的位置,
    在「牌組」(短)和「設定」(長)之間切換時內容不會左右跳 7.5px;iPhone 的捲軸是疊在上面的,沒有影響。
-   both-edges:左邊也留一樣寬,內容欄照樣以整個視窗置中 —— 和頂端的分頁列、置中的面板、批次列對得齊
-   (只留右邊時整欄往左偏 7.5px) */
-.scroller { position: relative; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable both-edges; }
+   寬螢幕再加 both-edges:左邊也留一樣寬,內容欄照樣以整個視窗置中 —— 和頂端的分頁列、置中的面板、批次列對得齊
+   (只留右邊時整欄往左偏 7.5px)。窄的時候不加:固定在視窗邊上的導覽列、複習頁的頂列與「顯示答案」是從視窗左緣算的,
+   左邊再空一條,大標題、卡片就和返回鍵、底下的按鈕錯開 15px */
+.scroller { position: relative; flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; }
+@media (min-width: 768px) { .scroller { scrollbar-gutter: stable both-edges; } }
 /* 鍵盤捲動時焦點會交給它(App.tsx),不畫焦點框 */
 .scroller:focus, .scroller:focus-visible { outline: none; }
 /* 注意:.scroller 不能加 transform、filter、contain、z-index —— 它一變成 fixed 元素的容器或堆疊層,

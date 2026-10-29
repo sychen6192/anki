@@ -259,7 +259,7 @@ export default function ImportPage() {
   const autoName = useRef('')
   // 現在是哪個分頁(切換時馬上更新,不等重繪):非同步的步驟跑完時分頁換了,結果就不掛到別的分頁上
   const modeRef = useRef(mode)
-  // 每改一次表單(換檔案、改內容、改目標或名稱)加一:匯入跑完時使用者已經在填下一批,
+  // 每改一次表單(換檔案、改內容、欄位對應、改目標或名稱)加一(見 formChanged):匯入跑完時使用者已經在填下一批,
   // 就只回報結果,不把目標牌組和名稱改回去(不然下一批會默默匯進上一批的牌組)
   const formGen = useRef(0)
   // 頁面自己挑的目標牌組:匯入後切到剛匯進去的那副、或照檔名選到同名的那副。
@@ -278,6 +278,11 @@ export default function ImportPage() {
   const [lastDeckId, setLastDeckId] = useState<string | null>(null)
   // 摘要出現時要不要捲進畫面(見 SummaryView)
   const [reveal, setReveal] = useState(true)
+  // 摘要是不是「表單現在這個樣子」匯出來的結果:是的話「匯入」退成次要(再按一次只會匯入 0 個字)。
+  // 之後改了內容、檔案、欄位對應、目標或名稱,就是一次新的匯入,變回實心(見 import-go)
+  const [goDone, setGoDone] = useState(false)
+  // 使用者改了表單:匯入跑完時認得出來(見 doImport),「匯入」也變回實心
+  const formChanged = () => { formGen.current++; setGoDone(false) }
   const [busy, runBusy] = useBusy()
   const [errMsg, setErrMsg] = useState('')
   // 範本匯入失敗時,錯誤顯示在按下去的那張卡片裡:放在整頁最下面的話手機上在畫面外,看起來像按了沒反應
@@ -423,11 +428,15 @@ export default function ImportPage() {
     setSearchParams(initialDeck.current ? { mode: next, deck: initialDeck.current } : { mode: next }, { replace: true })
   }
 
-  /** CSV/apkg/範本的結果顯示在表單下方,目標牌組切到剛匯入的那副 */
-  const showResult = (r: ImportResult) => {
+  /**
+   * CSV/apkg/範本的結果顯示在表單下方,目標牌組切到剛匯入的那副。
+   * fresh 是 false:匯入途中使用者改了表單,摘要照樣顯示,但不捲過去,「匯入」也不退成次要
+   */
+  const showResult = (r: ImportResult, fresh = true) => {
     setSummary(r.summary)
     setLastDeckId(r.deckId)
-    setReveal(true)
+    setReveal(fresh)
+    setGoDone(fresh)
     announce(summaryText(r.summary))
     // 目標牌組切到剛匯入的那副:再按一次「匯入」會走去重,而不是又建一副同名新牌組
     setDeckId(r.deckId)
@@ -436,7 +445,7 @@ export default function ImportPage() {
   }
 
   const onTextLoaded = (t: string) => {
-    formGen.current++
+    formChanged()
     setText(t)
     setSummary(null)
     const first = parseCsv(t)[0]
@@ -480,7 +489,7 @@ export default function ImportPage() {
   }
 
   const onApkgFile = async (file: File) => {
-    formGen.current++
+    formChanged()
     setSummary(null)
     setErrMsg('')
     setApkg(null)
@@ -510,6 +519,7 @@ export default function ImportPage() {
   }
 
   const setMappingField = (field: MappingField, value: number | null) => {
+    formChanged()
     if (mode === 'csv') setMapping((m) => (m ? { ...m, [field]: value } : m))
     else setApkgMapping((m) => (m ? { ...m, [field]: value } : m))
   }
@@ -595,18 +605,21 @@ export default function ImportPage() {
       // 新牌組也等查完重音才在交易裡建:不會先冒出一副空牌組
       const r = await importParsed(wasNew ? { newName } : { id: deckId }, parsed, mode === 'apkg' ? otherNoteCount : 0)
       if (modeRef.current !== startMode) return
-      // 匯入途中換了檔案、目標或名稱:只回報結果,目標和名稱留給下一批。只改了內容(修錯字、多加一列)、
+      // 匯入途中換了檔案、目標或名稱:只回報結果,目標和名稱留給下一批。只改了內容或欄位對應(修錯字、多加一列)、
       // 目標還是同名的新牌組的話照樣切到剛建好的那副 —— 不然再按一次「匯入」會多一副同名的,每個字兩份
       const cur = latest.current
-      if (form !== formGen.current && !(wasNew && cur.deckId === 'new' && cur.newDeckName.trim() === newName)) {
+      const edited = form !== formGen.current
+      if (edited && !(wasNew && cur.deckId === 'new' && cur.newDeckName.trim() === newName)) {
         setSummary(r.summary)
         setLastDeckId(r.deckId)
         // 照樣顯示和播報,但不把頁面捲到摘要那裡:使用者正在上面打下一批
         setReveal(false)
+        setGoDone(false)
         announce(summaryText(r.summary))
         return
       }
-      showResult(r)
+      // 改過的話一樣不捲:使用者正在上面的文字框裡打字(或調欄位對應),不把頁面拉走;改過的還沒匯,「匯入」維持實心
+      showResult(r, !edited)
       autoTarget.current = pageTarget ? r.deckId : null
       // 特地選的「建立新牌組」只算這一次:目標已經切到剛建好的那副,下一個檔案照檔名挑
       pickedNew.current = false
@@ -710,7 +723,7 @@ export default function ImportPage() {
       <label className="row">
         <span className="row-main"><span className="row-title">牌組</span></span>
         <select className="row-select" value={deckId} aria-label="目標牌組" onChange={(e) => {
-          formGen.current++
+          formChanged()
           autoTarget.current = null
           pickedNew.current = e.target.value === 'new'
           setDeckId(e.target.value)
@@ -725,7 +738,7 @@ export default function ImportPage() {
         <label className="row">
           <span className="row-main"><span className="row-title">名稱</span></span>
           <input className="row-input" placeholder="新牌組名稱" value={newDeckName}
-            onChange={(e) => { formGen.current++; setNewDeckName(e.target.value) }} />
+            onChange={(e) => { formChanged(); setNewDeckName(e.target.value) }} />
         </label>
       )}
     </ListSection>
@@ -827,7 +840,7 @@ export default function ImportPage() {
                     setFileName(f.name)
                     if (mode === 'apkg') { void onApkgFile(f); return }
                     // 讀檔之前就算表單改了:匯入剛好在讀檔的空檔跑完,不能把目標切回上一副
-                    formGen.current++
+                    formChanged()
                     applyFileName(f.name.replace(/\.(csv|tsv|txt)$/i, ''))
                     // Excel 存的 CSV 常是 Big5 / Shift_JIS / UTF-16:自動認出來,並說一聲
                     const { text: decoded, encoding } = decodeCsvBytes(await f.arrayBuffer())
@@ -845,16 +858,18 @@ export default function ImportPage() {
                 aria-label="CSV 內容" aria-describedby={oneColumn ? 'csv-one-column' : undefined}
                 onChange={(e) => { setFileName(''); onTextLoaded(e.target.value) }} />
             )}
-            {/* 不用 role=alert:一邊在上面打第一列,一邊每打一個字就被大聲打斷 */}
+            {/* 不用 role=alert:一邊在上面打第一列,一邊每打一個字就被大聲打斷。
+                手打的第一列還沒打完(只有一列、不是選的檔案)用灰色說明,不用紅字:還沒打到逗號不算打錯。
+                也不藏起來:用注音鍵盤的全形「，」打的那一列同樣只有一欄,要有一句話說為什麼沒有預覽 */}
             {oneColumn && (
-              <p className="err" id="csv-one-column">每一列只讀到一欄。至少要有單字和意思兩欄，中間用逗號或 Tab 分開，例如：{CSV_EXAMPLE}</p>
+              <p className={rows.length > 1 || fileName !== '' ? 'err' : 'hint'} id="csv-one-column">每一列只讀到一欄。至少要有單字和意思兩欄，中間用逗號或 Tab 分開，例如：{CSV_EXAMPLE}</p>
             )}
             {mode === 'apkg' && parsing && <p className="hint import-status" role="status"><span className="spinner" aria-hidden="true" />解析中…</p>}
             {mode === 'apkg' && apkg && apkg.notetypes.length > 1 && (
               <ListSection header="筆記類型" footer="Anki 牌組裡有好幾種筆記類型，一次匯入一種。">
                 <label className="row">
                   <span className="row-main"><span className="row-title">要匯入的類型</span></span>
-                  <select className="row-select" value={notetypeId} onChange={(e) => selectNotetype(apkg, e.target.value)}>
+                  <select className="row-select" value={notetypeId} onChange={(e) => { formChanged(); selectNotetype(apkg, e.target.value) }}>
                     {apkg.notetypes.map((t) => (
                       <option key={t.id} value={t.id}>{t.name}（{t.noteCount} 個）</option>
                     ))}
@@ -869,7 +884,7 @@ export default function ImportPage() {
                   {mode === 'csv' && rows.length > 0 && (
                     <label className="row">
                       <span className="row-main"><span className="row-title">第一列是表頭</span></span>
-                      <Switch label="第一列是表頭" checked={hasHeader} onChange={setHasHeader} />
+                      <Switch label="第一列是表頭" checked={hasHeader} onChange={(v) => { formChanged(); setHasHeader(v) }} />
                     </label>
                   )}
                   {labels.map(([field, label]) => (
@@ -913,8 +928,9 @@ export default function ImportPage() {
                 {reverseToggle}
                 {needsName && <p className="hint">先幫新牌組取個名字，再匯入。</p>}
                 {/* 匯入完、摘要還在的時候退成次要:主色留給摘要裡的「開始複習」,再按一次只會匯入 0 個字。
-                    換檔案或改內容會清掉摘要,這顆就變回實心 */}
-                <button className={`btn lg import-go${summary !== null ? ' secondary' : ''}`}
+                    換檔案、改內容、欄位對應、目標或名稱就是新的一次匯入,這顆變回實心(摘要可能還在,見 goDone)。
+                    兩個都要看:換分頁、匯入失敗只清掉摘要,goDone 沒跟著改 */}
+                <button className={`btn lg import-go${summary !== null && goDone ? ' secondary' : ''}`}
                   disabled={busy || parsed.length === 0 || needsName} aria-busy={busy} onClick={doImport}>
                   {busy && <span className="spinner" aria-hidden="true" />}
                   {busy ? IMPORTING_LABEL : `匯入 ${parsed.length} 個字到「${targetName || '新牌組'}」`}

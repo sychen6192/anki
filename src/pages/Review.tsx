@@ -131,9 +131,9 @@ export default function Review() {
   // 這次 session 裡跳過的卡片。只存在記憶體,離開複習畫面就重來 —— 跳過是
   // 「現在不想看」,不是 Anki 的 bury,不該寫進資料庫影響排程。
   const skipped = useRef(new Set<string>())
-  // 找不到字的卡片(note 不見了:同步曾推出這種卡,見 sync.ts 的 holdBack)。這次複習都不再排進來,
+  // 找不到字的卡片 id(note 不見了:同步曾推出這種卡,見 sync.ts 的 holdBack)。這次複習都不再排進來,
   // 一張壞卡不該擋住整副牌組。不跟 skipped 一起清:清掉的話 loadNext 會一直繞回同一張
-  const missingNotes = useRef(new Set<string>())
+  const missingCards = useRef(new Set<string>())
   const [missingCount, setMissingCount] = useState(0)
   // 進度條:這次答了幾次 /(答了幾次 + 照「普通」答完還要幾次)。學習中的卡答完一步還會回來,
   // 只數張數的話會停住;數答題次數,每答一次都往前。0~1
@@ -215,7 +215,7 @@ export default function Review() {
     const cards = (allMode
       ? (await db.cards.toArray()).filter((c) => liveDeckIds.has(c.deck_id))
       : await db.cards.where('deck_id').equals(deckId!).toArray()
-    ).filter((c) => !missingNotes.current.has(c.id))
+    ).filter((c) => !missingCards.current.has(c.id))
     const logs = await db.review_logs.where('reviewed_at').aboveOrEqual(startOfToday()).toArray()
     // 「再學 N 張」的單位:單副是它的每日上限;全部時取最大的那副
     newPerDayRef.current = Math.max(...decks.map((d) => d.new_per_day))
@@ -281,8 +281,8 @@ export default function Review() {
     const note = await db.notes.get(card.note_id)
     if (!note) {
       // 每次多記一張、下一輪就不會再拿到它,所以遞迴一定會停
-      missingNotes.current.add(card.id)
-      setMissingCount(missingNotes.current.size)
+      missingCards.current.add(card.id)
+      setMissingCount(missingCards.current.size)
       showToast({ before: '有一張卡片的資料不見了，先跳過' }, false)
       // 加碼一輪的第一張就是它:進度先在這裡歸零(遞迴進去 newRound 已經是 false)
       if (newRound) { answeredCount.current = 0; showProgress(0) }

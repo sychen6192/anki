@@ -3,6 +3,8 @@
 .row-icon.danger { background: var(--danger-tint); color: var(--danger); }
 label.row.accent { color: var(--accent); }
 label.row.disabled { opacity: var(--disabled-opacity); pointer-events: none; }
+/* 同步區的播報區一直掛著、footer 裡也只有它:空的時候 footer 收成 0 高,不在列表底下多留 7px */
+.sync-section > .list-footer:has(> .sync-status:empty) { padding: 0; }
 .footer-status { display: block; margin-top: 6px; color: var(--text); font-weight: 500; }
 /* 沒有結果時播報區照樣掛著(空的),不留那 6px */
 .footer-status:empty { margin-top: 0; }
@@ -11,8 +13,7 @@ label.row.disabled { opacity: var(--disabled-opacity); pointer-events: none; }
 /* 做完了:字前面的勾,跟著字的顏色,往下一點對齊中文字的中間 */
 .footer-status > svg, .sync-status > svg, .key-sheet .hint > svg { vertical-align: -2px; margin-right: 4px; }
 
-/* 「立即同步」跑的時候:按鈕不調淡(淡掉的「同步中…」看起來像按壞了,同 .btn[aria-busy]:disabled),icon 轉圈 */
-.btn[aria-busy="true"][aria-disabled="true"] { opacity: 1; cursor: progress; }
+/* 「立即同步」跑的時候 icon 轉圈(按鈕本身不調淡,見 components.css 的 .btn[aria-busy]) */
 .row-icon.spinning svg { animation: spin 1s linear infinite; }
 @media (prefers-reduced-motion: reduce) {
   /* 無限轉圈壓成 0.01ms 會變成亂閃(見 base.css 的 .spinner):停著,按鈕上的「同步中…」就夠了 */
