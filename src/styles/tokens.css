@@ -8,8 +8,10 @@
   --bg: #f2f2f7;
   --surface: #ffffff;
   --surface-2: #f7f7fa;
-  --elevated: #ffffff;           /* sheet、選單等浮在上面的層 */
-  /* 輸入框、分段控制、搜尋框的底色:半透明灰,疊在白或灰上都自然 */
+  --elevated: #ffffff;           /* 動作選單、確認框、toast 等浮在上面的層 */
+  /* sheet 的底:淺色和頁面同一個灰;深色要比純黑的頁面亮一階,不然變暗的頁面上看不出 sheet 的邊 */
+  --sheet-bg: var(--bg);
+  /* 分段控制、步進器、白色容器裡的輸入框的底色:半透明灰,疊在白或灰上都自然 */
   --fill: rgb(118 118 128 / 0.12);
   --fill-2: rgb(118 118 128 / 0.08);
   --separator: rgb(60 60 67 / 0.16);
@@ -17,7 +19,10 @@
 
   --text: #1c1c1e;
   --text-2: #636368;             /* 次要文字:白底、灰底、灰底上的淡色框(匯入結果、提醒)都 4.5:1 以上 */
-  --text-3: #8e8e93;             /* 只給 placeholder、箭頭、圖示(3:1);要讀的字一律用 --text-2 */
+  --text-3: #8e8e93;             /* 只給箭頭、圖示(3:1);要讀的字一律用 --text-2 */
+  /* placeholder(常常是格式範例,要讀得到):白底欄位 4.5:1、白色卡片裡的灰欄位 3.9:1,
+     和打進去的字(--text)也還差 3.8:1,看得出是提示不是內容 */
+  --placeholder: #76767b;
 
   /* 主題色跟 App 圖示同一個藍:白字在上面 5.1:1,當字用在白底、灰底上也 4.5:1 以上。
      淡色底上的圖示(3:1 就夠)直接用 --accent;淡色底上的字一律用 --accent-text */
@@ -69,9 +74,17 @@
   --fs-display: 48px;    /* 複習卡上的單字 */
 
   --radius-sm: 8px;
+  --radius-control: 10px;       /* 輸入框、搜尋框、分段控制、步進器、寬螢幕分頁列的膠囊 */
   --radius: 12px;
+  --radius-button-lg: 14px;     /* 大按鈕;動作選單的群組也用這個(iOS 兩者同一個圓角) */
   --radius-lg: 16px;
   --radius-xl: 22px;
+
+  /* 停用的按鈕、列、開關一律這個透明度(以前有 .3、.35、.4 三種) */
+  --disabled-opacity: .4;
+  /* 分段控制選中那格、開關關著時的底:深淺色各自調過,寫在這裡不寫在元件裡 */
+  --segmented-selected: var(--surface);
+  --switch-off: #e5e5ea;
 
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.04), 0 1px 3px rgb(0 0 0 / 0.05);
   --shadow-md: 0 4px 12px rgb(0 0 0 / 0.08), 0 12px 32px rgb(0 0 0 / 0.08);
@@ -101,6 +114,7 @@
   --surface: #1c1c1e;
   --surface-2: #2c2c2e;
   --elevated: #2c2c2e;
+  --sheet-bg: #1c1c1e;
   --fill: rgb(118 118 128 / 0.24);
   --fill-2: rgb(118 118 128 / 0.16);
   --separator: rgb(84 84 88 / 0.55);
@@ -109,6 +123,11 @@
   --text: #f2f2f7;
   --text-2: #a1a1a6;
   --text-3: #7c7c80;
+  /* sheet 裡的欄位(#2c2c2e)上也 4.2:1;和打進去的字差 2.9:1 */
+  --placeholder: #8e8e93;
+
+  --segmented-selected: #636366;
+  --switch-off: var(--fill);
 
   /* 浮層(#2c2c2e:提示條的「復原」、動作選單、確認框)上也要 4.5:1;
      淡色底上的字(--accent-text)在浮層上按下去時也 4.5:1 */

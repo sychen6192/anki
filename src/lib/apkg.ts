@@ -148,7 +148,7 @@ function extractCollectionBytes(apkg: Uint8Array): Uint8Array {
       throw new Error(`檔案解不開（可能下載不完整）。請在 Anki 用「匯出」選 .apkg 格式重新匯出一次。`)
     }
   }
-  throw new Error('這不像是 Anki 牌組檔（.apkg）：裡面找不到 collection 資料。請在 Anki 用「匯出」選 .apkg 格式重新匯出一次。')
+  throw new Error('這不像是 Anki 牌組檔（.apkg）：裡面找不到單字資料。請在 Anki 用「匯出」選 .apkg 格式重新匯出一次。')
 }
 
 /** 解析 .apkg 位元組,取出 note 文字與欄位名稱。不含排程、媒體與 tags。 */

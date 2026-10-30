@@ -3,6 +3,7 @@ import { BrowserRouter, Link, Route, Routes, useLocation } from 'react-router-do
 import { setupAutoSync } from './lib/sync'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Loading } from './components/Loading'
+import { PageHeader } from './components/PageHeader'
 import { TabBar, type Tab } from './components/TabBar'
 import { UpdateBanner } from './components/UpdateBanner'
 import { ConfirmProvider } from './components/Confirm'
@@ -44,12 +45,16 @@ const TABS: Tab[] = [
   },
 ]
 
+/** 和「找不到這副牌組」同一個樣子:有導覽列、大標題,再說一句為什麼 */
 function NotFound() {
   return (
-    <div className="empty-state" style={{ paddingTop: 'calc(80px + var(--safe-top))' }}>
-      <h2>找不到這個頁面</h2>
-      <Link to="/" className="btn">回牌組</Link>
-    </div>
+    <>
+      <PageHeader title="找不到這個頁面" back={{ to: '/', label: '牌組' }} />
+      <div className="empty-state">
+        <p>網址可能打錯了，或這個頁面已經不在了。</p>
+        <Link to="/" className="btn">回牌組</Link>
+      </div>
+    </>
   )
 }
 

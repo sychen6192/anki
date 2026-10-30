@@ -8,7 +8,7 @@
    .btn.secondary 灰底黑字(取消、次要動作)
    .btn.tinted    淡主色底 + 主色字(次要但想被看見的動作)
    .btn.plain / .link  純文字(主色)
-   .btn.danger    淡紅底紅字;.btn.danger.solid 實心紅(確認框裡的刪除) */
+   .btn.danger    淡紅底紅字 */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   min-height: 44px; padding: 0 18px;
@@ -22,28 +22,50 @@
 .btn:active { transform: scale(0.98); }
 /* 大按鈕的字可能很長(裡面有使用者取的牌組名):放不下就換行,不要溢出按鈕 */
 .btn.lg { white-space: normal; text-wrap: balance; }
-@media (hover: hover) { .btn:hover { background: var(--accent-pressed); } }
+/* 滑過去變色只給按得下去的:停用的「建立」「今天完成了」亮起來會像可以按 */
+@media (hover: hover) { .btn:not(:disabled, [aria-disabled="true"]):hover { background: var(--accent-pressed); } }
 .btn.secondary { background: var(--fill); color: var(--text); }
-@media (hover: hover) { .btn.secondary:hover { background: color-mix(in srgb, var(--fill) 100%, var(--text) 6%); } }
+@media (hover: hover) { .btn.secondary:not(:disabled, [aria-disabled="true"]):hover { background: color-mix(in srgb, var(--fill) 100%, var(--text) 6%); } }
 .btn.tinted { background: var(--accent-tint); color: var(--accent-text); }
-@media (hover: hover) { .btn.tinted:hover { background: var(--accent-tint-pressed); } }
+@media (hover: hover) { .btn.tinted:not(:disabled, [aria-disabled="true"]):hover { background: var(--accent-tint-pressed); } }
 .btn.plain, .link {
   background: none; color: var(--accent); padding: 0 8px; font-weight: 500;
 }
-@media (hover: hover) { .btn.plain:hover, .link:hover { background: var(--accent-tint); } }
+@media (hover: hover) { .btn.plain:not(:disabled, [aria-disabled="true"]):hover, .link:not(:disabled, [aria-disabled="true"]):hover { background: var(--accent-tint); } }
 .btn.danger { background: var(--danger-tint); color: var(--danger); }
-@media (hover: hover) { .btn.danger:hover { background: color-mix(in srgb, var(--danger-tint) 100%, var(--danger) 8%); } }
-.btn.danger.solid { background: var(--danger); color: #fff; }
-.btn.lg { min-height: 52px; font-size: var(--fs-headline); border-radius: 14px; width: 100%; }
+@media (hover: hover) { .btn.danger:not(:disabled, [aria-disabled="true"]):hover { background: color-mix(in srgb, var(--danger-tint) 100%, var(--danger) 8%); } }
+.btn.lg { min-height: 52px; font-size: var(--fs-headline); border-radius: var(--radius-button-lg); width: 100%; }
 .btn.sm { min-height: 34px; padding: 0 14px; font-size: var(--fs-small); border-radius: 999px; }
 .btn.block { width: 100%; }
-.btn:disabled, .btn[aria-disabled="true"] { opacity: .4; cursor: default; transform: none; }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: var(--disabled-opacity); cursor: default; transform: none; }
+/* 正在跑的那顆(aria-busy)不調淡:淡掉的白字只剩 1.8:1,查重音那幾秒唯一的進度看起來像按壞了。
+   用 disabled 或 aria-disabled 停用的都算(設定頁的「立即同步」忙碌時留著焦點,用的是 aria-disabled);
+   同時被 busy 停用的其他按鈕照樣調淡 */
+.btn[aria-busy="true"]:is(:disabled, [aria-disabled="true"]) { opacity: 1; cursor: progress; }
+/* 按鈕裡的轉圈用字的顏色(實心主色鈕上 --accent 的那一截看不見);
+   flex-shrink: 0:長字換行時空的 flex 子元素會被擠成橢圓 */
+.btn .spinner { flex-shrink: 0; border-color: color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; }
+@media (prefers-reduced-motion: reduce) {
+  /* 和 base.css 靜止的 .spinner 同一個樣子(右邊一截),只是換成字的顏色 */
+  .btn .spinner { border-top-color: color-mix(in srgb, currentColor 30%, transparent); border-right-color: currentColor; }
+}
 .link {
   display: inline-flex; align-items: center; gap: 6px;
   min-height: 32px; border: none; border-radius: var(--radius-sm);
   font-family: inherit; font-size: inherit; cursor: pointer; text-decoration: none;
 }
-.link:disabled { opacity: .4; cursor: default; }
+.link:disabled { opacity: var(--disabled-opacity); cursor: default; }
+/* 句子裡的連結(統計頁、設定的說明、使用說明、授權頁):只靠顏色和旁邊的字分不出來
+   (淺色 1.17:1、深色 1.02:1,WCAG 1.4.1 要另外有記號),所以加一條淡淡的同色底線,滑過去變實。
+   不斷行:都是幾個字的詞,「設 / 定」拆成兩行加上底線像兩個連結(長網址在授權頁另外放開) */
+.inline-link {
+  color: var(--accent); font-weight: 500; white-space: nowrap;
+  text-decoration-line: underline; text-decoration-thickness: 1px; text-underline-offset: 0.22em;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  transition: text-decoration-color .15s ease, opacity .15s ease;
+}
+@media (hover: hover) { .inline-link:hover { text-decoration-color: currentColor; } }
+.inline-link:active { opacity: .6; }
 .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .btn-row > .btn { flex: 1; }
 .btn-stack { display: flex; flex-direction: column; gap: 10px; }
@@ -58,7 +80,7 @@
 }
 .icon-btn:active { background: var(--fill); }
 @media (hover: hover) { .icon-btn:hover { background: var(--fill-2); } }
-.icon-btn:disabled { opacity: .3; cursor: default; background: none; }
+.icon-btn:disabled { opacity: var(--disabled-opacity); cursor: default; background: none; }
 .icon-btn.filled { background: var(--fill); color: var(--text); width: 36px; height: 36px; }
 
 /* ---------- 分組列表(iOS 設定頁那種) ---------- */
@@ -68,7 +90,8 @@
   font-size: var(--fs-footnote); font-weight: 500; color: var(--text-2);
   padding: 0 16px 7px; letter-spacing: .01em;
 }
-.list-footer { font-size: var(--fs-footnote); color: var(--text-2); padding: 7px 16px 0; line-height: 1.5; }
+/* 說明句子短:text-wrap: pretty 避免最後一行只剩一兩個字(「…保持 / 率」。) */
+.list-footer { font-size: var(--fs-footnote); color: var(--text-2); padding: 7px 16px 0; line-height: 1.5; text-wrap: pretty; }
 .list-footer + .list-footer { padding-top: 4px; }
 .list {
   list-style: none; padding: 0;
@@ -90,8 +113,14 @@
 .list.with-icons > .row + .row::before, .list.with-icons > li + li > .row::before { left: 56px; }
 button.row, a.row, label.row { cursor: pointer; }
 button.row:active, a.row:active, label.row:active { background: var(--fill-2); }
-@media (hover: hover) { button.row:hover, a.row:hover { background: var(--fill-2); } }
-button.row:disabled, button.row[aria-disabled="true"] { opacity: .4; cursor: default; background: none; }
+/* label.row(開關列、「從備份還原…」)也要:不然長得一樣的「下載完整備份」亮、它不亮 */
+@media (hover: hover) { button.row:hover, a.row:hover, label.row:hover { background: var(--fill-2); } }
+button.row:disabled, button.row[aria-disabled="true"] { opacity: var(--disabled-opacity); cursor: default; background: none; }
+/* 焦點框畫在裡面:分組列表(還有下面的動作選單、確認框)是 overflow: hidden 裁圓角,
+   往外畫的框會被裁到只剩一兩條橫線,看起來像分隔線,看不出焦點在哪一列。
+   用 outline 不用 box-shadow:Windows 高對比模式會拿掉 box-shadow,焦點就整個不見。
+   圓角和列表一樣,第一列、最後一列的框才貼著列表的圓角 */
+.list .row:focus-visible { outline-offset: -2px; border-radius: var(--radius); }
 .row-icon {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; flex-shrink: 0; border-radius: 7px;
@@ -112,27 +141,36 @@ button.row:disabled, button.row[aria-disabled="true"] { opacity: .4; cursor: def
   background-color: transparent; border-radius: 0; padding: 0; min-height: 26px;
 }
 .row input:focus, .row select:focus { box-shadow: none; outline: none; }
-/* 欄位本身透明,焦點框改畫在整列上(用 Tab 移過來時看得到在哪) */
-.row:has(input:focus-visible, select:focus-visible) { box-shadow: inset 0 0 0 2px var(--accent); }
+/* 欄位本身透明,焦點框改畫在整列上(用 Tab 移過來時看得到在哪),和上面按鈕列的框同一個樣子。
+   開關不算:它自己有焦點框,整列再畫一圈就變成兩層 */
+.row:has(input:not(.switch):focus-visible, select:focus-visible) {
+  outline: 2px solid var(--accent); outline-offset: -2px; border-radius: var(--radius);
+}
 
 /* ---------- 表單 ---------- */
+/* 欄位底色跟著所在的底:直接放在灰底(頁面、sheet)上用白底,和搜尋框一致,placeholder 才有 4.5:1;
+   放在白色或淡色容器(卡片、列表、提示條)裡維持半透明灰 */
+.page, .sheet-body { --field-bg: var(--surface); }
+.card, .list, .notice { --field-bg: var(--fill); }
 input, select, textarea {
   font-family: inherit;
   font-size: var(--fs-body); /* 小於 16px 的輸入框在 iPhone 上一點就整頁放大 */
   color: var(--text);
-  background: var(--fill);
-  border: none; border-radius: 10px;
+  background-color: var(--field-bg, var(--fill));
+  border: none; border-radius: var(--radius-control);
   padding: 11px 12px;
   min-height: 44px;
   width: 100%;
   transition: box-shadow .15s ease, background-color .15s ease;
 }
 textarea { resize: vertical; line-height: 1.5; min-height: 96px; }
-input::placeholder, textarea::placeholder { color: var(--text-3); }
+input::placeholder, textarea::placeholder { color: var(--placeholder); }
 input:focus, select:focus, textarea:focus {
   outline: none;
   box-shadow: 0 0 0 2px var(--accent);
 }
+/* 必填沒填、格式不對:框換成紅色(錯誤的說明寫在欄位正下方,見 aria-describedby) */
+input[aria-invalid="true"], input[aria-invalid="true"]:focus { box-shadow: 0 0 0 2px var(--danger); }
 select {
   appearance: none; -webkit-appearance: none;
   padding-right: 34px;
@@ -148,6 +186,8 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 .field-hint { font-size: var(--fs-caption); color: var(--text-2); }
 .field-row { display: flex; gap: 8px; align-items: flex-end; }
 .field-row > .field { flex: 1; min-width: 0; }
+/* 沒有欄位標題、直接放輸入框的(設定頁的金鑰 +「貼上」):一樣撐滿,320 寬時不把按鈕擠出去 */
+.field-row > input { flex: 1; min-width: 0; }
 .form { display: flex; flex-direction: column; gap: 16px; }
 
 /* 檔案選擇:把原生鈕藏起來,外面包一顆按鈕 */
@@ -161,22 +201,23 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 /* 搜尋框:放大鏡 + 清除鈕 */
 .search-field { position: relative; display: flex; align-items: center; }
 .search-field > svg { position: absolute; left: 10px; color: var(--text-3); pointer-events: none; }
-.search-field input { padding-left: 36px; padding-right: 40px; min-height: 40px; border-radius: 11px; }
+.search-field input { padding-left: 36px; padding-right: 40px; min-height: 40px; }
 .search-clear {
   position: absolute; right: 2px; width: 40px; height: 40px;
   display: inline-flex; align-items: center; justify-content: center;
   border: none; background: none; color: var(--text-3); cursor: pointer; border-radius: 999px;
 }
 .search-clear:active { color: var(--text); }
+@media (hover: hover) { .search-clear:hover { color: var(--text-2); } }
 
 /* ---------- 分段控制 ---------- */
 .segmented {
   display: flex; gap: 2px; padding: 2px;
-  background: var(--fill); border-radius: 10px;
+  background: var(--fill); border-radius: var(--radius-control);
 }
 .segmented button {
   flex: 1; min-width: 0; min-height: 34px; padding: 0 8px;
-  border: none; border-radius: 8px; background: none; color: var(--text);
+  border: none; border-radius: var(--radius-sm); background: none; color: var(--text);
   font-family: inherit; font-size: var(--fs-small); font-weight: 500; cursor: pointer;
   white-space: nowrap;
   transition: background-color .15s ease, box-shadow .15s ease;
@@ -184,12 +225,15 @@ input[type="number"] { font-variant-numeric: tabular-nums; }
 /* 字太長時截在裡面這層:按鈕本身不能 overflow: hidden,不然觸控時往外撐的可點範圍(::after)會被裁掉 */
 .segmented button > span { display: block; overflow: hidden; text-overflow: ellipsis; }
 .segmented button[aria-checked="true"] {
-  background: var(--surface); font-weight: 600;
+  background: var(--segmented-selected); font-weight: 600;
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.12), 0 0 0 0.5px rgb(0 0 0 / 0.04);
 }
-:root[data-theme="dark"] .segmented button[aria-checked="true"] { background: #636366; box-shadow: none; }
+:root[data-theme="dark"] .segmented button[aria-checked="true"] { box-shadow: none; }
+/* 沒選中的那幾格:滑過去淡淡一層灰,按下去變淡(和分頁列一樣),不然要等選中了才看得出點到 */
+@media (hover: hover) { .segmented button[aria-checked="false"]:not(:disabled):hover { background: var(--fill-2); } }
+.segmented button[aria-checked="false"]:not(:disabled):active { opacity: .6; }
 .segmented button:disabled { cursor: default; }
-.segmented button:disabled:not([aria-checked="true"]) { opacity: .4; }
+.segmented button:disabled:not([aria-checked="true"]) { opacity: var(--disabled-opacity); }
 @media (max-width: 340px) { .segmented button { font-size: var(--fs-footnote); padding: 0 4px; } }
 
 /* ---------- 開關 ----------
@@ -198,29 +242,30 @@ input[type="checkbox"].switch {
   appearance: none; -webkit-appearance: none;
   position: relative; flex-shrink: 0;
   width: 51px; height: 31px; min-height: 0; padding: 0;
-  border-radius: 999px; background: var(--fill);
+  border-radius: 999px; background: var(--switch-off);
   cursor: pointer; transition: background-color .2s ease;
 }
-:root:not([data-theme="dark"]) input.switch { background: #e5e5ea; }
 input.switch::before {
   content: ''; position: absolute; top: 2px; left: 2px;
   width: 27px; height: 27px; border-radius: 50%;
   background: #fff; box-shadow: 0 2px 6px rgb(0 0 0 / 0.2), 0 0 1px rgb(0 0 0 / 0.1);
   transition: transform .2s cubic-bezier(.3, .7, .4, 1);
 }
-input.switch:checked, :root:not([data-theme="dark"]) input.switch:checked { background: var(--accent); }
+input.switch:checked { background: var(--accent); }
 input.switch:checked::before { transform: translateX(20px); }
 input.switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: none; }
-input.switch:disabled { opacity: .4; cursor: default; }
+input.switch:disabled { opacity: var(--disabled-opacity); cursor: default; }
 
 /* ---------- 步進器(− 90% +) ---------- */
-.stepper { display: inline-flex; align-items: center; gap: 4px; background: var(--fill); border-radius: 10px; padding: 2px; }
+.stepper { display: inline-flex; align-items: center; gap: 4px; background: var(--fill); border-radius: var(--radius-control); padding: 2px; }
 .stepper button {
-  width: 40px; height: 34px; border: none; border-radius: 8px; background: none;
+  width: 40px; height: 34px; border: none; border-radius: var(--radius-sm); background: none;
   color: var(--text); font-size: var(--fs-title3); line-height: 1; cursor: pointer; font-family: inherit;
 }
 .stepper button:active { background: var(--fill); }
-.stepper button:disabled { opacity: .3; cursor: default; }
+@media (hover: hover) { .stepper button:not(:disabled, [aria-disabled="true"]):hover { background: var(--fill-2); } }
+/* aria-disabled:設定頁的步進器存檔時不用 disabled(焦點會掉到頁首),看起來一樣是停用 */
+.stepper button:disabled, .stepper button[aria-disabled="true"] { opacity: var(--disabled-opacity); cursor: default; background: none; }
 .stepper output { min-width: 48px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* ---------- 標籤 ---------- */
@@ -255,10 +300,21 @@ input.switch:disabled { opacity: .4; cursor: default; }
   background: var(--accent-tint); color: var(--text);
   font-size: var(--fs-subhead); line-height: 1.5;
 }
-.notice > .notice-text { flex: 1; min-width: 12em; }
-.notice .notice-actions { display: flex; gap: 4px; align-items: center; margin-left: auto; }
+.notice > .notice-text { flex: 1; min-width: 12em; text-wrap: pretty; }
+/* margin-block:連結框(下面 .notice .link 的 min-height 32px)比一行字(.notice 的 1.5 行高)高,
+   上下各收半個差,連結的字就對齊第一行的中間,不往下掉 5px;整條照樣 flex-start,說明換成好幾行時
+   動作還是靠著第一行。兩個數字要一起改 */
+.notice .notice-actions {
+  display: flex; gap: 4px; align-items: center; margin-left: auto;
+  margin-block: calc((1.5em - 32px) / 2);
+}
 /* 淡色底上的連結用深一階的 --accent-text,疊在灰底上才有 4.5:1 */
 .notice .link { min-height: 32px; font-weight: 600; color: var(--accent-text); }
+/* 淺色:滑過去時再疊一層淡主色只剩 4.4:1,改成提亮(6:1,和提示條還分得出來);
+   深色提亮會看不出來,本來就有 6.4:1,不改 */
+@media (hover: hover) {
+  :root:not([data-theme="dark"]) .notice .link:hover { background: color-mix(in srgb, var(--surface) 55%, transparent); }
+}
 .notice.error { background: var(--danger-tint); }
 .notice.error .link { color: var(--danger); }
 .notice + .notice { margin-top: 10px; }
@@ -279,8 +335,9 @@ input.switch:disabled { opacity: .4; cursor: default; }
   width: 64px; height: 64px; border-radius: 20px; margin-bottom: 4px;
   background: var(--accent-tint); color: var(--accent);
 }
-.empty-state h2 { font-size: var(--fs-title3); font-weight: 700; }
-.empty-state p { color: var(--text-2); font-size: var(--fs-subhead); max-width: 26em; }
+/* 置中的短句:balance 讓幾行一樣長,不會剩一個字掛在最後一行 */
+.empty-state h2 { font-size: var(--fs-title3); font-weight: 700; text-wrap: balance; }
+.empty-state p { color: var(--text-2); font-size: var(--fs-subhead); max-width: 26em; text-wrap: balance; }
 .empty-state .btn-stack { width: 100%; max-width: 320px; margin-top: 10px; }
 
 /* ---------- 載入中 ---------- */
@@ -342,12 +399,16 @@ input.switch:disabled { opacity: .4; cursor: default; }
   .tabbar {
     order: 0;
     justify-content: flex-start; gap: 4px;
-    padding: 8px calc(24px + var(--safe-right)) 8px calc(24px + var(--safe-left));
+    /* 第一個分頁的圖示對齊內容欄的左緣(.page:最寬 720px 置中,左右再內縮 --page-x 和安全區),
+       不貼著視窗邊、離它管的頁面兩百多 px;減掉的 14px 是膠囊的左右內距。窄的時候退回 24px。
+       .scroller 的捲軸位置左右都留(base.css),內容欄才和這條列一樣以整個視窗置中 */
+    padding: 8px max(calc(24px + var(--safe-right)), calc((100% - 720px) / 2 + var(--page-x) + var(--safe-right) - 14px))
+      8px max(calc(24px + var(--safe-left)), calc((100% - 720px) / 2 + var(--page-x) + var(--safe-left) - 14px));
     box-shadow: 0 0.5px 0 var(--separator);
   }
   .tabbar a {
     flex: none; flex-direction: row; gap: 8px; height: 40px; padding: 0 14px;
-    border-radius: 10px; font-size: var(--fs-subhead); letter-spacing: 0; color: var(--text-2);
+    border-radius: var(--radius-control); font-size: var(--fs-subhead); letter-spacing: 0; color: var(--text-2);
   }
   .tabbar a svg { width: 18px; height: 18px; }
   /* 看得見的是 40px 的膠囊,可點範圍撐滿整條列(上下 8px 的留白、膠囊之間 4px 的縫) */
@@ -371,11 +432,14 @@ dialog { color: var(--text); }
   max-height: calc(var(--vvh, 100dvh) - var(--safe-top) - 12px);
   margin: 0 auto; padding: 0; border: none;
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-  background: var(--bg);
+  background: var(--sheet-bg);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
   display: flex; flex-direction: column;
 }
+/* 深色:sheet 是 #1c1c1e,裡面的列表、卡片、欄位再亮一階(和 iOS 深色的浮層一樣),
+   不然它們會和 sheet 的底同色 */
+:root[data-theme="dark"] .sheet { --surface: var(--elevated); }
 .sheet:not([open]) { display: none; }
 .sheet.full {
   inset: calc(var(--vv-top, 0px) + var(--safe-top) + 10px) 0 auto 0;
@@ -386,6 +450,18 @@ dialog { color: var(--text); }
 .sheet[open]::backdrop { animation: fade-in .25s ease; }
 @keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+/* 關閉:反著播進場,比進場短、先慢後快。data-closing 由 useModalDialog 加上:這時對話框其實已經 close() 了
+   (焦點、底下的頁面都和以前一樣立刻回來),只是改成 popover 留在最上層播完這一段,所以沒有 [open] 也要顯示。
+   forwards:播完停在畫面外,收掉之前不會彈回原位閃一下。點擊穿過去落到頁面上,和沒有動畫時一樣 */
+.sheet[data-closing] { display: flex; animation: sheet-down .2s cubic-bezier(.4, 0, 1, 1) forwards; }
+.action-sheet[data-closing], .alert[data-closing] { display: block; }
+.sheet[data-closing]::backdrop, .action-sheet[data-closing]::backdrop, .alert[data-closing]::backdrop {
+  animation: fade-out .2s ease forwards;
+}
+dialog[data-closing], dialog[data-closing]::backdrop { pointer-events: none; }
+@keyframes sheet-down { from { transform: none; } to { transform: translateY(100%); } }
+@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes pop-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(.96); } }
 .sheet-header {
   display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px;
   min-height: 56px; padding: 0 8px; flex-shrink: 0;
@@ -409,7 +485,11 @@ dialog { color: var(--text); }
     max-height: min(86vh, 760px, calc(var(--vvh, 100dvh) - 24px));
     border-radius: var(--radius-xl);
   }
+  /* 上下都有 inset 時 height: auto 會撐到 max-height(一個欄位的「新增牌組」也開成一大片):
+     一般的 sheet 照內容高;.full 的表單維持固定高度,「已新增…」出現時面板不會跳 */
+  .sheet:not(.full) { height: fit-content; }
   .sheet[open] { animation: pop-in .22s cubic-bezier(.2, .8, .2, 1); }
+  .sheet[data-closing] { animation: pop-out .2s cubic-bezier(.4, 0, 1, 1) forwards; }
 }
 @keyframes pop-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
 
@@ -423,14 +503,15 @@ dialog { color: var(--text); }
 }
 .action-sheet::backdrop { background: rgb(0 0 0 / 0.38); }
 .action-sheet[open] { animation: sheet-up .28s cubic-bezier(.2, .8, .2, 1); }
+.action-sheet[data-closing] { animation: sheet-down .2s cubic-bezier(.4, 0, 1, 1) forwards; }
 .action-group {
-  background: var(--elevated); border-radius: 14px; overflow: hidden;
+  background: var(--elevated); border-radius: var(--radius-button-lg); overflow: hidden;
   max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 100px); overflow-y: auto;
 }
 .action-group + .action-group { margin-top: 8px; }
 .action-head { padding: 14px 16px 12px; text-align: center; border-bottom: 0.5px solid var(--separator); }
-.action-head .action-title { font-size: var(--fs-footnote); font-weight: 600; color: var(--text-2); }
-.action-head .action-message { font-size: var(--fs-footnote); color: var(--text-2); margin-top: 2px; }
+.action-head .action-title { font-size: var(--fs-footnote); font-weight: 600; color: var(--text-2); text-wrap: balance; }
+.action-head .action-message { font-size: var(--fs-footnote); color: var(--text-2); margin-top: 2px; text-wrap: balance; }
 .action {
   position: relative;
   display: flex; align-items: center; justify-content: center; gap: 10px;
@@ -440,14 +521,19 @@ dialog { color: var(--text); }
 }
 .action + .action::before { content: ''; position: absolute; top: 0; left: 0; right: 0; border-top: 0.5px solid var(--separator); }
 .action:active { background: var(--fill-2); }
-@media (hover: hover) { .action:hover { background: var(--fill-2); } }
+@media (hover: hover) { .action:not(:disabled):hover { background: var(--fill-2); } }
+/* .action-group 也是 overflow 裁圓角:焦點框往內畫(理由同 .list .row) */
+.action:focus-visible { outline-offset: -2px; border-radius: var(--radius-button-lg); }
 .action.destructive { color: var(--danger); }
 .action.cancel { font-weight: 600; }
-.action:disabled { opacity: .35; cursor: default; }
+.action:disabled { opacity: var(--disabled-opacity); cursor: default; }
 .action svg { flex-shrink: 0; }
+/* 快捷鍵靠右(像桌機的選單),動作名稱照樣置中 */
+.action .kbd-hint { position: absolute; right: 18px; color: var(--text-2); }
 @media (min-width: 768px) {
   .action-sheet { inset: 0; margin: auto; height: fit-content; padding: 0; max-width: 360px; }
   .action-sheet[open] { animation: pop-in .2s cubic-bezier(.2, .8, .2, 1); }
+  .action-sheet[data-closing] { animation: pop-out .2s cubic-bezier(.4, 0, 1, 1) forwards; }
   .action { min-height: 48px; font-size: var(--fs-body); }
 }
 
@@ -455,15 +541,19 @@ dialog { color: var(--text); }
 .alert {
   position: fixed; inset: 0; margin: auto;
   width: min(300px, calc(100vw - 48px)); height: fit-content;
-  padding: 0; border: none; border-radius: 16px;
+  padding: 0; border: none; border-radius: var(--radius-lg);
   background: var(--elevated); box-shadow: var(--shadow-lg);
   text-align: center; overflow: hidden;
 }
 .alert::backdrop { background: rgb(0 0 0 / 0.38); }
 .alert[open] { animation: pop-in .2s cubic-bezier(.2, .8, .2, 1); }
+/* 確認框小,收得比 sheet 快一點 */
+.alert[data-closing] { animation: pop-out .15s cubic-bezier(.4, 0, 1, 1) forwards; }
+.alert[data-closing]::backdrop { animation-duration: .15s; }
 .alert-body { padding: 20px 18px 18px; display: flex; flex-direction: column; gap: 6px; }
-.alert-title { font-size: var(--fs-headline); font-weight: 600; line-height: 1.35; }
-.alert-message { font-size: var(--fs-small); color: var(--text-2); line-height: 1.5; white-space: pre-line; }
+/* 置中的確認文字:balance 讓幾行一樣長(320 寬時「…一起刪 / 除。」會斷成單字一行) */
+.alert-title { font-size: var(--fs-headline); font-weight: 600; line-height: 1.35; text-wrap: balance; }
+.alert-message { font-size: var(--fs-small); color: var(--text-2); line-height: 1.5; white-space: pre-line; text-wrap: balance; }
 .alert-actions { display: flex; border-top: 0.5px solid var(--separator); }
 .alert-actions button {
   flex: 1; min-height: 48px; border: none; background: none;
@@ -473,6 +563,9 @@ dialog { color: var(--text); }
 .alert-actions button.primary { font-weight: 600; }
 .alert-actions button.destructive { color: var(--danger); font-weight: 600; }
 .alert-actions button:active { background: var(--fill-2); }
+@media (hover: hover) { .alert-actions button:hover { background: var(--fill-2); } }
+/* 按鈕貼著確認框的邊(overflow: hidden):往外的焦點框只剩兩條邊,分不出 Enter 會按到「繼續編輯」還是「捨棄」 */
+.alert-actions button:focus-visible { outline-offset: -2px; border-radius: var(--radius-lg); }
 
 /* ---------- Toast ---------- */
 .toast {
@@ -485,7 +578,7 @@ dialog { color: var(--text); }
   padding: 8px 8px 8px 16px; min-height: 44px;
   background: var(--elevated); color: var(--text);
   /* 22px = 一行時是膠囊,訊息長到換行時是圓角框 */
-  border-radius: 22px; box-shadow: var(--shadow-md);
+  border-radius: var(--radius-xl); box-shadow: var(--shadow-md);
   font-size: var(--fs-subhead); font-weight: 500; line-height: 1.35;
   animation: toast-in .25s cubic-bezier(.2, .8, .2, 1);
 }
@@ -521,23 +614,39 @@ dialog { color: var(--text); }
 /* ---------- 錯誤畫面 ---------- */
 .crash { display: flex; flex-direction: column; gap: 12px; padding-top: calc(40px + var(--safe-top)); }
 .crash h1 { font-size: var(--fs-title1); }
+/* 出錯時焦點移到標題(讀螢幕才知道頁面壞了),畫面上不必畫框 */
+.crash h1:focus { outline: none; }
+/* 錯誤內容(常常是一整串網址):換行不橫向捲動 —— 手機上沒有捲軸,捲得動也看起來像被切掉 */
 .crash-detail {
   background: var(--surface); border-radius: var(--radius);
-  padding: 12px; font-size: var(--fs-footnote); color: var(--text-2); overflow-x: auto; white-space: pre-wrap;
+  padding: 12px; font-size: var(--fs-footnote); color: var(--text-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+/* 錯誤內容和上面的按鈕分開一點,和它自己的說明貼近 */
+.crash-detail-label { margin-top: 12px; }
+.crash-detail-label + .crash-detail { margin-top: -6px; }
+@media (min-width: 768px) {
+  .crash h1 { font-size: var(--fs-large); }
+  .crash .btn-stack { max-width: 320px; }
 }
 
-/* 觸控目標至少 44pt:小膠囊、文字鈕、chip、分段控制、步進器外觀不變,
+/* 觸控目標至少 44pt:小膠囊、文字鈕、chip、分段控制、步進器、更新提示的按鈕外觀不變,
    用看不見的 ::after 把可點範圍往上下撐開(左右不撐,免得蓋到隔壁那顆) */
 @media (pointer: coarse) {
-  .btn.sm, .link, .segmented button, .stepper button { position: relative; }
+  .btn.sm, .link, .segmented button, .stepper button, .update-banner .btn { position: relative; }
   .btn.sm::after, .link::after, .segmented button::after, .stepper button::after {
     content: ''; position: absolute; inset: -6px 0;
   }
+  .update-banner .btn::after { content: ''; position: absolute; inset: -4px 0; }
+  /* 搜尋框的清除鈕(40px)四邊各撐 2px。它本來就是 absolute,自己就是 ::after 的定位基準:
+     不能加進上面那串 relative(會掉回排版流,被擠出搜尋框) */
+  .search-clear::after { content: ''; position: absolute; inset: -2px; }
   .stepper button { width: 44px; }
 }
 
-/* 鍵盤提示只在有實體鍵盤(hover 裝置)顯示,手機上是雜訊 */
-.kbd-hint { opacity: .6; font-weight: 400; font-size: .9em; }
+/* 鍵盤提示只在有實體鍵盤(hover 裝置)顯示,手機上是雜訊。
+   不調透明度:小字又半透明只剩 2.5–2.8:1(和 .pitch-num 同一個理由);靠字小、字重輕和按鈕上的字分開 */
+.kbd-hint { font-weight: 400; font-size: .9em; }
 @media (hover: none) { .kbd-hint, .kbd-only { display: none !important; } }
 kbd {
   font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--fs-caption);
@@ -557,9 +666,13 @@ kbd {
 /* 很長的讀音(十幾拍)放不下就換行,不要撐破卡片或整頁 */
 .pitch { max-width: 100%; }
 .pitch-morae { display: inline-flex; flex-wrap: wrap; min-width: 0; }
-.pitch-morae .mora { border-top: 2px solid transparent; line-height: 2; padding: 0 1px; }
+/* 高低線貼著假名:行高 2 時線浮在字上面 11px,下降的直線又拖到字下面,「なが|い」看起來像游標 */
+.pitch-morae .mora { border-top: 2px solid transparent; line-height: 1.6; padding: 2px 1px 0; }
 .pitch-morae .mora.high { border-top-color: currentColor; }
-.pitch-morae .mora.drop { border-right: 2px solid currentColor; }
+/* 下降處:從高線往下一小截(┐,重音辭典的畫法),不是整行高的直線。
+   用 border 不用 background:高對比模式會把背景色換掉,這一截就不見了 */
+.pitch-morae .mora.drop { position: relative; }
+.pitch-morae .mora.drop::after { content: ''; position: absolute; top: 0; right: 0; height: .6em; border-right: 2px solid currentColor; }
 /* 不再調淡:小字又半透明只剩 3.9:1,看不清楚 */
 .pitch-num { font-size: 0.66em; font-variant-numeric: tabular-nums; }
 

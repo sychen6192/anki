@@ -1,6 +1,7 @@
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
-import { MoreIcon, PlusIcon, UndoIcon } from '../components/icons'
+import { MoreIcon, PlayIcon, PlusIcon, UndoIcon } from '../components/icons'
 import './guide.css'
 
 /** 說明頁。一句能講完的不寫兩句,寫不出具體內容的句子直接刪。 */
@@ -13,10 +14,10 @@ export default function GuidePage() {
         <h2>快速開始</h2>
         <ol className="guide-steps">
           <li>
-            在「牌組」按右上的 <span className="inline-icon"><PlusIcon size={15} /></span>，
+            在「牌組」按右上的 <InlineIcon label="新增牌組或匯入"><PlusIcon size={15} /></InlineIcon>，
             <Link to="/import?mode=templates" className="inline-link">挑一份範本</Link>、匯入自己的 CSV / Anki 牌組，或貼上朋友的分享連結
           </li>
-          <li>回「牌組」按 <b>開始複習</b>；好幾副牌組會一起複習，也可以按每副右邊的小按鈕單獨複習</li>
+          <li>回「牌組」按「開始複習」；好幾副牌組會一起複習，也可以按每副右邊的 <InlineIcon label="複習"><PlayIcon size={10} /></InlineIcon> 單獨複習那一副</li>
           <li>先想答案 → 點卡片或「顯示答案」翻面 → 照記得的程度評分</li>
         </ol>
       </section>
@@ -29,26 +30,27 @@ export default function GuidePage() {
           <li><span className="rate-chip rating-3">普通</span>想了一下，答對了</li>
           <li><span className="rate-chip rating-4">簡單</span>秒答</li>
         </ul>
-        <p className="hint">按鈕上的小字是下次見到的間隔。按錯了按右上的
-          <span className="inline-icon"><UndoIcon size={14} /></span>復原，可以連續退好幾步。</p>
+        <p className="hint">
+          按鈕上的小字是下次見到的間隔。按錯了按右上的 <InlineIcon label="復原上一步"><UndoIcon size={14} /></InlineIcon> 復原，可以連續退好幾步。
+        </p>
       </section>
 
       <section className="guide-card card">
         <h2>不想再看到某個字</h2>
-        <p>複習時按右上的 <span className="inline-icon"><MoreIcon size={15} /></span>：</p>
+        <p>複習時按右上的 <InlineIcon label="更多動作"><MoreIcon size={15} /></InlineIcon>：</p>
         <ul className="guide-list">
           <li><b>已經會了</b>：早就會的字，之後不再出現</li>
           <li><b>先不學這個字</b>：不會自己回來，想學時到牌組頁的「先不學」恢復</li>
           <li><b>跳過</b>：只是這次先不看，等一下還會出現</li>
         </ul>
-        <p className="hint">牌組頁的「⋯」→「選取多個字」可以一次處理很多字，也能恢復。</p>
+        <p className="hint">牌組頁按右上的 <InlineIcon label="更多動作"><MoreIcon size={14} /></InlineIcon> →「選取多個字」，可以一次處理很多字，也能恢復。</p>
       </section>
 
       <section className="guide-card card kbd-only">
         <h2>鍵盤快捷鍵</h2>
         <table className="kbd-table">
           <tbody>
-            <tr><td><kbd>空白鍵</kbd></td><td>顯示答案；翻面後等於「普通」</td></tr>
+            <tr><td><kbd>空白鍵</kbd> / <kbd>Enter</kbd></td><td>顯示答案；翻面後等於「普通」</td></tr>
             <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></td><td>評分</td></tr>
             <tr><td><kbd>E</kbd> / <kbd>S</kbd></td><td>編輯 / 跳過</td></tr>
             <tr><td><kbd>U</kbd></td><td>復原上一步</td></tr>
@@ -66,4 +68,12 @@ export default function GuidePage() {
       </section>
     </>
   )
+}
+
+/**
+ * 句子裡畫出來的按鈕。圖示本身是 aria-hidden,不給名字 VoiceOver 會念成「按右上的 ，」,
+ * 所以用畫面上那顆按鈕自己的 aria-label,說明裡聽到的和到了那一頁聽到的一樣
+ */
+function InlineIcon({ label, children }: { label: string; children: ReactNode }) {
+  return <span className="inline-icon" role="img" aria-label={label}>{children}</span>
 }

@@ -1,6 +1,6 @@
 import { afterEach, describe, it, expect, vi } from 'vitest'
 import {
-  ShareNotFoundError, createShare, fetchShare, isInAppBrowser, isStandaloneApp, isTouchDevice, normalizeSharedRows,
+  ShareNotFoundError, ShareTooLargeError, createShare, fetchShare, isInAppBrowser, isStandaloneApp, isTouchDevice, normalizeSharedRows,
   parseShareCode, shareUrlFor, storageSeparateFromApp,
 } from '../src/lib/share'
 
@@ -82,7 +82,8 @@ describe('createShare', () => {
 
   it('伺服器錯誤或沒回分享碼都丟出錯誤', async () => {
     const err = (async () => new Response('x', { status: 500 })) as typeof fetch
-    await expect(createShare('A', rows, err)).rejects.toThrow('HTTP 500')
+    await expect(createShare('A', rows, err)).rejects.toThrow('伺服器暫時有問題')
+    await expect(createShare('A', rows, err)).rejects.not.toThrow('HTTP')
     const noCode = (async () => new Response('{}')) as typeof fetch
     await expect(createShare('A', rows, noCode)).rejects.toThrow('分享碼')
   })
@@ -93,7 +94,16 @@ describe('createShare', () => {
     await expect(createShare('A', rows, reply(400, 'payload too large'))).rejects.toThrow('太大')
     await expect(createShare('A', rows, reply(400, 'rows must be 1..5000'))).rejects.toThrow('太大')
     await expect(createShare('A', rows, reply(429, 'too many requests'))).rejects.toThrow('太頻繁')
-    await expect(createShare('A', rows, reply(400, 'name is required'))).rejects.toThrow('HTTP 400')
+    await expect(createShare('A', rows, reply(400, 'name is required'))).rejects.toThrow('代碼 400')
+  })
+
+  it('只有「太大」是 ShareTooLargeError(重試也沒用),伺服器一時出錯不是', async () => {
+    const reply = (status: number, error: string) =>
+      (async () => new Response(JSON.stringify({ error }), { status })) as typeof fetch
+    await expect(createShare('A', rows, reply(400, 'payload too large'))).rejects.toBeInstanceOf(ShareTooLargeError)
+    const err = await createShare('A', rows, reply(502, '')).catch((e) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect(err).not.toBeInstanceOf(ShareTooLargeError)
   })
 })
 
@@ -108,9 +118,12 @@ describe('fetchShare', () => {
     })
   })
 
-  it('404 講人話,其他錯誤帶狀態碼', async () => {
-    await expect(fetchShare('x', (async () => new Response('', { status: 404 })) as typeof fetch)).rejects.toThrow('找不到這個分享')
-    await expect(fetchShare('x', (async () => new Response('', { status: 503 })) as typeof fetch)).rejects.toThrow('503')
+  it('錯誤都講人話,不秀狀態碼', async () => {
+    const status = (n: number) => (async () => new Response('', { status: n })) as typeof fetch
+    await expect(fetchShare('x', status(404))).rejects.toThrow('找不到這個分享')
+    await expect(fetchShare('x', status(503))).rejects.toThrow('伺服器暫時有問題')
+    await expect(fetchShare('x', status(400))).rejects.toThrow('讀不到這個分享')
+    await expect(fetchShare('x', status(503))).rejects.not.toThrow('503')
   })
 
   it('只有 404 是 ShareNotFoundError(重試也沒用),暫時性錯誤不是', async () => {

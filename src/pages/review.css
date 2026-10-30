@@ -81,19 +81,19 @@
   font-size: clamp(var(--fs-title2), calc(100cqi / var(--n, 4) - 1px), var(--fs-display));
   font-weight: 700; letter-spacing: -0.01em; line-height: 1.25;
   line-break: strict; overflow-wrap: anywhere;
+  /* 放不下時斷在詞與詞之間(「お誕生日／おめでとうございます」),不是「…ござ／います」。
+     只有 Chromium 認得;不加 text-wrap: balance —— Safari 沒有 auto-phrase,balance 反而斷進「おめで／とう」 */
+  word-break: auto-phrase;
 }
 /* 字多的行高鬆一點、字重輕一點(字級本身已經依寬度縮了) */
 .expression.size-sm { line-height: 1.35; }
 .expression.size-xs { line-height: 1.5; font-weight: 600; }
 /* 反向卡正面是中文意思:字重輕一點,跟日文單字分得出來 */
 .expression.prompt-text { font-weight: 600; }
-.card-prompt {
-  font-size: var(--fs-caption); font-weight: 600; color: var(--accent-text); letter-spacing: .04em;
-  padding: 3px 10px; border-radius: 999px; background: var(--accent-tint);
-}
-.card-hint { font-size: var(--fs-small); color: var(--text-2); }
+/* 方向只靠這一句提示(不另加「中 → 日」標籤):大字才會和正向卡、翻面後的單字在同一個高度 */
+.card-hint { font-size: var(--fs-subhead); color: var(--text-2); }
 /* 卡上的輔助字(牌組名、標籤、提示)不必被長按選取;單字本身保留長按「查詢」 */
-.card-deck, .card-tag, .card-prompt, .card-hint { -webkit-user-select: none; user-select: none; }
+.card-deck, .card-tag, .card-hint { -webkit-user-select: none; user-select: none; }
 
 /* 答案:正面時先佔好位置但看不見,翻面只淡入,不推動上面的單字 */
 .card-answer { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; }
@@ -104,7 +104,8 @@
 .reading-row .speak-btn { width: 44px; height: 44px; }
 .card-divider { width: 40px; height: 3px; border-radius: 2px; background: var(--separator); margin: 2px 0; }
 /* 意思是這張卡的「答案」,不該是最灰的一層 */
-.meaning { font-size: var(--fs-title2); font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
+/* pretty:最後一行不會只剩「說）」一兩個字 */
+.meaning { font-size: var(--fs-title2); font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; text-wrap: pretty; }
 
 .review-actions {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
@@ -112,7 +113,10 @@
   background: linear-gradient(to top, var(--bg) 72%, color-mix(in srgb, var(--bg) 0%, transparent));
 }
 .review-actions > * { max-width: 688px; margin: 0 auto; }
-.show-answer { min-height: 60px; font-size: var(--fs-headline); border-radius: 16px; }
+/* 和評分鍵同一個大小與位置:翻面時拇指底下那顆不會長高、換圓角。
+   .btn.lg 也設了 min-height 和圓角:寫成 .btn.lg.show-answer(0,3,0),不靠 main.tsx 的載入順序也蓋得過;
+   display: flex 才會被上面的 margin: 0 auto 置中(inline-flex 不會) */
+.btn.lg.show-answer { display: flex; min-height: 60px; border-radius: var(--radius-lg); }
 .show-answer .kbd-hint { font-size: var(--fs-footnote); font-weight: 500; }
 
 .ratings { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
@@ -123,18 +127,20 @@
   position: relative;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
   min-height: 60px; padding: 6px 2px;
-  border: none; border-radius: 16px;
+  border: none; border-radius: var(--radius-lg);
   font-family: inherit; cursor: pointer;
-  transition: transform .08s ease, filter .15s ease;
+  transition: transform .08s ease, filter .15s ease, box-shadow .15s ease;
 }
 .rating:active { transform: scale(0.96); filter: brightness(.94); }
-@media (hover: hover) { .rating:hover { filter: brightness(1.06); } }
+/* 滑過去描一圈同色的內框:提亮在淺色會褪向白底、在深色只差 3–4 個色階(等於沒有)。
+   底色不變,字的對比也不變;焦點是外面 2px 的主色框,分得開 */
+@media (hover: hover) { .rating:hover { box-shadow: inset 0 0 0 2px color-mix(in srgb, currentColor 32%, transparent); } }
 .rating-label { font-size: var(--fs-headline); font-weight: 600; }
 .rating-interval { font-size: var(--fs-caption); font-weight: 500; font-variant-numeric: tabular-nums; }
 .rating-key { position: absolute; top: 5px; right: 8px; font-size: var(--fs-caption2); }
 
 /* 評分後的回饋(可復原):浮在評分鍵上方,絕不蓋住按鈕。
-   頁面 CSS 和元件 CSS 的載入順序不固定,同權重時會被 .app.no-tabbar .toast 蓋掉,所以選擇器寫長一點 */
+   要比 components.css 的 .app.no-tabbar .toast(0,3,0)重,所以選擇器寫長一點 */
 .app.no-tabbar .review-screen .review-toast { bottom: calc(var(--safe-bottom) + 96px); }
 .app.no-tabbar .review-screen.with-hint .review-toast { bottom: calc(var(--safe-bottom) + 124px); }
 
@@ -154,9 +160,14 @@
 .review-done h1 { font-size: var(--fs-title1); font-weight: 700; }
 .done-stats { color: var(--text-2); font-size: var(--fs-body); }
 .done-stats b { color: var(--text); font-variant-numeric: tabular-nums; }
-.done-wait { color: var(--text-2); font-size: var(--fs-subhead); max-width: 24em; }
+.done-wait, .done-note { color: var(--text-2); font-size: var(--fs-subhead); max-width: 24em; text-wrap: balance; }
+/* 置中的兩行錯誤:中文字字之間都能斷,只靠 balance 會把斷點挪進詞中間(「存好／了，」)。
+   keep-all 讓中文只在標點、空白斷行,balance 再從這幾個點挑最平均的;
+   anywhere 只是保險:沒有標點的一長串中文還是能斷,不會撐出畫面 */
+.review-done .err { max-width: 24em; word-break: keep-all; overflow-wrap: anywhere; text-wrap: balance; }
 .review-done .btn-stack { width: 100%; max-width: 340px; margin-top: 16px; }
-.btn-note { font-size: var(--fs-footnote); font-weight: 500; opacity: .75; }
+/* 不調透明度(淡色鈕上只剩 3.3:1):13px、一般字重,已經比 17px 粗體的按鈕字低一階 */
+.btn-note { font-size: var(--fs-footnote); font-weight: 400; }
 
 /* 寬螢幕:按鈕接在卡片下面,不必跑到畫面最底 */
 @media (min-width: 768px) {
@@ -188,7 +199,7 @@
     background: linear-gradient(to top, var(--bg) 72%, color-mix(in srgb, var(--bg) 0%, transparent));
   }
   .review-actions > * { max-width: 688px; }
-  .rating, .show-answer { min-height: 52px; }
+  .rating, .btn.lg.show-answer { min-height: 52px; }
   .rating-hint { display: none; }
   /* 橫放時卡片矮,底部的提示條會蓋住答案的最後一行:改疊在頂列上,夾在 ✕ 和右邊那一組之間
      (進度條可以蓋;三色計數、↶、⋯ 不能蓋 —— 每答一張都跳出來,蓋住的話計數一直看不到) */
@@ -207,3 +218,9 @@
   }
 }
 @keyframes toast-in-top { from { opacity: 0; transform: translateY(-8px); } }
+
+/* 減少動態效果:base.css 把所有動畫壓成 0.01ms,答案和下一張就變成一瞬間換掉,兩個長得像的字連著出現時看不出換了。
+   這兩個改成純淡入(不位移);卡片本身、提示條、面板照舊不動 */
+@media (prefers-reduced-motion: reduce) {
+  .card-face, .flashcard.flipped .card-answer { animation: fade-in .16s ease !important; }
+}

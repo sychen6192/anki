@@ -4,6 +4,7 @@ import { useBusy } from '../lib/useBusy'
 import { countLocalContents, normalizeSyncKey, setSyncSpace } from '../lib/space'
 import { probeSyncKey, syncNow } from '../lib/sync'
 import { spaceProblemText } from '../lib/syncText'
+import { canReadClipboard, readClipboardText } from '../lib/clipboard'
 
 type Outcome = { kind: 'empty' } | { kind: 'error'; text: string } | null
 
@@ -66,14 +67,10 @@ export function JoinSpaceSheet({ open, onClose, onJoined }: {
     inputRef.current?.focus()
   }
 
-  const canPaste = typeof navigator !== 'undefined' && typeof navigator.clipboard?.readText === 'function'
+  const canPaste = canReadClipboard()
   const paste = async () => {
-    try {
-      const text = (await navigator.clipboard.readText()).trim()
-      if (text !== '') { setInput(text); setOutcome(null) }
-    } catch {
-      // 沒給權限就算了,手動貼
-    }
+    const text = await readClipboardText()
+    if (text !== '') { setInput(text); setOutcome(null) }
   }
 
   return (

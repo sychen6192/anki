@@ -23,7 +23,7 @@ import { useBusy } from '../lib/useBusy'
 import { Loading } from '../components/Loading'
 import { PageHeader } from '../components/PageHeader'
 import { ListSection, Segmented, Switch } from '../components/controls'
-import { CheckIcon, FileIcon, LinkIcon, UploadIcon } from '../components/icons'
+import { CheckIcon, ChevronRightIcon, FileIcon, LinkIcon, UploadIcon } from '../components/icons'
 import { scrollBehavior } from '../lib/motion'
 import './import.css'
 
@@ -58,14 +58,50 @@ const isMode = (m: string | null): m is Mode => m === 'csv' || m === 'apkg' || m
 // 連不上網路時講人話(不是瀏覽器的「Failed to fetch」)
 const errText = errorText
 
-/** 匯入結果:CSV/apkg/範本顯示在表單下方,分享的顯示在分享卡片裡,共用同一個樣子 */
-function SummaryView({ result }: { result: ImportResult }) {
+/** 匯入要查重音,可能好幾秒:按鈕上講清楚在等什麼。窄螢幕換行時括號那段整段換到下一行,不斷在「重音」中間 */
+// 外面要包一層:.btn 是 flex,不包的話兩段字各自是一個 flex 子元素,排成一列不會換行
+const IMPORTING_LABEL = <span>匯入中…<span className="nowrap">（要查重音，稍等一下）</span></span>
+
+/**
+ * 摘要的標題:主句 + 灰字的補充子句;讀螢幕唸的是接起來的同一句(summaryText)。
+ * 一個新字都沒有時不說「匯入 0 個字」(配上綠色勾勾像是成功了),直接講都已經有了
+ */
+function summaryTitle(s: Summary): { main: string; subs: string[] } {
+  const nothingNew = s.imported === 0 && s.skipped.length > 0
+  const subs = [
+    nothingNew ? `，${s.skipped.length} 個都已經在牌組裡了` : s.skipped.length > 0 ? `，${s.skipped.length} 個已經有了，跳過` : '',
+    s.otherSkipped > 0 ? `，略過其他筆記類型的 ${s.otherSkipped} 個` : '',
+  ].filter((t) => t !== '')
+  return { main: nothingNew ? '沒有新的字' : `匯入 ${s.imported} 個字`, subs }
+}
+const summaryText = (s: Summary) => { const { main, subs } = summaryTitle(s); return main + subs.join('') }
+
+/** 超過 n 個字的截斷加「…」(用 Array.from 數,不把罕用字、emoji 切成半個) */
+function clip(s: string, n: number): string {
+  if (s.length <= n) return s
+  const chars = Array.from(s)
+  return chars.length > n ? `${chars.slice(0, n).join('')}…` : s
+}
+
+/**
+ * 匯入結果:CSV/apkg/範本顯示在表單下方,分享的顯示在分享卡片裡,共用同一個樣子。
+ * 不放 role=status:剛插進頁面的播報區 iOS VoiceOver 常常不唸,改由頁面上一直都在的那一塊唸(見 announce)
+ */
+function SummaryView({ result, reveal = true }: { result: ImportResult; reveal?: boolean }) {
   const { summary, deckId } = result
+  const ref = useRef<HTMLDivElement | null>(null)
+  // 手機螢幕短,結果常常出現在分頁列後面:捲進畫面。匯入跑完時使用者已經在填下一批(reveal 是 false)就不捲,
+  // 不把頁面從正在打字的地方拉走。看 summary 不看 result:result 是每次重繪時現組的
+  useEffect(() => {
+    if (reveal) ref.current?.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() })
+  }, [summary, reveal])
+  const { main, subs } = summaryTitle(summary)
   return (
-    <div className="summary" role="status" aria-live="polite">
-      <p className="summary-title"><CheckIcon size={18} />匯入 {summary.imported} 個字
-        {summary.skipped.length > 0 && <span className="summary-sub">，{summary.skipped.length} 個已經有了，跳過</span>}
-        {summary.otherSkipped > 0 && <span className="summary-sub">，略過其他筆記類型的 {summary.otherSkipped} 個</span>}
+    <div className="summary" ref={ref}>
+      {/* 整句包在同一個 span 裡:.summary-title 是 flex,分成好幾個子元素的話「，」前面多一段間距,窄螢幕還會被換到行首 */}
+      <p className={`summary-title${summary.imported === 0 ? ' none' : ''}`}>
+        {summary.imported > 0 && <CheckIcon size={18} />}
+        <span>{main}{subs.map((t) => <span className="summary-sub" key={t}>{t}</span>)}</span>
       </p>
       {summary.annotateSkipped
         ? <p className="hint">沒連上字典，重音先空著；之後在牌組頁的「⋯」→「自動標註重音」補。</p>
@@ -74,7 +110,8 @@ function SummaryView({ result }: { result: ImportResult }) {
         )}
       {summary.skipped.length > 0 && (
         <details className="summary-skipped">
-          <summary>看跳過了哪些</summary>
+          {/* Safari 的 summary 不一定吃 display: flex:箭頭和字包在裡面那層排 */}
+          <summary><span className="summary-toggle"><ChevronRightIcon size={14} />看跳過了哪些</span></summary>
           {/* 只列前 10 筆:整副重匯時全列出來會生出上千個節點 */}
           <ul>{summary.skipped.slice(0, 10).map((r, i) => (
             <li key={i}><span lang="ja">{r.expression}{r.reading && `（${r.reading}）`}</span> — {r.meaning}</li>
@@ -106,10 +143,6 @@ interface ShareCardProps {
 
 /** 朋友分享的牌組:讀取中 → 內容與匯入鈕 → 匯入後在卡片裡直接顯示結果(按鈕收掉,不會重複匯入) */
 function ShareCard({ shared, loadError, importError, result, busy, withReverse, onWithReverse, onImport, onRetry, browserOnly, mergeInto }: ShareCardProps) {
-  const resultRef = useRef<HTMLDivElement | null>(null)
-  // 手機螢幕短,結果出現時捲進畫面
-  useEffect(() => { if (result !== null) resultRef.current?.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() }) }, [result])
-
   if (loadError !== '') {
     return (
       <div className="card share-card">
@@ -147,13 +180,15 @@ function ShareCard({ shared, loadError, importError, result, busy, withReverse, 
             <span>同時建立反向卡</span>
             <Switch label="同時建立反向卡" checked={withReverse} onChange={onWithReverse} />
           </label>
-          <button className={browserOnly ? 'btn lg secondary' : 'btn lg'} disabled={busy || shared.rows.length === 0} onClick={onImport}>
-            {busy ? '匯入中…' : browserOnly ? `只在這個瀏覽器匯入 ${shared.rows.length} 個字` : `匯入 ${shared.rows.length} 個字`}
+          <button className={browserOnly ? 'btn lg secondary' : 'btn lg'} disabled={busy || shared.rows.length === 0}
+            aria-busy={busy} onClick={onImport}>
+            {busy && <span className="spinner" aria-hidden="true" />}
+            {busy ? IMPORTING_LABEL : browserOnly ? `只在這個瀏覽器匯入 ${shared.rows.length} 個字` : `匯入 ${shared.rows.length} 個字`}
           </button>
         </>
       )}
       {importError !== '' && <p className="err" role="alert">匯入失敗：{importError}</p>}
-      {result !== null && <div ref={resultRef}><SummaryView result={result} /></div>}
+      {result !== null && <SummaryView result={result} />}
     </div>
   )
 }
@@ -224,7 +259,7 @@ export default function ImportPage() {
   const autoName = useRef('')
   // 現在是哪個分頁(切換時馬上更新,不等重繪):非同步的步驟跑完時分頁換了,結果就不掛到別的分頁上
   const modeRef = useRef(mode)
-  // 每改一次表單(換檔案、改內容、改目標或名稱)加一:匯入跑完時使用者已經在填下一批,
+  // 每改一次表單(換檔案、改內容、欄位對應、改目標或名稱)加一(見 formChanged):匯入跑完時使用者已經在填下一批,
   // 就只回報結果,不把目標牌組和名稱改回去(不然下一批會默默匯進上一批的牌組)
   const formGen = useRef(0)
   // 頁面自己挑的目標牌組:匯入後切到剛匯進去的那副、或照檔名選到同名的那副。
@@ -241,8 +276,26 @@ export default function ImportPage() {
   const [summary, setSummary] = useState<Summary | null>(null)
   // 最近一次匯入寫進哪副牌組 —— 摘要裡給「開始複習/查看牌組」的直達連結
   const [lastDeckId, setLastDeckId] = useState<string | null>(null)
+  // 摘要出現時要不要捲進畫面(見 SummaryView)
+  const [reveal, setReveal] = useState(true)
+  // 摘要是不是「表單現在這個樣子」匯出來的結果:是的話「匯入」退成次要(再按一次只會匯入 0 個字)。
+  // 之後改了內容、檔案、欄位對應、目標或名稱,就是一次新的匯入,變回實心(見 import-go)
+  const [goDone, setGoDone] = useState(false)
+  // 使用者改了表單:匯入跑完時認得出來(見 doImport),「匯入」也變回實心
+  const formChanged = () => { formGen.current++; setGoDone(false) }
   const [busy, runBusy] = useBusy()
   const [errMsg, setErrMsg] = useState('')
+  // 範本匯入失敗時,錯誤顯示在按下去的那張卡片裡:放在整頁最下面的話手機上在畫面外,看起來像按了沒反應
+  const [failedTemplate, setFailedTemplate] = useState<string | null>(null)
+  // 匯入結果由一塊一直都在的播報區唸(和 useToast 同一個做法)。先清空再寫:同一句話也會再唸一次
+  const [announcement, setAnnouncement] = useState('')
+  const announceTimer = useRef(0)
+  useEffect(() => () => clearTimeout(announceTimer.current), [])
+  const announce = (text: string) => {
+    clearTimeout(announceTimer.current)
+    setAnnouncement('')
+    announceTimer.current = window.setTimeout(() => setAnnouncement(text), 100)
+  }
   // 非同步的步驟(解析 apkg、匯入)跑完時,要看「現在」的目標與名稱,不是開始那一刻的
   const latest = useRef({ deckId, newDeckName, decks })
   latest.current = { deckId, newDeckName, decks }
@@ -324,15 +377,38 @@ export default function ImportPage() {
   // 缺單字或意思的列不會匯入:預覽下方明講幾列,不要默默少掉
   const sourceCount = mode === 'csv' ? dataRows.length : (notetype?.noteCount ?? 0)
   // 有一格超過 MAX_FIELD_CHARS 字的列另外算(多半是少了一個引號,後面整段被當成同一格),不要說成「缺少單字或意思」
-  const tooLong = mode === 'csv' && mapping
-    ? dataRows.filter((r) => [mapping.expression, mapping.reading, mapping.meaning]
-      .some((i) => i !== null && (r[i] ?? '').trim().length > MAX_FIELD_CHARS)).length
-    : 0
+  const isTooLong = (r: string[]) => mapping !== null && [mapping.expression, mapping.reading, mapping.meaning]
+    .some((i) => i !== null && (r[i] ?? '').trim().length > MAX_FIELD_CHARS)
+  const tooLong = mode === 'csv' ? dataRows.filter(isTooLong).length : 0
 
   const parsed = mode === 'csv' ? csvParsed : apkgParsed
   const activeMapping: CsvMapping | ApkgMapping | null = mode === 'csv' ? mapping : apkgMapping
   const fieldOptions = mode === 'csv' ? (rows[0] ?? []) : mode === 'apkg' ? (notetype?.fieldNames ?? []) : []
   const labels = FIELD_LABELS
+  // 每一列都只有一欄(沒有逗號或 Tab):欄位對應選不出「意思」,改講清楚檔案要長什麼樣子。
+  // 看每一列,不只看第一列:第一列可能是只有一格的標題,底下才是好幾欄的資料
+  const oneColumn = mode === 'csv' && rows.length > 0 && rows.every((r) => r.length < 2)
+
+  // 預覽底下的說明,有幾句接幾句
+  const missing = sourceCount - parsed.length - tooLong
+  // CSV 舉一列出來(用內容不用行號:引號裡的換行、略過的空白列都會讓列數和檔案的行號對不上),搜尋一下就找得到
+  const missingRow = mode === 'csv' && mapping !== null && missing > 0
+    ? dataRows.find((r) => !isTooLong(r) && mapRows([r], mapping).length === 0) : undefined
+  const missingLabel = missingRow?.map((c) => c.trim()).find((c) => c !== '')
+  const previewNotes = [
+    missing <= 0 ? ''
+      : mode === 'csv'
+        ? `有 ${missing} 列缺少單字或意思${missingLabel ? `（${missing > 1 ? '例如' : ''}「${clip(missingLabel, 12)}」那一列）` : ''}，不會匯入。`
+        : `有 ${missing} 個缺少單字或意思，不會匯入。`,
+    tooLong > 0
+      ? `有 ${tooLong} 列某一格超過 ${MAX_FIELD_CHARS.toLocaleString()} 字（多半是少了一個引號，後面整段被當成同一格），不會匯入。` : '',
+    // 少了引號但還沒長到 MAX_FIELD_CHARS:後面幾列默默併成一格,字數變少卻沒有任何說明。
+    // 只提醒不擋:意思本來就可以分好幾行
+    mode === 'csv' && csvParsed.some((r) => r.expression.includes('\n') || r.reading.includes('\n') || r.meaning.includes('\n'))
+      ? '有一格裡面有換行。如果預覽的字數比你的表少，多半是少了一個引號，後面幾列被併進同一格了。' : '',
+    // 放在這裡不放標題:標題是一個區段名稱,寫成一整句會換成兩行
+    mode === 'apkg' && otherNoteCount > 0 ? `另有 ${otherNoteCount} 個屬於其他筆記類型，不會匯入。` : '',
+  ].filter((t) => t !== '')
 
   const switchMode = (next: Mode) => {
     // 點目前這一格也會叫到這裡:不算換分頁(不然摘要和選好的檔名會被清掉)
@@ -352,10 +428,16 @@ export default function ImportPage() {
     setSearchParams(initialDeck.current ? { mode: next, deck: initialDeck.current } : { mode: next }, { replace: true })
   }
 
-  /** CSV/apkg/範本的結果顯示在表單下方,目標牌組切到剛匯入的那副 */
-  const showResult = (r: ImportResult) => {
+  /**
+   * CSV/apkg/範本的結果顯示在表單下方,目標牌組切到剛匯入的那副。
+   * fresh 是 false:匯入途中使用者改了表單,摘要照樣顯示,但不捲過去,「匯入」也不退成次要
+   */
+  const showResult = (r: ImportResult, fresh = true) => {
     setSummary(r.summary)
     setLastDeckId(r.deckId)
+    setReveal(fresh)
+    setGoDone(fresh)
+    announce(summaryText(r.summary))
     // 目標牌組切到剛匯入的那副:再按一次「匯入」會走去重,而不是又建一副同名新牌組
     setDeckId(r.deckId)
     setNewDeckName('')
@@ -363,7 +445,7 @@ export default function ImportPage() {
   }
 
   const onTextLoaded = (t: string) => {
-    formGen.current++
+    formChanged()
     setText(t)
     setSummary(null)
     const first = parseCsv(t)[0]
@@ -407,7 +489,7 @@ export default function ImportPage() {
   }
 
   const onApkgFile = async (file: File) => {
-    formGen.current++
+    formChanged()
     setSummary(null)
     setErrMsg('')
     setApkg(null)
@@ -437,6 +519,7 @@ export default function ImportPage() {
   }
 
   const setMappingField = (field: MappingField, value: number | null) => {
+    formChanged()
     if (mode === 'csv') setMapping((m) => (m ? { ...m, [field]: value } : m))
     else setApkgMapping((m) => (m ? { ...m, [field]: value } : m))
   }
@@ -505,7 +588,8 @@ export default function ImportPage() {
       await fn()
     } catch (e) {
       setSummary(null)
-      setErrMsg(e instanceof Error ? e.message : String(e))
+      // 「匯入失敗」只加在真的匯入時:選了檔案卻讀不出來(onApkgFile)還沒開始匯入,訊息本身就講清楚了
+      setErrMsg(`匯入失敗：${e instanceof Error ? e.message : String(e)}`)
     }
   })
 
@@ -521,15 +605,21 @@ export default function ImportPage() {
       // 新牌組也等查完重音才在交易裡建:不會先冒出一副空牌組
       const r = await importParsed(wasNew ? { newName } : { id: deckId }, parsed, mode === 'apkg' ? otherNoteCount : 0)
       if (modeRef.current !== startMode) return
-      // 匯入途中換了檔案、目標或名稱:只回報結果,目標和名稱留給下一批。只改了內容(修錯字、多加一列)、
+      // 匯入途中換了檔案、目標或名稱:只回報結果,目標和名稱留給下一批。只改了內容或欄位對應(修錯字、多加一列)、
       // 目標還是同名的新牌組的話照樣切到剛建好的那副 —— 不然再按一次「匯入」會多一副同名的,每個字兩份
       const cur = latest.current
-      if (form !== formGen.current && !(wasNew && cur.deckId === 'new' && cur.newDeckName.trim() === newName)) {
+      const edited = form !== formGen.current
+      if (edited && !(wasNew && cur.deckId === 'new' && cur.newDeckName.trim() === newName)) {
         setSummary(r.summary)
         setLastDeckId(r.deckId)
+        // 照樣顯示和播報,但不把頁面捲到摘要那裡:使用者正在上面打下一批
+        setReveal(false)
+        setGoDone(false)
+        announce(summaryText(r.summary))
         return
       }
-      showResult(r)
+      // 改過的話一樣不捲:使用者正在上面的文字框裡打字(或調欄位對應),不把頁面拉走;改過的還沒匯,「匯入」維持實心
+      showResult(r, !edited)
       autoTarget.current = pageTarget ? r.deckId : null
       // 特地選的「建立新牌組」只算這一次:目標已經切到剛建好的那副,下一個檔案照檔名挑
       pickedNew.current = false
@@ -544,6 +634,7 @@ export default function ImportPage() {
   const importTemplate = (t: DeckTemplate) => runImport(async () => {
     setImportingTemplate(t.id)
     setResultTemplate(null)
+    setFailedTemplate(null)
     try {
       let csv: string
       try {
@@ -558,6 +649,10 @@ export default function ImportPage() {
       if (modeRef.current !== 'templates') return
       showResult(r)
       setResultTemplate(t.id)
+    } catch (e) {
+      // 訊息照樣由 runImport 寫進 errMsg,這裡只記下是哪一張卡片
+      setFailedTemplate(t.id)
+      throw e
     } finally {
       setImportingTemplate(null)
     }
@@ -572,7 +667,10 @@ export default function ImportPage() {
         setShareImportErr('')
         const r = await importNamed(shared.name, shared.rows)
         // 匯入要查字典,可能好幾秒;這段期間若換成別的分享,結果不能掛到新卡片上
-        if (gen === shareGen.current) setShareResult(r)
+        if (gen === shareGen.current) {
+          setShareResult(r)
+          announce(summaryText(r.summary))
+        }
       } catch (e) {
         if (gen === shareGen.current) setShareImportErr(errText(e))
       }
@@ -591,6 +689,8 @@ export default function ImportPage() {
 
   if (!decks) return <Loading />
 
+  // 兩種畫面(分享連結專用頁、一般匯入頁)都要放,而且一直掛著、只換字
+  const liveRegion = <p className="visually-hidden" aria-live="polite">{announcement}</p>
   const sameNameDeck = shared === null ? undefined : decks.find((d) => d.name === shared.name)
   const shareCard = (
     <ShareCard shared={shared} loadError={shareLoadErr} importError={shareImportErr} result={shareResult}
@@ -609,6 +709,7 @@ export default function ImportPage() {
           {shareCard}
           <p className="import-alt"><Link to="/import" className="link">改用範本、CSV 或 Anki 牌組匯入</Link></p>
         </div>
+        {liveRegion}
       </>
     )
   }
@@ -622,7 +723,7 @@ export default function ImportPage() {
       <label className="row">
         <span className="row-main"><span className="row-title">牌組</span></span>
         <select className="row-select" value={deckId} aria-label="目標牌組" onChange={(e) => {
-          formGen.current++
+          formChanged()
           autoTarget.current = null
           pickedNew.current = e.target.value === 'new'
           setDeckId(e.target.value)
@@ -637,7 +738,7 @@ export default function ImportPage() {
         <label className="row">
           <span className="row-main"><span className="row-title">名稱</span></span>
           <input className="row-input" placeholder="新牌組名稱" value={newDeckName}
-            onChange={(e) => { formGen.current++; setNewDeckName(e.target.value) }} />
+            onChange={(e) => { formChanged(); setNewDeckName(e.target.value) }} />
         </label>
       )}
     </ListSection>
@@ -685,18 +786,22 @@ export default function ImportPage() {
                     ) : added !== undefined ? (
                       <>
                         <p className="template-added"><CheckIcon size={16} />已經加入過了</p>
+                        {/* 實心主色一個畫面只放一顆:留給還沒加入的範本的「加入這副牌組」,已經加入過的退一階 */}
                         <div className="btn-row">
-                          <Link to={`/deck/${added.id}`} className="btn">打開牌組</Link>
-                          <button className="btn tinted" disabled={busy} onClick={() => importTemplate(t)}>
+                          <Link to={`/deck/${added.id}`} className="btn tinted">打開牌組</Link>
+                          <button className="btn secondary" disabled={busy} aria-busy={importingTemplate === t.id} onClick={() => importTemplate(t)}>
+                            {importingTemplate === t.id && <span className="spinner" aria-hidden="true" />}
                             {importingTemplate === t.id ? '匯入中…' : '補上新字'}
                           </button>
                         </div>
                       </>
                     ) : (
-                      <button className="btn lg" disabled={busy} onClick={() => importTemplate(t)}>
-                        {importingTemplate === t.id ? '匯入中…（要查重音，稍等一下）' : '加入這副牌組'}
+                      <button className="btn lg" disabled={busy} aria-busy={importingTemplate === t.id} onClick={() => importTemplate(t)}>
+                        {importingTemplate === t.id && <span className="spinner" aria-hidden="true" />}
+                        {importingTemplate === t.id ? IMPORTING_LABEL : '加入這副牌組'}
                       </button>
                     )}
+                    {failedTemplate === t.id && errMsg !== '' && <p className="err" role="alert">{errMsg}</p>}
                   </div>
                 )
               })}
@@ -735,7 +840,7 @@ export default function ImportPage() {
                     setFileName(f.name)
                     if (mode === 'apkg') { void onApkgFile(f); return }
                     // 讀檔之前就算表單改了:匯入剛好在讀檔的空檔跑完,不能把目標切回上一副
-                    formGen.current++
+                    formChanged()
                     applyFileName(f.name.replace(/\.(csv|tsv|txt)$/i, ''))
                     // Excel 存的 CSV 常是 Big5 / Shift_JIS / UTF-16:自動認出來,並說一聲
                     const { text: decoded, encoding } = decodeCsvBytes(await f.arrayBuffer())
@@ -750,14 +855,21 @@ export default function ImportPage() {
             {mode === 'csv' && encodingNote !== '' && fileName !== '' && <p className="hint">{encodingNote}</p>}
             {mode === 'csv' && (
               <textarea rows={5} placeholder={`或直接貼上 CSV 內容，例如：\n${CSV_EXAMPLE}`} value={text}
-                aria-label="CSV 內容" onChange={(e) => { setFileName(''); onTextLoaded(e.target.value) }} />
+                aria-label="CSV 內容" aria-describedby={oneColumn ? 'csv-one-column' : undefined}
+                onChange={(e) => { setFileName(''); onTextLoaded(e.target.value) }} />
+            )}
+            {/* 不用 role=alert:一邊在上面打第一列,一邊每打一個字就被大聲打斷。
+                手打的第一列還沒打完(只有一列、不是選的檔案)用灰色說明,不用紅字:還沒打到逗號不算打錯。
+                也不藏起來:用注音鍵盤的全形「，」打的那一列同樣只有一欄,要有一句話說為什麼沒有預覽 */}
+            {oneColumn && (
+              <p className={rows.length > 1 || fileName !== '' ? 'err' : 'hint'} id="csv-one-column">每一列只讀到一欄。至少要有單字和意思兩欄，中間用逗號或 Tab 分開，例如：{CSV_EXAMPLE}</p>
             )}
             {mode === 'apkg' && parsing && <p className="hint import-status" role="status"><span className="spinner" aria-hidden="true" />解析中…</p>}
             {mode === 'apkg' && apkg && apkg.notetypes.length > 1 && (
               <ListSection header="筆記類型" footer="Anki 牌組裡有好幾種筆記類型，一次匯入一種。">
                 <label className="row">
                   <span className="row-main"><span className="row-title">要匯入的類型</span></span>
-                  <select className="row-select" value={notetypeId} onChange={(e) => selectNotetype(apkg, e.target.value)}>
+                  <select className="row-select" value={notetypeId} onChange={(e) => { formChanged(); selectNotetype(apkg, e.target.value) }}>
                     {apkg.notetypes.map((t) => (
                       <option key={t.id} value={t.id}>{t.name}（{t.noteCount} 個）</option>
                     ))}
@@ -766,13 +878,13 @@ export default function ImportPage() {
               </ListSection>
             )}
 
-            {activeMapping && fieldOptions.length > 0 && (
+            {activeMapping && fieldOptions.length > 0 && !oneColumn && (
               <>
                 <ListSection header="欄位對應" footer="重音留空的字，匯入時會自動查字典。">
                   {mode === 'csv' && rows.length > 0 && (
                     <label className="row">
                       <span className="row-main"><span className="row-title">第一列是表頭</span></span>
-                      <Switch label="第一列是表頭" checked={hasHeader} onChange={setHasHeader} />
+                      <Switch label="第一列是表頭" checked={hasHeader} onChange={(v) => { formChanged(); setHasHeader(v) }} />
                     </label>
                   )}
                   {labels.map(([field, label]) => (
@@ -792,20 +904,20 @@ export default function ImportPage() {
                   ))}
                 </ListSection>
 
-                <ListSection header={`預覽（共 ${parsed.length} 個字${mode === 'apkg' && otherNoteCount > 0 ? `，另有 ${otherNoteCount} 個屬於其他筆記類型，不會匯入` : ''}）`}
-                  footer={sourceCount > parsed.length
-                    ? [
-                      sourceCount - parsed.length - tooLong > 0
-                        ? `有 ${sourceCount - parsed.length - tooLong} ${mode === 'csv' ? '列' : '個'}缺少單字或意思，不會匯入。` : '',
-                      tooLong > 0
-                        ? `有 ${tooLong} 列某一格超過 ${MAX_FIELD_CHARS.toLocaleString()} 字（多半是少了一個引號，後面整段被當成同一格），不會匯入。` : '',
-                    ].join('') : undefined}>
+                <ListSection header={`預覽（共 ${parsed.length} 個字）`}
+                  footer={previewNotes.length > 0 ? previewNotes.join('') : undefined}>
                   <div className="preview-scroll">
                     <table className="preview">
                       <thead><tr><th>單字</th><th>讀音</th><th>意思</th><th>重音</th></tr></thead>
                       <tbody>
-                        {parsed.slice(0, 5).map((r, i) => (
-                          <tr key={i}><td lang="ja">{r.expression}</td><td lang="ja">{r.reading}</td><td>{r.meaning}</td><td>{r.accent}</td></tr>
+                        {parsed.length === 0 ? (
+                          <tr><td colSpan={4} className="preview-empty">沒有可以匯入的字，看看上面的欄位對應對不對</td></tr>
+                        ) : parsed.slice(0, 5).map((r, i) => (
+                          // 每格只放前 30 個字:少了引號時一格可能吞掉上萬字,整張表會被撐到十幾萬 px 寬
+                          <tr key={i}>
+                            <td lang="ja">{clip(r.expression, 30)}</td><td lang="ja">{clip(r.reading, 30)}</td>
+                            <td>{clip(r.meaning, 30)}</td><td>{clip(r.accent, 30)}</td>
+                          </tr>
                         ))}
                       </tbody>
                     </table>
@@ -814,9 +926,14 @@ export default function ImportPage() {
 
                 {targetDeck}
                 {reverseToggle}
-                {needsName && <p className="hint import-need-name">先幫新牌組取個名字，再匯入。</p>}
-                <button className="btn lg import-go" disabled={busy || parsed.length === 0 || needsName} onClick={doImport}>
-                  {busy ? '匯入中…' : `匯入 ${parsed.length} 個字到「${targetName || '新牌組'}」`}
+                {needsName && <p className="hint">先幫新牌組取個名字，再匯入。</p>}
+                {/* 匯入完、摘要還在的時候退成次要:主色留給摘要裡的「開始複習」,再按一次只會匯入 0 個字。
+                    換檔案、改內容、欄位對應、目標或名稱就是新的一次匯入,這顆變回實心(摘要可能還在,見 goDone)。
+                    兩個都要看:換分頁、匯入失敗只清掉摘要,goDone 沒跟著改 */}
+                <button className={`btn lg import-go${summary !== null && goDone ? ' secondary' : ''}`}
+                  disabled={busy || parsed.length === 0 || needsName} aria-busy={busy} onClick={doImport}>
+                  {busy && <span className="spinner" aria-hidden="true" />}
+                  {busy ? IMPORTING_LABEL : `匯入 ${parsed.length} 個字到「${targetName || '新牌組'}」`}
                 </button>
               </>
             )}
@@ -824,10 +941,12 @@ export default function ImportPage() {
         )}
 
         {summary && lastDeckId !== null && mode !== 'share' && mode !== 'templates' && (
-          <SummaryView result={{ summary, deckId: lastDeckId }} />
+          <SummaryView result={{ summary, deckId: lastDeckId }} reveal={reveal} />
         )}
-        {errMsg && <p className="err import-err" role="alert">匯入失敗：{errMsg}</p>}
+        {/* 範本的錯誤顯示在那張卡片裡 */}
+        {errMsg && mode !== 'templates' && <p className="err" role="alert">{errMsg}</p>}
       </div>
+      {liveRegion}
     </>
   )
 }

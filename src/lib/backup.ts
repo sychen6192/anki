@@ -36,6 +36,8 @@ function parseBackup(json: string): Record<string, Record<string, unknown>[]> {
   }
   if (data === null || typeof data !== 'object') throw new Error('備份檔格式不正確')
   const obj = data as Record<string, unknown>
+  // 沒有 version 的多半是選錯檔案(別的 JSON),不是版本太新:講清楚該選哪一個
+  if (obj.version === undefined) throw new Error('這不是字卡的備份檔；備份檔的檔名像「字卡備份-日期.json」')
   if (obj.version !== 1) throw new Error('不支援的備份版本')
 
   const out: Record<string, Record<string, unknown>[]> = {}

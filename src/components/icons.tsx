@@ -243,3 +243,23 @@ export function ArchiveIcon({ size = 20 }: IconProps) {
     </Svg>
   )
 }
+
+/** 同步金鑰:鑰匙(Lucide 的 key-round) */
+export function KeyIcon({ size = 20 }: IconProps) {
+  return (
+    <Svg size={size}>
+      <path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" {...stroke} />
+      <circle cx="16.5" cy="7.5" r=".5" {...stroke} fill="currentColor" />
+    </Svg>
+  )
+}
+
+/** 警告(同步失敗、舊版金鑰):圓圈裡一個驚嘆號(Lucide 的 circle-alert) */
+export function AlertIcon({ size = 20 }: IconProps) {
+  return (
+    <Svg size={size}>
+      <circle cx="12" cy="12" r="10" {...stroke} />
+      <path d="M12 8v4" {...stroke} /><path d="M12 16h.01" {...stroke} />
+    </Svg>
+  )
+}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db/db'
 import { sortDecks } from '../lib/deckOrder'
@@ -10,6 +10,7 @@ import { getFsrsSettings } from '../lib/fsrsSettings'
 import { MIN_REVIEWS_TO_OPTIMIZE } from '../lib/fsrsOptimizer'
 import { Loading } from '../components/Loading'
 import { DayBars, Donut } from '../components/Charts'
+import { ChartIcon } from '../components/icons'
 import { PageHeader } from '../components/PageHeader'
 import { Link } from 'react-router-dom'
 import './stats.css'
@@ -17,13 +18,38 @@ import './stats.css'
 /** 真實保持率至少要幾次才標偏高偏低、給調整建議 */
 const MIN_TONE_SAMPLE = 30
 
-/** 熱力圖顏色:單一色相由淺到深(0 張另外用底色) */
+/** 熱力圖顏色:單一色相由淺到深(0 張另外用底色)。
+ * 最淺一級從 30% 提到 40%:30% 跟沒複習的灰格只差 1.30:1(深色)、1.34:1(淺色),螢幕調暗就分不出來;
+ * 現在相鄰兩級在兩種主題都至少 1.35:1 */
 function heatColor(count: number): string {
   if (count === 0) return 'var(--fill)'
-  const pct = count < 5 ? 30 : count < 15 ? 55 : count < 30 ? 78 : 100
+  const pct = count < 5 ? 40 : count < 15 ? 62 : count < 30 ? 82 : 100
   return `color-mix(in srgb, var(--accent) ${pct}%, var(--surface))`
 }
 const HEAT_WEEKS = 17
+
+// 放不下時(不支援 cqi 的 iOS 15、字級放大)先捲到最右邊:一打開先看到這週,往左捲才是比較舊的。
+// 放在元件外面,ref 才不會每次重畫都換一個、又把使用者捲到的位置拉回去
+function showLatestWeek(el: HTMLDivElement | null) {
+  if (el) el.scrollLeft = el.scrollWidth
+}
+
+// 上次看的牌組:只存在這台裝置,隱私模式讀寫會丟錯就當作沒有
+const DECK_FILTER_KEY = 'stats-deck'
+function readDeckFilter(): string {
+  try {
+    return localStorage.getItem(DECK_FILTER_KEY) ?? 'all'
+  } catch {
+    return 'all'
+  }
+}
+function writeDeckFilter(id: string): void {
+  try {
+    localStorage.setItem(DECK_FILTER_KEY, id)
+  } catch {
+    // 存不起來就只在這次有效
+  }
+}
 
 const DAY = 86400_000
 // 圖表顏色走設計 token,深色模式才有對應的變體
@@ -41,27 +67,52 @@ function bucketByDay(timestamps: number[], firstDayStart: number, days: number):
   return counts
 }
 
-function dayLabel(ts: number): string {
+const TODAY = '今天'
+function dayLabel(ts: number, today: number): string {
+  if (ts === today) return TODAY
   const d = new Date(ts)
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
+/** 句子裡的日期:數字前後空一格,「今天」不用 */
+const inSentence = (day: string) => (day === TODAY ? day : ` ${day} `)
 
 export default function StatsPage() {
   const allLogs = useLiveQuery(() => db.review_logs.toArray(), [])
   const allCards = useLiveQuery(() => db.cards.toArray(), [])
   const decks = useLiveQuery(async () => sortDecks(await db.decks.filter((d) => !d.deleted).toArray()), [])
   const fsrsSettings = useLiveQuery(() => getFsrsSettings(), [])
-  const [deckFilter, setDeckFilter] = useState('all')
+  const [deckFilter, setDeckFilter] = useState(readDeckFilter)
   const now = useNow()
   if (!allLogs || !allCards || !decks || !fsrsSettings) return <Loading />
+
+  // 第一次用:一頁的 0 和空圖表沒有用,直接說下一步
+  if (allLogs.length === 0 && allCards.every((c) => c.deleted)) {
+    return (
+      <>
+        <PageHeader title="統計" />
+        <div className="empty-state">
+          <span className="empty-icon"><ChartIcon size={30} /></span>
+          <h2>還沒有複習紀錄</h2>
+          {/* 分兩段:要做的事自己一行;寫成一段的話 balance 會把「複習」拆在兩行 */}
+          <p>先到「牌組」新增或匯入卡片。</p>
+          <p>複習幾天之後，這裡就會畫出每天的複習量和接下來要複習的張數。</p>
+          <Link to="/" className="btn">去牌組</Link>
+        </div>
+      </>
+    )
+  }
+
+  // 記住的牌組已經刪了(可能是別台刪的),或只剩一副、篩選選單不出現時,一律看全部:
+  // 不然畫面停在某副牌組、卻沒有選單可以換回來
+  const activeDeck = decks.length > 1 && decks.some((d) => d.id === deckFilter) ? deckFilter : 'all'
 
   // 篩某副牌組:卡片直接看 deck_id;複習紀錄沒有 deck_id,經 card_id 查
   // (對照表含已刪卡片,舊紀錄才不會因為卡片刪了就歸不了戶)
   const cardDeck = new Map(allCards.map((c) => [c.id, c.deck_id]))
-  const logs = deckFilter === 'all'
+  const logs = activeDeck === 'all'
     ? allLogs
-    : allLogs.filter((l) => cardDeck.get(l.card_id) === deckFilter)
-  const inDeck = allCards.filter((c) => !c.deleted && (deckFilter === 'all' || c.deck_id === deckFilter))
+    : allLogs.filter((l) => cardDeck.get(l.card_id) === activeDeck)
+  const inDeck = allCards.filter((c) => !c.deleted && (activeDeck === 'all' || c.deck_id === activeDeck))
   // 已會 / 先不學的卡不在排程裡:狀態分布與到期預測都不算,另外報數量
   const cards = inDeck.filter((c) => !c.suspended)
   const parked = { known: 0, paused: 0 }
@@ -74,12 +125,13 @@ export default function StatsPage() {
 
   const pastStart = today - 29 * DAY
   const pastCounts = bucketByDay(logs.map((l) => l.reviewed_at), pastStart, 30)
-  const past = pastCounts.map((count, i) => ({ day: dayLabel(pastStart + i * DAY), count }))
+  const past = pastCounts.map((count, i) => ({ day: dayLabel(pastStart + i * DAY, today), count }))
 
   // 已逾期的卡一律算在今天(把 due 夾到今天以後再分桶)
   const scheduled = cards.filter((c) => c.state !== State.New)
   const forecastCounts = bucketByDay(scheduled.map((c) => Math.max(c.due, today)), today, 30)
-  const forecast = forecastCounts.map((count, i) => ({ day: dayLabel(today + i * DAY), count }))
+  const forecast = forecastCounts.map((count, i) => ({ day: dayLabel(today + i * DAY, today), count }))
+  const overdue = scheduled.filter((c) => c.due < today).length
 
   let news = 0, learning = 0, review = 0
   for (const c of cards) {
@@ -145,7 +197,8 @@ export default function StatsPage() {
       <PageHeader title="統計" />
       {decks.length > 1 && (
         <div className="stats-filter">
-          <select aria-label="篩選牌組" value={deckFilter} onChange={(e) => setDeckFilter(e.target.value)}>
+          <select aria-label="篩選牌組" value={activeDeck}
+            onChange={(e) => { setDeckFilter(e.target.value); writeDeckFilter(e.target.value) }}>
             <option value="all">全部牌組</option>
             {decks.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
@@ -164,7 +217,7 @@ export default function StatsPage() {
           <span className="stat-card-note">目標 {targetPct}%</span>
         </div>
         {retentionAll.total === 0 ? (
-          <p className="stat-empty">學過的字到期、再答一次之後才開始算</p>
+          <p className="stat-empty">學過的字到期、再答一次之後才開始算。</p>
         ) : (
           <>
             <div className="retention-row">
@@ -193,40 +246,49 @@ export default function StatsPage() {
         )}
       </section>
 
-      <section className="stat-card card">
+      <section className="stat-card card heat-card">
         <div className="stat-card-head"><h2>每天複習量</h2><span className="stat-card-note">最近 {HEAT_WEEKS} 週</span></div>
-        <div className="heatmap" role="img" aria-label={`過去 ${HEAT_WEEKS} 週有 ${heatActive} 天複習，共 ${heatTotal} 次`}>
-          {weeks.map((w, i) => (
-            <div className="heat-week" key={i}>
-              <span className="heat-month">
-                {(i === 0 || monthOf(w) !== monthOf(weeks[i - 1])) && monthOf(w) >= 0
-                  ? `${monthOf(w) + 1}月` : ''}
-              </span>
-              {w.map((d, j) => d === null
-                ? <span key={j} className="heat-cell pad" />
-                : (
-                  <span key={j} className="heat-cell" style={{ background: heatColor(d.count) }}
-                    title={`${new Date(d.start).getMonth() + 1}/${new Date(d.start).getDate()} · ${d.count} 次`} />
-                ))}
+        {/* 摘要直接顯示(和底下兩張長條圖一樣),格子本身就不用再給讀螢幕唸一次 */}
+        <p className="chart-summary">
+          {heatActive === 0 ? `過去 ${HEAT_WEEKS} 週沒有複習` : `過去 ${HEAT_WEEKS} 週有 ${heatActive} 天複習，共 ${heatTotal} 次`}
+        </p>
+        <div className="heat-wrap">
+          <div className="heatmap" aria-hidden="true" ref={showLatestWeek}
+            style={{ '--weeks': weeks.length } as CSSProperties}>
+            {weeks.map((w, i) => (
+              <div className="heat-week" key={i}>
+                <span className="heat-month">
+                  {(i === 0 || monthOf(w) !== monthOf(weeks[i - 1])) && monthOf(w) >= 0
+                    ? `${monthOf(w) + 1}月` : ''}
+                </span>
+                {w.map((d, j) => d === null
+                  ? <span key={j} className="heat-cell pad" />
+                  : (
+                    <span key={j} className="heat-cell" style={{ background: heatColor(d.count) }}
+                      title={`${new Date(d.start).getMonth() + 1}/${new Date(d.start).getDate()} · ${d.count} 次`} />
+                  ))}
+              </div>
+            ))}
+          </div>
+          {logs.length > 0 && (
+            <div className="heat-legend" aria-hidden="true">
+              0 次
+              {[0, 3, 8, 20, 40].map((n) => <span key={n} className="heat-cell" style={{ background: heatColor(n) }} />)}
+              30 次以上
             </div>
-          ))}
-        </div>
-        <div className="heat-legend" aria-hidden="true">
-          少
-          {[0, 3, 8, 20, 40].map((n) => <span key={n} className="heat-cell" style={{ background: heatColor(n) }} />)}
-          多
+          )}
         </div>
       </section>
 
       <section className="stat-card card">
         <div className="stat-card-head"><h2>過去 30 天</h2><span className="stat-card-note">複習次數</span></div>
         {logs.length === 0 ? (
-          <p className="stat-empty">還沒有複習紀錄 —— 完成第一次複習後就會出現</p>
+          <p className="stat-empty">還沒有複習紀錄。完成第一次複習之後就會出現。</p>
         ) : (
           <>
           <p className="chart-summary">共 {pastTotal} 次，平均每天 {Math.round(pastTotal / 30)} 次
-            {pastMax > 0 && pastMaxDay !== undefined && `，最多是 ${pastMaxDay} 的 ${pastMax} 次`}</p>
-          <DayBars data={past} color={C_REVIEWS} unit="次" label="過去 30 天每天的複習次數" />
+            {pastMax > 0 && pastMaxDay !== undefined && `，最多是${inSentence(pastMaxDay)}的 ${pastMax} 次`}</p>
+          <DayBars data={past} color={C_REVIEWS} unit="次" label="過去 30 天每天的複習次數" today="end" />
           </>
         )}
       </section>
@@ -234,12 +296,14 @@ export default function StatsPage() {
       <section className="stat-card card">
         <div className="stat-card-head"><h2>未來 30 天</h2><span className="stat-card-note">到期張數</span></div>
         {scheduled.length === 0 ? (
-          <p className="stat-empty">還沒有排程的卡片 —— 新卡第一次複習後就會進入排程</p>
+          <p className="stat-empty">還沒有排程的卡片。新卡複習過一次之後就會排進來。</p>
         ) : (
           <>
           <p className="chart-summary">未來 7 天有 {week} 張到期
-            {forecastMax > 0 && forecastMaxDay !== undefined && `，最多是 ${forecastMaxDay} 的 ${forecastMax} 張`}</p>
-          <DayBars data={forecast} color={C_DUE} unit="張" label="未來 30 天每天到期的張數" />
+            {forecastMax > 0 && forecastMaxDay !== undefined && `，最多是${inSentence(forecastMaxDay)}的 ${forecastMax} 張`}
+            {/* 第一根常常特別高:之前沒複習完的都算在今天,講一聲 */}
+            {forecastMaxDay === TODAY && overdue > 0 && <span className="nowrap">（含逾期的 {overdue} 張）</span>}</p>
+          <DayBars data={forecast} color={C_DUE} unit="張" label="未來 30 天每天到期的張數" today="start" />
           </>
         )}
       </section>
@@ -247,9 +311,9 @@ export default function StatsPage() {
       <section className="stat-card card">
         <div className="stat-card-head"><h2>卡片狀態</h2></div>
         {inDeck.length === 0 ? (
-          <p className="stat-empty">還沒有卡片 —— 到「牌組」右上的「＋」新增或匯入</p>
+          <p className="stat-empty">還沒有卡片。到「牌組」右上角的「＋」新增或匯入。</p>
         ) : cards.length === 0 ? (
-          <p className="stat-empty">每張卡都標成已經會了或先不學了</p>
+          <p className="stat-empty">每張卡都標成已經會了或先不學了。</p>
         ) : (
           <div className="state-dist">
             <Donut parts={dist} />

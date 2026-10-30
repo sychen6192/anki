@@ -105,6 +105,8 @@ describe('backup', () => {
 
   it('不支援的版本丟錯誤', async () => {
     await expect(importBackup('{"version":99}')).rejects.toThrow('不支援')
+    // 沒有 version:選錯檔案,不是版本問題
+    await expect(importBackup('{"decks":[]}')).rejects.toThrow('不是字卡的備份檔')
   })
 
   it('restore-wins:還原後 decks/notes/cards 的 updated_at 被蓋成現在時間,嚴格新於備份檔內容', async () => {

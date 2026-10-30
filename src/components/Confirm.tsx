@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
-import { useModalDialog } from './useModalDialog'
+import { useLastOpen, useModalDialog } from './useModalDialog'
 
 export interface ConfirmOptions {
   title: string
@@ -66,23 +66,25 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 }
 
 function ConfirmDialog({ pending, onFinish }: { pending: Pending | null; onFinish: (ok: boolean) => void }) {
-  const dialogProps = useModalDialog(pending !== null, () => onFinish(false))
+  const { dialogProps, visible } = useModalDialog(pending !== null, () => onFinish(false))
+  // 按下去 pending 就清掉了:縮小淡出的那一下照畫剛才那一句
+  const p = useLastOpen(pending !== null, pending)
   return (
     <dialog {...dialogProps} className="alert" role="alertdialog"
-      aria-labelledby="confirm-title" aria-describedby={pending?.message ? 'confirm-message' : undefined}>
-      {pending !== null && (
+      aria-labelledby="confirm-title" aria-describedby={p?.message ? 'confirm-message' : undefined}>
+      {visible && p !== null && (
         <>
           <div className="alert-body">
-            <div className="alert-title" id="confirm-title">{pending.title}</div>
-            {pending.message && <div className="alert-message" id="confirm-message">{pending.message}</div>}
+            <div className="alert-title" id="confirm-title">{p.title}</div>
+            {p.message && <div className="alert-message" id="confirm-message">{p.message}</div>}
           </div>
           <div className="alert-actions">
-            <button type="button" data-autofocus={pending.focusCancel ? '' : undefined}
-              onClick={() => onFinish(false)}>{pending.cancelLabel ?? '取消'}</button>
+            <button type="button" data-autofocus={p.focusCancel ? '' : undefined}
+              onClick={() => onFinish(false)}>{p.cancelLabel ?? '取消'}</button>
             {/* 危險動作不給預設焦點,免得按 Enter 就刪掉 */}
-            <button type="button" data-autofocus={pending.destructive || pending.focusCancel ? undefined : ''}
-              className={pending.destructive ? 'destructive' : 'primary'}
-              onClick={() => onFinish(true)}>{pending.confirmLabel ?? '確定'}</button>
+            <button type="button" data-autofocus={p.destructive || p.focusCancel ? undefined : ''}
+              className={p.destructive ? 'destructive' : 'primary'}
+              onClick={() => onFinish(true)}>{p.confirmLabel ?? '確定'}</button>
           </div>
         </>
       )}

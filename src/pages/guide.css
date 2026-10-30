@@ -16,7 +16,11 @@
   width: 22px; height: 22px; margin: 0 2px; border-radius: 6px;
   background: var(--accent-tint); color: var(--accent);
 }
-.inline-link { color: var(--accent); text-decoration: none; font-weight: 500; }
-.kbd-table { border-collapse: collapse; font-size: var(--fs-subhead); }
+/* 表格不撐滿卡片:撐滿時按鍵欄被拉到 228px,鍵和說明中間隔一大段空白,看起來像兩欄不相干的東西 */
+.kbd-table { align-self: flex-start; border-collapse: collapse; font-size: var(--fs-subhead); }
 .kbd-table td { padding: 5px 14px 5px 0; vertical-align: middle; }
+.kbd-table td:first-child { white-space: nowrap; padding-right: 24px; }
 .guide-btn { align-self: flex-start; }
+/* 最後一行不要只剩一個字;粗體的詞和連結一樣不斷成兩半(「先不學 / 這個字」讀起來像兩個東西) */
+.guide-card :is(p, li) { text-wrap: pretty; }
+.guide-card b { white-space: nowrap; }

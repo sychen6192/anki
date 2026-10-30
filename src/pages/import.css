@@ -5,7 +5,6 @@
 .import-intro { color: var(--text-2); font-size: var(--fs-subhead); line-height: 1.6; }
 .import-alt { text-align: center; margin-top: 4px; }
 .import-status { display: flex; align-items: center; gap: 8px; }
-.import-err { padding: 0 4px; }
 .import-go { margin-top: 4px; }
 
 /* 列裡的下拉與輸入:靠右、不佔滿 */
@@ -23,38 +22,75 @@
 .template-preview { color: var(--text-2); font-size: var(--fs-small); }
 .template-pace { color: var(--text-2); font-size: var(--fs-footnote); margin-bottom: 6px; }
 .template-added { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: var(--fs-small); }
-.import-need-name { padding: 0 4px; }
 
 /* 檔案 */
 .file-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .file-pick .btn { pointer-events: none; }
+/* 滑鼠和手指碰到的是蓋在上面的透明 input,不是按鈕:.btn 自己的 :hover / :active 永遠不會成立,改看外框 */
+@media (hover: hover) { .file-pick:hover .btn.tinted { background: var(--accent-tint-pressed); } }
+.file-pick:active .btn { transform: scale(0.98); }
 .preview-scroll { overflow-x: auto; }
 .preview { width: 100%; border-collapse: collapse; font-size: var(--fs-small); }
 .preview th, .preview td { padding: 9px 12px; text-align: left; border-bottom: 0.5px solid var(--separator); white-space: nowrap; }
 .preview th { color: var(--text-2); font-weight: 600; font-size: var(--fs-footnote); }
 .preview tr:last-child td { border-bottom: none; }
+/* 頭尾兩欄的字和列表標題、上面各列的字對齊(列的左右留白是 16px) */
+.preview th:first-child, .preview td:first-child { padding-left: 16px; }
+.preview th:last-child, .preview td:last-child { padding-right: 16px; }
+/* 一個字都對不到時:表格裡留一句說明,不要只剩一列表頭 */
+.preview .preview-empty { color: var(--text-2); text-align: center; white-space: normal; }
 
 /* 匯入結果 */
 .summary {
   display: flex; flex-direction: column; gap: 8px;
   padding: 14px; border-radius: var(--radius);
   background: var(--success-tint);
+  /* 捲進畫面時(SummaryView)底下留一點空,不要貼著分頁列 */
+  scroll-margin-bottom: 16px;
 }
-.summary-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-weight: 600; color: var(--success); }
+/* 卡片(範本、分享)裡的結果不再包一層有底色的圓角框(框中框),用一條分隔線和上面的內容分開。
+   捲進畫面時連卡片自己底下的 16px 一起露出來 */
+.template-card .summary, .share-card .summary {
+  background: none; padding: 12px 0 0; border-radius: 0; border-top: 0.5px solid var(--separator);
+  scroll-margin-bottom: 32px;
+}
+.summary-title { display: flex; align-items: flex-start; gap: 6px; font-weight: 600; color: var(--success); }
+/* 窄螢幕換成兩行時,勾勾對齊第一行,不是卡在兩行中間:圖示的框撐成一行高,SVG 會在框裡置中 */
+.summary-title svg { flex-shrink: 0; height: 1.5em; height: 1lh; }
+/* 一個新字都沒有:不是成功,不用綠色 */
+.summary-title.none { color: var(--text); }
 .summary-sub { font-weight: 500; color: var(--text-2); }
-.summary-skipped summary { cursor: pointer; color: var(--accent-text); font-size: var(--fs-small); font-weight: 500; }
-.summary-skipped ul { margin: 8px 0 4px; padding-left: 20px; max-height: 200px; overflow-y: auto; font-size: var(--fs-small); }
+/* 寬度只到字為止:整行都能點的話,在右邊空白處點一下也會展開;焦點框也是圓角包住字,不是一整條直角長框 */
+.summary-skipped summary {
+  list-style: none; width: fit-content; border-radius: var(--radius-sm); cursor: pointer;
+  color: var(--accent-text); font-size: var(--fs-small); font-weight: 500;
+}
+.summary-skipped summary::-webkit-details-marker { display: none; }
+@media (hover: hover) { .summary-skipped summary:hover .summary-toggle { text-decoration: underline; text-underline-offset: 0.22em; } }
+.summary-skipped summary:active { opacity: .6; }
+/* 瀏覽器自己的 ▶ 換成和其他地方一樣畫的箭頭,打開時轉向下 */
+.summary-toggle { display: inline-flex; align-items: center; gap: 4px; }
+.summary-toggle svg { transition: transform .15s ease; }
+.summary-skipped[open] .summary-toggle svg { transform: rotate(90deg); }
+/* 一行小字只有 23px 高:手指點的範圍往上下各撐 12px(到 47px),排版不變。
+   下面的按鈕列隔了 12px(間距 8px + margin-top 4px),撐開的範圍碰不到它 */
+@media (pointer: coarse) {
+  .summary-skipped summary { position: relative; }
+  .summary-skipped summary::after { content: ''; position: absolute; inset: -12px 0; }
+}
+/* 最多只列 10 筆(見 SummaryView),整段直接展開,不在頁面的捲動區裡再套一個捲動區 */
+.summary-skipped ul { margin: 8px 0 4px; padding-left: 20px; font-size: var(--fs-small); }
 .summary .btn-row { margin-top: 4px; }
 
 /* 分享 */
 .paste-share { display: flex; gap: 8px; }
-.paste-share input { flex: 1; min-width: 0; background: var(--surface); }
+.paste-share input { flex: 1; min-width: 0; }
 .share-card { display: flex; flex-direction: column; gap: 12px; }
 .share-loading { flex-direction: row; align-items: center; justify-content: center; min-height: 96px; color: var(--text-2); gap: 10px; }
 .share-head { display: flex; align-items: center; gap: 12px; }
 .share-icon {
   display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
-  width: 44px; height: 44px; border-radius: 12px; background: var(--accent-tint); color: var(--accent);
+  width: 44px; height: 44px; border-radius: var(--radius); background: var(--accent-tint); color: var(--accent);
 }
 .share-info { display: flex; flex-direction: column; min-width: 0; }
 .share-name { font-size: var(--fs-headline); font-weight: 600; overflow-wrap: anywhere; }

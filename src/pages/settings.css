@@ -1,10 +1,28 @@
 /* ---------- 設定 ---------- */
 .row .segmented { flex: 1; }
-.row-icon.danger { background: var(--danger-tint); color: var(--danger); font-weight: 700; }
+.row-icon.danger { background: var(--danger-tint); color: var(--danger); }
 label.row.accent { color: var(--accent); }
-label.row.disabled { opacity: .4; pointer-events: none; }
+label.row.disabled { opacity: var(--disabled-opacity); pointer-events: none; }
+/* 同步區的播報區一直掛著、footer 裡也只有它:空的時候 footer 收成 0 高,不在列表底下多留 7px */
+.sync-section > .list-footer:has(> .sync-status:empty) { padding: 0; }
 .footer-status { display: block; margin-top: 6px; color: var(--text); font-weight: 500; }
-.inline-link { color: var(--accent); text-decoration: none; font-weight: 500; }
+/* 沒有結果時播報區照樣掛著(空的),不留那 6px */
+.footer-status:empty { margin-top: 0; }
+/* 沒做成的用紅字(--danger 在兩種主題的底色上都 4.5:1 以上),和首頁「輸入同步金鑰」的錯誤同一個顏色 */
+.footer-status.error, .sync-status.error, .hint.error { color: var(--danger); }
+/* 做完了:字前面的勾,跟著字的顏色,往下一點對齊中文字的中間 */
+.footer-status > svg, .sync-status > svg, .key-sheet .hint > svg { vertical-align: -2px; margin-right: 4px; }
+
+/* 「立即同步」跑的時候 icon 轉圈(按鈕本身不調淡,見 components.css 的 .btn[aria-busy]) */
+.row-icon.spinning svg { animation: spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  /* 無限轉圈壓成 0.01ms 會變成亂閃(見 base.css 的 .spinner):停著,按鈕上的「同步中…」就夠了 */
+  .row-icon.spinning svg { animation: none !important; }
+}
+
+/* 紀錄還不夠的「最佳化」:列本身不調淡,只淡標題,副標題那句「再複習 N 次後可以用」照常的顏色 */
+button.row.unavailable { opacity: 1; }
+.row.unavailable .row-title { opacity: var(--disabled-opacity); }
 
 /* 金鑰面板 */
 .key-sheet { display: flex; flex-direction: column; gap: 14px; }
@@ -16,9 +34,12 @@ label.row.disabled { opacity: .4; pointer-events: none; }
 }
 .key-or::before, .key-or::after { content: ''; flex: 1; border-top: 0.5px solid var(--separator); }
 .key-row { gap: 4px; }
+/* 金鑰輸入框旁的「貼上」:輸入框縮,它不縮(320 寬時會被擠成「貼／上」兩行) */
+.key-sheet .row > .link { flex-shrink: 0; }
 .key-row .key-code {
   flex: 1; min-width: 0;
   font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--fs-body); letter-spacing: .02em;
   overflow-wrap: anywhere; user-select: all;
 }
-.key-msg { padding: 0 4px; }
+/* 和上下列表底下的說明對齊(.list-footer 的 16px) */
+.key-msg { padding: 0 16px; }

@@ -1,18 +1,23 @@
 /* ---------- 統計 ---------- */
 .stats-filter { margin-top: 12px; }
-.stats-filter select { background-color: var(--surface); }
 
-.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
+.stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
 .stat { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 14px 6px; }
 .stat b { font-size: var(--fs-title1); font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .stat span { font-size: var(--fs-footnote); color: var(--text-2); font-weight: 500; }
+/* 320 寬:用一年左右的五位數累計(12345)在 28px 下有 88px,格子內容只有 77px */
+@media (max-width: 359px) { .stat b { font-size: var(--fs-title2); } }
 
 .stat-card { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; }
 .stat-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .stat-card-head h2 { font-size: var(--fs-headline); font-weight: 700; }
 .stat-card-note { font-size: var(--fs-footnote); color: var(--text-2); }
-.stat-empty { color: var(--text-2); font-size: var(--fs-subhead); text-align: center; padding: 20px 8px; }
-.inline-link { color: var(--accent); text-decoration: none; font-weight: 500; }
+/* 這幾句都是一兩個短句:keep-all 只在標點(。、「)換行,balance 才不會把「複習」「第一」拆在兩行
+   (跟 deck.css 的 .list-empty .hint 一樣) */
+.stat-empty {
+  color: var(--text-2); font-size: var(--fs-subhead); text-align: center; padding: 20px 8px;
+  word-break: keep-all; overflow-wrap: anywhere; text-wrap: balance;
+}
 
 /* 真實保持率:三個區間並排,低於/高於目標上色 */
 .retention-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -20,21 +25,43 @@
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: 10px 4px; border-radius: var(--radius); background: var(--fill-2);
 }
-.retention b { font-size: var(--fs-title2); font-weight: 700; font-variant-numeric: tabular-nums; }
-.retention span { font-size: var(--fs-caption); color: var(--text-2); text-align: center; }
+/* 窄螢幕放不下「100%偏高」時,「偏高」整個換到數字底下,不會拆成「偏」「高」兩行 */
+.retention b {
+  font-size: var(--fs-title2); font-weight: 700; font-variant-numeric: tabular-nums;
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; column-gap: 4px;
+}
+.retention b small { font-size: var(--fs-caption); font-weight: 600; white-space: nowrap; }
+.retention span { font-size: var(--fs-caption); color: var(--text-2); text-align: center; text-wrap: balance; }
 .retention.low b { color: var(--danger); }
 .retention.high b { color: var(--success); }
 
-/* safe center:放不下時從左邊開始排,最舊那幾週才捲得到,不會被裁掉 */
+/* safe center:放不下時從左邊開始排,最舊那幾週才捲得到,不會被裁掉(一打開由 StatsPage 捲到最右邊的這週) */
 .heatmap { display: flex; gap: 3px; justify-content: safe center; padding: 2px 0; overflow-x: auto; }
 .heat-week { display: flex; flex-direction: column; gap: 3px; }
 .heat-month { height: 13px; width: 13px; font-size: var(--fs-caption2); line-height: 1.2; color: var(--text-2); white-space: nowrap; overflow: visible; }
 .heat-cell { width: 13px; height: 13px; border-radius: 3.5px; background: var(--fill); }
 .heat-cell.pad { visibility: hidden; }
 .heat-legend { display: flex; align-items: center; justify-content: flex-end; gap: 4px; font-size: var(--fs-caption); color: var(--text-2); }
+.heat-wrap { display: flex; flex-direction: column; gap: 12px; }
+/* 格子跟著卡片寬度縮放:320 寬也排得下 18 週(這週不會被裁在右邊),桌機不會縮成中間一小塊、
+   圖例也貼齊格子右緣。要 @supports 擋著:不支援 cqi(iOS 15)時 width: var(--cell) 整條無效,
+   格子會變成 0 高、整張圖空白;那時退回上面固定 13px、捲動的版本 */
+@supports (width: 1cqi) {
+  .heat-card { container-type: inline-size; }
+  .heat-wrap { width: fit-content; max-width: 100%; margin-inline: auto; }
+  .heatmap { --gap: 3px; --cell: clamp(10px, calc((100cqi - (var(--weeks) - 1) * var(--gap)) / var(--weeks)), 16px); gap: var(--gap); }
+  .heat-week { gap: var(--gap); }
+  /* 只放大熱力圖裡的格子,圖例的色塊維持 13px */
+  .heatmap .heat-cell { width: var(--cell); height: var(--cell); border-radius: calc(var(--cell) * .27); }
+  .heat-month { width: var(--cell); }
+  @media (min-width: 768px) {
+    .heatmap { --gap: 4px; --cell: clamp(10px, calc((100cqi - (var(--weeks) - 1) * var(--gap)) / var(--weeks)), 26px); }
+  }
+}
 
 .state-dist { display: flex; align-items: center; gap: 16px; }
-.dist-legend { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+/* 不撐滿:桌機上 flex: 1 會把名稱和數字拉開 460px,看不出哪個數字是哪一項 */
+.dist-legend { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; flex: 0 1 240px; }
 .dist-legend li { display: flex; align-items: center; gap: 8px; font-size: var(--fs-subhead); }
 .dist-legend li b { margin-left: auto; font-variant-numeric: tabular-nums; }
 .dist-legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
@@ -42,25 +69,31 @@
 /* 30 天長條圖(components/Charts.tsx):左邊縱軸刻度、中間一格一天、底下一週標一次日期 */
 .bars {
   display: grid; grid-template-columns: 36px 1fr; grid-template-rows: 150px auto;
-  column-gap: 4px; margin-top: 10px;
+  column-gap: 4px; margin-top: 16px; /* 提示框浮在圖上面,留夠高度才不會壓到摘要那行 */
   font-size: var(--fs-caption2); color: var(--text-2); font-variant-numeric: tabular-nums;
   -webkit-user-select: none; user-select: none;
 }
 .bars-y { position: relative; }
 .bars-y span { position: absolute; right: 2px; transform: translateY(50%); line-height: 1; }
-.bars-plot { position: relative; display: grid; grid-template-rows: 100%; border-radius: 4px; }
+/* 只在圖上把左右拖留給「滑過去看每天的數字」;上下拖照樣捲頁面,雙指縮放也保留 */
+.bars-plot { position: relative; display: grid; grid-template-rows: 100%; border-radius: 4px; touch-action: pan-y pinch-zoom; }
 .bars-plot:focus { outline: none; }
 .bars-plot:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
-.bar-slot { height: 100%; display: flex; align-items: flex-end; justify-content: center; padding: 0 12%; border-radius: 4px; }
+/* 刻度的橫線:對著左邊的數字讀長條有多高。position: relative 讓長條蓋在線上面 */
+.bars-grid { position: absolute; inset: 0; pointer-events: none; }
+.bars-grid span { position: absolute; left: 0; right: 0; border-top: 0.5px solid var(--separator); }
+.bar-slot { position: relative; height: 100%; display: flex; align-items: flex-end; justify-content: center; padding: 0 12%; border-radius: 4px; }
 .bar-slot.selected { background: color-mix(in srgb, var(--text) 8%, transparent); }
 .bar {
   display: block; width: 100%; min-height: 2px; border-radius: 4px 4px 0 0;
   transform-origin: bottom; animation: bar-grow .45s cubic-bezier(.2, .8, .2, 1);
+  /* 換牌組時已經有的長條也滑到新高度,不要有的跳、有的從 0 長出來 */
+  transition: height .25s cubic-bezier(.2, .8, .2, 1);
 }
 @keyframes bar-grow { from { transform: scaleY(0); } }
-/* 點一根(滑鼠移過去)浮出那天的數字 */
+/* 點一根(滑鼠移過去)浮出那天的數字;左右位置由 Charts.tsx 給:left 和 --tip-x 一起從 0 走到 100% */
 .bar-tip {
-  position: absolute; top: -6px; transform: translate(-50%, -100%); z-index: 1;
+  position: absolute; top: -6px; transform: translate(var(--tip-x, -50%), -100%); z-index: 1;
   padding: 4px 8px; border-radius: var(--radius-sm); white-space: nowrap; pointer-events: none;
   background: var(--elevated); color: var(--text-2); box-shadow: var(--shadow-md); font-size: var(--fs-caption);
 }
@@ -69,5 +102,15 @@
 /* 日期字比一格寬:寬度 0、置中在那一格上,往兩邊溢出 */
 .bars-x span { display: flex; justify-content: center; width: 0; justify-self: center; white-space: nowrap; }
 .donut { flex-shrink: 0; }
-.retention b small { margin-left: 4px; font-size: var(--fs-caption); font-weight: 600; }
+/* 320 寬:圖例只剩 90px,「已學過」會拆成兩行;甜甜圈縮小一點讓給圖例 */
+@media (max-width: 359px) { .donut { width: 120px; height: 120px; } }
 .chart-summary { font-size: var(--fs-footnote); color: var(--text-2); margin-bottom: 6px; }
+
+/* Windows 的高對比主題會把 inline 的 background 換成底色:長條、熱力圖、圖例的點全部消失。
+   資料的顏色保留(#1a66e8 在白底 5.1:1),選到的那根改用系統的 Highlight 框起來 */
+@media (forced-colors: active) {
+  .bar, .heat-cell, .dist-legend .dot { forced-color-adjust: none; }
+  .bar-slot.selected { outline: 2px solid Highlight; outline-offset: -2px; }
+  /* 刻度線被換成全黑的 CanvasText 會比長條還搶眼 */
+  .bars-grid span { border-top-color: GrayText; }
+}
