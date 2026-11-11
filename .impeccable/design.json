@@ -1,0 +1,1462 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-11T00:00:00Z",
+  "title": "Design System: 字卡",
+  "extensions": {
+    "colorMeta": {
+      "icon-blue": {
+        "role": "primary",
+        "displayName": "圖示藍",
+        "canonical": "#1a66e8",
+        "tonalRamp": [
+          "#0a1020",
+          "#1554c6",
+          "#1459d4",
+          "#1a66e8",
+          "#64a0ff",
+          "#77adff",
+          "#9cc3ff",
+          "#e4edfc"
+        ]
+      },
+      "icon-blue-dark": {
+        "role": "primary",
+        "displayName": "圖示藍（深色）",
+        "canonical": "#64a0ff",
+        "tonalRamp": [
+          "#0a1020",
+          "#1554c6",
+          "#1459d4",
+          "#1a66e8",
+          "#64a0ff",
+          "#77adff",
+          "#9cc3ff",
+          "#e4edfc"
+        ]
+      },
+      "icon-blue-hover": {
+        "role": "primary",
+        "displayName": "圖示藍滑過色",
+        "canonical": "#1459d4",
+        "tonalRamp": [
+          "#0a1020",
+          "#1554c6",
+          "#1459d4",
+          "#1a66e8",
+          "#64a0ff",
+          "#77adff",
+          "#9cc3ff",
+          "#e4edfc"
+        ]
+      },
+      "icon-blue-hover-dark": {
+        "role": "primary",
+        "displayName": "圖示藍滑過色（深色）",
+        "canonical": "#77adff",
+        "tonalRamp": [
+          "#0a1020",
+          "#1554c6",
+          "#1459d4",
+          "#1a66e8",
+          "#64a0ff",
+          "#77adff",
+          "#9cc3ff",
+          "#e4edfc"
+        ]
+      },
+      "icon-blue-tint": {
+        "role": "primary",
+        "displayName": "圖示藍淡底",
+        "canonical": "rgb(26 102 232 / 0.12)",
+        "tonalRamp": [
+          "#0a1020",
+          "#1554c6",
+          "#1459d4",
+          "#1a66e8",
+          "#64a0ff",
+          "#77adff",
+          "#9cc3ff",
+          "#e4edfc"
+        ]
+      },
+      "icon-blue-tint-dark": {
+        "role": "primary",
+        "displayName": "圖示藍淡底（深色）",
+        "canonical": "rgb(100 160 255 / 0.2)",
+        "tonalRamp": [
+          "#0a1020",
+          "#1554c6",
+          "#1459d4",
+          "#1a66e8",
+          "#64a0ff",
+          "#77adff",
+          "#9cc3ff",
+          "#e4edfc"
+        ]
+      },
+      "icon-blue-tint-strong": {
+        "role": "primary",
+        "displayName": "圖示藍深淡底",
+        "canonical": "rgb(26 102 232 / 0.2)",
+        "tonalRamp": [
+          "#0a1020",
+          "#1554c6",
+          "#1459d4",
+          "#1a66e8",
+          "#64a0ff",
+          "#77adff",
+          "#9cc3ff",
+          "#e4edfc"
+        ]
+      },
+      "icon-blue-tint-strong-dark": {
+        "role": "primary",
+        "displayName": "圖示藍深淡底（深色）",
+        "canonical": "rgb(100 160 255 / 0.3)",
+        "tonalRamp": [
+          "#0a1020",
+          "#1554c6",
+          "#1459d4",
+          "#1a66e8",
+          "#64a0ff",
+          "#77adff",
+          "#9cc3ff",
+          "#e4edfc"
+        ]
+      },
+      "icon-blue-ink": {
+        "role": "primary",
+        "displayName": "淡底藍字",
+        "canonical": "#1554c6",
+        "tonalRamp": [
+          "#0a1020",
+          "#1554c6",
+          "#1459d4",
+          "#1a66e8",
+          "#64a0ff",
+          "#77adff",
+          "#9cc3ff",
+          "#e4edfc"
+        ]
+      },
+      "icon-blue-ink-dark": {
+        "role": "primary",
+        "displayName": "淡底藍字（深色）",
+        "canonical": "#9cc3ff",
+        "tonalRamp": [
+          "#0a1020",
+          "#1554c6",
+          "#1459d4",
+          "#1a66e8",
+          "#64a0ff",
+          "#77adff",
+          "#9cc3ff",
+          "#e4edfc"
+        ]
+      },
+      "on-icon-blue": {
+        "role": "primary",
+        "displayName": "藍底上的字",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#0a1020",
+          "#1554c6",
+          "#1459d4",
+          "#1a66e8",
+          "#64a0ff",
+          "#77adff",
+          "#9cc3ff",
+          "#e4edfc"
+        ]
+      },
+      "on-icon-blue-dark": {
+        "role": "primary",
+        "displayName": "藍底上的字（深色）",
+        "canonical": "#0a1020",
+        "tonalRamp": [
+          "#0a1020",
+          "#1554c6",
+          "#1459d4",
+          "#1a66e8",
+          "#64a0ff",
+          "#77adff",
+          "#9cc3ff",
+          "#e4edfc"
+        ]
+      },
+      "danger-red": {
+        "role": "semantic",
+        "displayName": "警示紅",
+        "canonical": "#b52a2a",
+        "tonalRamp": [
+          "#1a0403",
+          "#3c2729",
+          "#7c010c",
+          "#b52a2a",
+          "#d14742",
+          "#ff6b6b",
+          "#ffaba2",
+          "#f8eaea"
+        ]
+      },
+      "danger-red-dark": {
+        "role": "semantic",
+        "displayName": "警示紅（深色）",
+        "canonical": "#ff6b6b",
+        "tonalRamp": [
+          "#1a0403",
+          "#3c2729",
+          "#7c010c",
+          "#b52a2a",
+          "#d14742",
+          "#ff6b6b",
+          "#ffaba2",
+          "#f8eaea"
+        ]
+      },
+      "danger-red-tint": {
+        "role": "semantic",
+        "displayName": "警示紅淡底",
+        "canonical": "rgb(181 42 42 / 0.1)",
+        "tonalRamp": [
+          "#1a0403",
+          "#3c2729",
+          "#7c010c",
+          "#b52a2a",
+          "#d14742",
+          "#ff6b6b",
+          "#ffaba2",
+          "#f8eaea"
+        ]
+      },
+      "danger-red-tint-dark": {
+        "role": "semantic",
+        "displayName": "警示紅淡底（深色）",
+        "canonical": "rgb(255 107 107 / 0.14)",
+        "tonalRamp": [
+          "#1a0403",
+          "#3c2729",
+          "#7c010c",
+          "#b52a2a",
+          "#d14742",
+          "#ff6b6b",
+          "#ffaba2",
+          "#f8eaea"
+        ]
+      },
+      "success-green": {
+        "role": "semantic",
+        "displayName": "完成綠",
+        "canonical": "#1a6b3c",
+        "tonalRamp": [
+          "#030e06",
+          "#23332c",
+          "#024d26",
+          "#1a6b3c",
+          "#44905e",
+          "#4bb37c",
+          "#9dd4ac",
+          "#e8f0ec"
+        ]
+      },
+      "success-green-dark": {
+        "role": "semantic",
+        "displayName": "完成綠（深色）",
+        "canonical": "#4bb37c",
+        "tonalRamp": [
+          "#030e06",
+          "#23332c",
+          "#024d26",
+          "#1a6b3c",
+          "#44905e",
+          "#4bb37c",
+          "#9dd4ac",
+          "#e8f0ec"
+        ]
+      },
+      "success-green-tint": {
+        "role": "semantic",
+        "displayName": "完成綠淡底",
+        "canonical": "rgb(26 107 60 / 0.1)",
+        "tonalRamp": [
+          "#030e06",
+          "#23332c",
+          "#024d26",
+          "#1a6b3c",
+          "#44905e",
+          "#4bb37c",
+          "#9dd4ac",
+          "#e8f0ec"
+        ]
+      },
+      "success-green-tint-dark": {
+        "role": "semantic",
+        "displayName": "完成綠淡底（深色）",
+        "canonical": "rgb(75 179 124 / 0.15)",
+        "tonalRamp": [
+          "#030e06",
+          "#23332c",
+          "#024d26",
+          "#1a6b3c",
+          "#44905e",
+          "#4bb37c",
+          "#9dd4ac",
+          "#e8f0ec"
+        ]
+      },
+      "new-card-blue": {
+        "role": "semantic",
+        "displayName": "新卡藍",
+        "canonical": "#2f62c8",
+        "tonalRamp": [
+          "#030a1c",
+          "#021d59",
+          "#063594",
+          "#2f62c8",
+          "#4378e0",
+          "#7ea6ff",
+          "#a5c5ff",
+          "#e6effe"
+        ]
+      },
+      "new-card-blue-dark": {
+        "role": "semantic",
+        "displayName": "新卡藍（深色）",
+        "canonical": "#7ea6ff",
+        "tonalRamp": [
+          "#030a1c",
+          "#021d59",
+          "#063594",
+          "#2f62c8",
+          "#4378e0",
+          "#7ea6ff",
+          "#a5c5ff",
+          "#e6effe"
+        ]
+      },
+      "learning-red": {
+        "role": "semantic",
+        "displayName": "學習中紅",
+        "canonical": "#b3343a",
+        "tonalRamp": [
+          "#190404",
+          "#4a010a",
+          "#7c0016",
+          "#b3343a",
+          "#cc4c4e",
+          "#ff7a7f",
+          "#ffaaa6",
+          "#ffe8e7"
+        ]
+      },
+      "learning-red-dark": {
+        "role": "semantic",
+        "displayName": "學習中紅（深色）",
+        "canonical": "#ff7a7f",
+        "tonalRamp": [
+          "#190404",
+          "#4a010a",
+          "#7c0016",
+          "#b3343a",
+          "#cc4c4e",
+          "#ff7a7f",
+          "#ffaaa6",
+          "#ffe8e7"
+        ]
+      },
+      "due-green": {
+        "role": "semantic",
+        "displayName": "待複習綠",
+        "canonical": "#25703f",
+        "tonalRamp": [
+          "#040e06",
+          "#012d12",
+          "#014e23",
+          "#25703f",
+          "#478f5c",
+          "#4bb37c",
+          "#9ed3ab",
+          "#e3f4e6"
+        ]
+      },
+      "due-green-dark": {
+        "role": "semantic",
+        "displayName": "待複習綠（深色）",
+        "canonical": "#4bb37c",
+        "tonalRamp": [
+          "#040e06",
+          "#012d12",
+          "#014e23",
+          "#25703f",
+          "#478f5c",
+          "#4bb37c",
+          "#9ed3ab",
+          "#e3f4e6"
+        ]
+      },
+      "rate-again-tint": {
+        "role": "semantic",
+        "displayName": "「重來」淡紅底",
+        "canonical": "#f8e6e7",
+        "tonalRamp": [
+          "#190404",
+          "#4b000a",
+          "#492f31",
+          "#b8323a",
+          "#cf484d",
+          "#f66c6d",
+          "#ff8a8f",
+          "#f8e6e7"
+        ]
+      },
+      "rate-again-tint-dark": {
+        "role": "semantic",
+        "displayName": "「重來」淡紅底（深色）",
+        "canonical": "#492f31",
+        "tonalRamp": [
+          "#190404",
+          "#4b000a",
+          "#492f31",
+          "#b8323a",
+          "#cf484d",
+          "#f66c6d",
+          "#ff8a8f",
+          "#f8e6e7"
+        ]
+      },
+      "rate-again-ink": {
+        "role": "semantic",
+        "displayName": "「重來」紅字",
+        "canonical": "#b8323a",
+        "tonalRamp": [
+          "#190404",
+          "#4b000a",
+          "#492f31",
+          "#b8323a",
+          "#cf484d",
+          "#f66c6d",
+          "#ff8a8f",
+          "#f8e6e7"
+        ]
+      },
+      "rate-again-ink-dark": {
+        "role": "semantic",
+        "displayName": "「重來」紅字（深色）",
+        "canonical": "#ff8a8f",
+        "tonalRamp": [
+          "#190404",
+          "#4b000a",
+          "#492f31",
+          "#b8323a",
+          "#cf484d",
+          "#f66c6d",
+          "#ff8a8f",
+          "#f8e6e7"
+        ]
+      },
+      "rate-hard-tint": {
+        "role": "semantic",
+        "displayName": "「困難」淡褐底",
+        "canonical": "#f4ebe3",
+        "tonalRamp": [
+          "#130802",
+          "#3a1b01",
+          "#43362c",
+          "#8f5019",
+          "#ad6b38",
+          "#d18d59",
+          "#e8ac72",
+          "#f4ebe3"
+        ]
+      },
+      "rate-hard-tint-dark": {
+        "role": "semantic",
+        "displayName": "「困難」淡褐底（深色）",
+        "canonical": "#43362c",
+        "tonalRamp": [
+          "#130802",
+          "#3a1b01",
+          "#43362c",
+          "#8f5019",
+          "#ad6b38",
+          "#d18d59",
+          "#e8ac72",
+          "#f4ebe3"
+        ]
+      },
+      "rate-hard-ink": {
+        "role": "semantic",
+        "displayName": "「困難」褐字",
+        "canonical": "#8f5019",
+        "tonalRamp": [
+          "#130802",
+          "#3a1b01",
+          "#43362c",
+          "#8f5019",
+          "#ad6b38",
+          "#d18d59",
+          "#e8ac72",
+          "#f4ebe3"
+        ]
+      },
+      "rate-hard-ink-dark": {
+        "role": "semantic",
+        "displayName": "「困難」褐字（深色）",
+        "canonical": "#e8ac72",
+        "tonalRamp": [
+          "#130802",
+          "#3a1b01",
+          "#43362c",
+          "#8f5019",
+          "#ad6b38",
+          "#d18d59",
+          "#e8ac72",
+          "#f4ebe3"
+        ]
+      },
+      "rate-good-green": {
+        "role": "semantic",
+        "displayName": "「普通」實心綠",
+        "canonical": "#2f8253",
+        "tonalRamp": [
+          "#030e07",
+          "#012d16",
+          "#004d29",
+          "#2a7a4c",
+          "#2f8253",
+          "#62b381",
+          "#9ad4ae",
+          "#e1f4e7"
+        ]
+      },
+      "rate-good-green-dark": {
+        "role": "semantic",
+        "displayName": "「普通」實心綠（深色）",
+        "canonical": "#2a7a4c",
+        "tonalRamp": [
+          "#030e07",
+          "#012d16",
+          "#004d29",
+          "#2a7a4c",
+          "#2f8253",
+          "#62b381",
+          "#9ad4ae",
+          "#e1f4e7"
+        ]
+      },
+      "rate-easy-tint": {
+        "role": "semantic",
+        "displayName": "「簡單」淡藍底",
+        "canonical": "#e7ecf7",
+        "tonalRamp": [
+          "#050b19",
+          "#0d204e",
+          "#30384b",
+          "#3a5cab",
+          "#557acc",
+          "#759cf1",
+          "#8fb2ff",
+          "#e7ecf7"
+        ]
+      },
+      "rate-easy-tint-dark": {
+        "role": "semantic",
+        "displayName": "「簡單」淡藍底（深色）",
+        "canonical": "#30384b",
+        "tonalRamp": [
+          "#050b19",
+          "#0d204e",
+          "#30384b",
+          "#3a5cab",
+          "#557acc",
+          "#759cf1",
+          "#8fb2ff",
+          "#e7ecf7"
+        ]
+      },
+      "rate-easy-ink": {
+        "role": "semantic",
+        "displayName": "「簡單」藍字",
+        "canonical": "#3a5cab",
+        "tonalRamp": [
+          "#050b19",
+          "#0d204e",
+          "#30384b",
+          "#3a5cab",
+          "#557acc",
+          "#759cf1",
+          "#8fb2ff",
+          "#e7ecf7"
+        ]
+      },
+      "rate-easy-ink-dark": {
+        "role": "semantic",
+        "displayName": "「簡單」藍字（深色）",
+        "canonical": "#8fb2ff",
+        "tonalRamp": [
+          "#050b19",
+          "#0d204e",
+          "#30384b",
+          "#3a5cab",
+          "#557acc",
+          "#759cf1",
+          "#8fb2ff",
+          "#e7ecf7"
+        ]
+      },
+      "page-bg": {
+        "role": "neutral",
+        "displayName": "分組灰底",
+        "canonical": "#f2f2f7",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "page-bg-dark": {
+        "role": "neutral",
+        "displayName": "分組灰底（深色）",
+        "canonical": "#000000",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "白色表面",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "surface-dark": {
+        "role": "neutral",
+        "displayName": "白色表面（深色）",
+        "canonical": "#1c1c1e",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "elevated": {
+        "role": "neutral",
+        "displayName": "浮層",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "elevated-dark": {
+        "role": "neutral",
+        "displayName": "浮層（深色）",
+        "canonical": "#2c2c2e",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "sheet-bg": {
+        "role": "neutral",
+        "displayName": "面板底",
+        "canonical": "#f2f2f7",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "sheet-bg-dark": {
+        "role": "neutral",
+        "displayName": "面板底（深色）",
+        "canonical": "#1c1c1e",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "fill": {
+        "role": "neutral",
+        "displayName": "半透明灰",
+        "canonical": "rgb(118 118 128 / 0.12)",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#2a2a2e",
+          "#323236",
+          "#5d5d66",
+          "#7c7c86",
+          "#9d9da8",
+          "#efeff0",
+          "#f4f4f5"
+        ]
+      },
+      "fill-dark": {
+        "role": "neutral",
+        "displayName": "半透明灰（深色）",
+        "canonical": "rgb(118 118 128 / 0.24)",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#2a2a2e",
+          "#323236",
+          "#5d5d66",
+          "#7c7c86",
+          "#9d9da8",
+          "#efeff0",
+          "#f4f4f5"
+        ]
+      },
+      "fill-subtle": {
+        "role": "neutral",
+        "displayName": "淡灰洗色",
+        "canonical": "rgb(118 118 128 / 0.08)",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#2a2a2e",
+          "#323236",
+          "#5d5d66",
+          "#7c7c86",
+          "#9d9da8",
+          "#efeff0",
+          "#f4f4f5"
+        ]
+      },
+      "fill-subtle-dark": {
+        "role": "neutral",
+        "displayName": "淡灰洗色（深色）",
+        "canonical": "rgb(118 118 128 / 0.16)",
+        "tonalRamp": [
+          "#0b0b0d",
+          "#2a2a2e",
+          "#323236",
+          "#5d5d66",
+          "#7c7c86",
+          "#9d9da8",
+          "#efeff0",
+          "#f4f4f5"
+        ]
+      },
+      "separator": {
+        "role": "neutral",
+        "displayName": "細分隔線",
+        "canonical": "rgb(60 60 67 / 0.16)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#232328",
+          "#3b3b3e",
+          "#5d5d64",
+          "#7c7c84",
+          "#9d9da6",
+          "#c3c3ca",
+          "#e0e0e1"
+        ]
+      },
+      "separator-dark": {
+        "role": "neutral",
+        "displayName": "細分隔線（深色）",
+        "canonical": "rgb(84 84 88 / 0.55)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#232328",
+          "#3b3b3e",
+          "#5d5d64",
+          "#7c7c84",
+          "#9d9da6",
+          "#c3c3ca",
+          "#e0e0e1"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "主要文字",
+        "canonical": "#1c1c1e",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "ink-dark": {
+        "role": "neutral",
+        "displayName": "主要文字（深色）",
+        "canonical": "#f2f2f7",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "ink-secondary": {
+        "role": "neutral",
+        "displayName": "次要文字",
+        "canonical": "#636368",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "ink-secondary-dark": {
+        "role": "neutral",
+        "displayName": "次要文字（深色）",
+        "canonical": "#a1a1a6",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "ink-tertiary": {
+        "role": "neutral",
+        "displayName": "箭頭灰",
+        "canonical": "#8e8e93",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "ink-tertiary-dark": {
+        "role": "neutral",
+        "displayName": "箭頭灰（深色）",
+        "canonical": "#7c7c80",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "placeholder": {
+        "role": "neutral",
+        "displayName": "提示字灰",
+        "canonical": "#76767b",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "placeholder-dark": {
+        "role": "neutral",
+        "displayName": "提示字灰（深色）",
+        "canonical": "#8e8e93",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "segmented-thumb": {
+        "role": "neutral",
+        "displayName": "分段選中格",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "segmented-thumb-dark": {
+        "role": "neutral",
+        "displayName": "分段選中格（深色）",
+        "canonical": "#636366",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "switch-off": {
+        "role": "neutral",
+        "displayName": "開關關閉底",
+        "canonical": "#e5e5ea",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      },
+      "switch-off-dark": {
+        "role": "neutral",
+        "displayName": "開關關閉底（深色）",
+        "canonical": "rgb(118 118 128 / 0.24)",
+        "tonalRamp": [
+          "#000000",
+          "#1c1c1e",
+          "#2c2c2e",
+          "#636368",
+          "#8e8e93",
+          "#a1a1a6",
+          "#e5e5ea",
+          "#f2f2f7"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "只用在複習卡上的日文單字；實際字級是 clamp(22px, 卡片寬 ÷ 字數 − 1px, 48px)，用日文字型。"
+      },
+      "large": {
+        "displayName": "Large",
+        "purpose": "寬螢幕的頁面大標、首頁今日張數的數字。"
+      },
+      "title1": {
+        "displayName": "Title1",
+        "purpose": "手機上的頁面大標、統計的大數字、完成畫面。"
+      },
+      "title2": {
+        "displayName": "Title2",
+        "purpose": "卡片背面的讀音與意思；首頁的今日標題用 600。"
+      },
+      "title3": {
+        "displayName": "Title3",
+        "purpose": "區塊標題、空狀態的標題。"
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "強調的列標題、大按鈕、面板與確認框的標題、評分鍵。"
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "內文、列標題、輸入框（輸入框一定 16px，iPhone 才不會放大整頁）。"
+      },
+      "button": {
+        "displayName": "Button",
+        "purpose": "一般按鈕的字。"
+      },
+      "subhead": {
+        "displayName": "Subhead",
+        "purpose": "次要的一行、列右邊的值、提示條、空狀態的說明。"
+      },
+      "small": {
+        "displayName": "Small",
+        "purpose": "chip、分段控制；小膠囊按鈕同樣 14px，但沿用按鈕的 600。"
+      },
+      "group-header": {
+        "displayName": "Group Header",
+        "purpose": "分組列表上方的標題，用次要文字色。"
+      },
+      "footnote": {
+        "displayName": "Footnote",
+        "purpose": "提示、列表底下的說明。"
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "狀態標籤、卡片角落的「新卡」。"
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "欄位說明、圖例。"
+      },
+      "tab-label": {
+        "displayName": "Tab Label",
+        "purpose": "手機分頁列圖示下面的字。"
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "同步金鑰、分享連結、錯誤細節、授權全文與鍵帽；字級跟著所在的位置。"
+      }
+    },
+    "shadows": [
+      {
+        "name": "shadow-sm",
+        "value": "0 1px 2px rgb(0 0 0 / 0.04), 0 1px 3px rgb(0 0 0 / 0.05)",
+        "purpose": "淺色模式的複習卡（唯一使用者）。"
+      },
+      {
+        "name": "shadow-sm-dark",
+        "value": "none",
+        "purpose": "深色模式拿掉小陰影，複習卡是平的。"
+      },
+      {
+        "name": "shadow-md",
+        "value": "0 4px 12px rgb(0 0 0 / 0.08), 0 12px 32px rgb(0 0 0 / 0.08)",
+        "purpose": "toast、更新提示、批次列、圖表的提示框。"
+      },
+      {
+        "name": "shadow-md-dark",
+        "value": "0 4px 16px rgb(0 0 0 / 0.5)",
+        "purpose": "深色模式的浮層陰影。"
+      },
+      {
+        "name": "shadow-lg",
+        "value": "0 10px 40px rgb(0 0 0 / 0.18)",
+        "purpose": "底部面板與確認框。"
+      },
+      {
+        "name": "shadow-lg-dark",
+        "value": "0 10px 40px rgb(0 0 0 / 0.6)",
+        "purpose": "深色模式的面板陰影。"
+      },
+      {
+        "name": "segmented-thumb",
+        "value": "0 1px 3px rgb(0 0 0 / 0.12), 0 0 0 0.5px rgb(0 0 0 / 0.04)",
+        "purpose": "分段控制選中的那一格，只有淺色模式。"
+      },
+      {
+        "name": "switch-knob",
+        "value": "0 2px 6px rgb(0 0 0 / 0.2), 0 0 1px rgb(0 0 0 / 0.1)",
+        "purpose": "開關的白色圓鈕，兩種主題相同。"
+      },
+      {
+        "name": "hairline-bottom",
+        "value": "0 0.5px 0 var(--separator)",
+        "purpose": "導覽列捲動後的底線、寬螢幕分頁列的底線。"
+      },
+      {
+        "name": "hairline-top",
+        "value": "0 -0.5px 0 var(--separator)",
+        "purpose": "手機分頁列的頂線。"
+      },
+      {
+        "name": "field-focus-ring",
+        "value": "0 0 0 2px var(--accent)",
+        "purpose": "文字輸入框的焦點環（其他元件用 outline）。"
+      },
+      {
+        "name": "field-invalid-ring",
+        "value": "0 0 0 2px var(--danger)",
+        "purpose": "標了 aria-invalid 的輸入框。"
+      },
+      {
+        "name": "rating-hover-ring",
+        "value": "inset 0 0 0 2px color-mix(in srgb, currentColor 32%, transparent)",
+        "purpose": "評分鍵滑過時的同色內框，不換底色。"
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-change",
+        "value": ".15s ease",
+        "purpose": "背景、透明度、文字色、焦點環等狀態轉換的預設。"
+      },
+      {
+        "name": "press",
+        "value": "transform .08s ease",
+        "purpose": "按下的縮放：按鈕 scale(.98)、評分鍵 scale(.96) 加 brightness(.94)、發音鈕 scale(.94)。"
+      },
+      {
+        "name": "ease-enter",
+        "value": "cubic-bezier(.2, .8, .2, 1)",
+        "purpose": "面板、對話框、toast、更新提示、長條圖的進場。"
+      },
+      {
+        "name": "ease-exit",
+        "value": "cubic-bezier(.4, 0, 1, 1)",
+        "purpose": "退場：不比進場長、先慢後快，搭配 forwards。"
+      },
+      {
+        "name": "sheet-up",
+        "value": ".3s cubic-bezier(.2, .8, .2, 1)",
+        "purpose": "底部面板升起；動作選單是 .28s。"
+      },
+      {
+        "name": "pop-in",
+        "value": ".2s cubic-bezier(.2, .8, .2, 1)",
+        "purpose": "置中的確認框與寬螢幕動作選單彈入；寬螢幕面板是 .22s。"
+      },
+      {
+        "name": "dialog-exit",
+        "value": ".2s cubic-bezier(.4, 0, 1, 1) forwards",
+        "purpose": "面板下沉、對話框彈出；確認框是 .15s。"
+      },
+      {
+        "name": "backdrop-fade",
+        "value": "fade-in .25s ease / fade-out .2s ease forwards",
+        "purpose": "對話框背後的遮罩。"
+      },
+      {
+        "name": "toast-in",
+        "value": ".25s cubic-bezier(.2, .8, .2, 1)",
+        "purpose": "toast 往上滑入淡入。"
+      },
+      {
+        "name": "banner-in",
+        "value": ".3s cubic-bezier(.2, .8, .2, 1)",
+        "purpose": "更新提示從上方滑下。"
+      },
+      {
+        "name": "card-in",
+        "value": ".22s ease",
+        "purpose": "下一張複習卡進場（往上 6px 淡入）；換面時卡面是 .16s。"
+      },
+      {
+        "name": "answer-in",
+        "value": ".2s ease",
+        "purpose": "翻面時答案往上 4px 淡入，不推動單字。"
+      },
+      {
+        "name": "switch-knob",
+        "value": "transform .2s cubic-bezier(.3, .7, .4, 1)",
+        "purpose": "開關圓鈕滑動；軌道顏色 .2s ease。"
+      },
+      {
+        "name": "spinner",
+        "value": "spin .7s linear infinite",
+        "purpose": "載入中的轉圈；減少動態效果時改成靜止。"
+      },
+      {
+        "name": "route-progress",
+        "value": "route-slide .9s ease-in-out -0.3s infinite",
+        "purpose": "換頁等待時分頁列上的 2px 進度線；減少動態效果時改成靜止的整條。"
+      },
+      {
+        "name": "bar-grow",
+        "value": ".45s cubic-bezier(.2, .8, .2, 1)",
+        "purpose": "統計長條圖長出來。"
+      },
+      {
+        "name": "reduced-motion",
+        "value": "0.01ms",
+        "purpose": "prefers-reduced-motion 時所有動畫與轉場都縮到這個長度；無限轉圈改成靜止；複習卡的卡面與答案改成 .16s 單純淡入（不位移）。"
+      },
+      {
+        "name": "theme-switch",
+        "value": "transition: none",
+        "purpose": "切換深淺色的那一格關掉所有轉場，不會閃。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "wide",
+        "value": "768px",
+        "purpose": "(min-width: 768px)：分頁列移到頂端、導覽列跟內容捲走、大標題 34px、動作選單置中、複習按鈕接在卡片下面。"
+      },
+      {
+        "name": "wide-tall",
+        "value": "(min-width: 768px) and (min-height: 600px)",
+        "purpose": "底部面板改成置中的對話框；手機橫放（寬但矮）照樣從底部升起。"
+      },
+      {
+        "name": "small-phone",
+        "value": "359px",
+        "purpose": "(max-width: 359px)：320 寬的 iPhone SE，複習頂列的計數、統計的大數字與甜甜圈圖縮小。"
+      },
+      {
+        "name": "narrow",
+        "value": "340px",
+        "purpose": "(max-width: 340px)：分段控制的字縮到 13px。"
+      },
+      {
+        "name": "landscape-phone",
+        "value": "(orientation: landscape) and (max-height: 500px)",
+        "purpose": "手機橫放的複習畫面：卡片變矮、評分鍵 52px、toast 移到頂端的列上。"
+      },
+      {
+        "name": "landscape-short",
+        "value": "(orientation: landscape) and (max-height: 340px)",
+        "purpose": "更矮的橫放：有角落標籤時單字上限壓到 34px。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "實心圖示藍，一個決策區一顆；大尺寸是滿版的主要動作（這裡是首頁「今天」卡的「開始複習」）。滑過變深，按下縮到 0.98，停用 0.4 透明度，忙碌中的停用按鈕維持不透明。",
+      "html": "<button type=\"button\" class=\"ds-btn ds-btn-lg\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5Z\" fill=\"currentColor\"/></svg>開始複習</button>",
+      "css": ".ds-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 18px;border:none;border-radius:var(--radius);background:var(--accent);color:var(--on-accent);font-family:inherit;font-size:var(--fs-body);font-weight:600;line-height:1.2;text-align:center;text-decoration:none;white-space:nowrap;cursor:pointer;user-select:none;transition:background-color .15s ease,opacity .15s ease,transform .08s ease}.ds-btn-lg{min-height:52px;width:100%;font-size:var(--fs-headline);border-radius:var(--radius-button-lg);white-space:normal;text-wrap:balance}@media (hover:hover){.ds-btn:not(:disabled,[aria-disabled=\"true\"]):hover{background:var(--accent-pressed)}}.ds-btn:active{transform:scale(.98)}.ds-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.ds-btn:disabled,.ds-btn[aria-disabled=\"true\"]{opacity:var(--disabled-opacity);cursor:default;transform:none}.ds-btn[aria-busy=\"true\"]:is(:disabled,[aria-disabled=\"true\"]){opacity:1;cursor:progress}"
+    },
+    {
+      "name": "Tinted Button",
+      "kind": "button",
+      "refersTo": "button-tinted",
+      "description": "圖示藍淡底配淡底藍字，給次要但想被看見的動作。小尺寸是 999px 的膠囊，觸控裝置上可點範圍往上下撐開到 44pt 以上。",
+      "html": "<button type=\"button\" class=\"ds-btn-tinted\">打開牌組</button> <button type=\"button\" class=\"ds-btn-tinted ds-btn-sm\">立即同步</button>",
+      "css": ".ds-btn-tinted{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 18px;border:none;border-radius:var(--radius);background:var(--accent-tint);color:var(--accent-text);font-family:inherit;font-size:var(--fs-body);font-weight:600;line-height:1.2;text-align:center;text-decoration:none;white-space:nowrap;cursor:pointer;user-select:none;transition:background-color .15s ease,opacity .15s ease,transform .08s ease}.ds-btn-sm{min-height:34px;padding:0 14px;font-size:var(--fs-small);border-radius:999px}@media (hover:hover){.ds-btn-tinted:not(:disabled,[aria-disabled=\"true\"]):hover{background:var(--accent-tint-pressed)}}.ds-btn-tinted:active{transform:scale(.98)}.ds-btn-tinted:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.ds-btn-tinted:disabled,.ds-btn-tinted[aria-disabled=\"true\"]{opacity:var(--disabled-opacity);cursor:default;transform:none}@media (pointer:coarse){.ds-btn-sm{position:relative}.ds-btn-sm::after{content:'';position:absolute;inset:-6px 0}}"
+    },
+    {
+      "name": "Grouped List",
+      "kind": "card",
+      "refersTo": "list",
+      "description": "iOS 設定頁式的分組列表：白色表面的 12px 圓角群組會裁切圓角，細分隔線從字的起點開始（有圖示時 56px）。按下與滑過是淡灰洗色，焦點框往內畫，不會被裁掉。",
+      "html": "<section class=\"ds-list-section\"><h2 class=\"ds-list-header\">同步</h2><div class=\"ds-list ds-with-icons\"><button type=\"button\" class=\"ds-row\"><span class=\"ds-row-icon\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z\"/><circle cx=\"16.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"/></g></svg></span><span class=\"ds-row-main\"><span class=\"ds-row-title\">同步金鑰</span></span><span class=\"ds-row-value\">已設定</span><span class=\"ds-row-chevron\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m9 5 7 7-7 7\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span></button></div></section><section class=\"ds-list-section\"><h2 class=\"ds-list-header\">說明</h2><div class=\"ds-list ds-with-icons\"><a class=\"ds-row\" href=\"#\"><span class=\"ds-row-icon\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 6.5C10.5 5 8 4.5 4 4.5v14c4 0 6.5.5 8 2 1.5-1.5 4-2 8-2v-14c-4 0-6.5.5-8 2Z\"/><path d=\"M12 6.5v14\"/></g></svg></span><span class=\"ds-row-main\"><span class=\"ds-row-title\">使用說明</span></span><span class=\"ds-row-chevron\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m9 5 7 7-7 7\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span></a><a class=\"ds-row\" href=\"#\"><span class=\"ds-row-icon\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z\"/><path d=\"M14 3v5h5\"/></g></svg></span><span class=\"ds-row-main\"><span class=\"ds-row-title\">授權與資料來源</span></span><span class=\"ds-row-chevron\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m9 5 7 7-7 7\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></span></a></div></section>",
+      "css": ".ds-list-section{margin-top:24px}.ds-list-section:first-child{margin-top:8px}.ds-list-header{margin:0;font-size:var(--fs-footnote);font-weight:500;line-height:1.25;color:var(--text-2);padding:0 16px 7px;letter-spacing:.01em}.ds-list{background:var(--surface);border-radius:var(--radius);overflow:hidden}.ds-row{position:relative;display:flex;align-items:center;gap:12px;width:100%;min-height:48px;padding:11px 16px;background:none;border:none;color:inherit;text-align:left;font-family:inherit;font-size:var(--fs-body);line-height:1.35;text-decoration:none;cursor:pointer}.ds-list>.ds-row+.ds-row::before{content:'';position:absolute;top:0;right:0;left:16px;border-top:.5px solid var(--separator)}.ds-list.ds-with-icons>.ds-row+.ds-row::before{left:56px}.ds-row:active{background:var(--fill-2)}@media (hover:hover){.ds-row:hover{background:var(--fill-2)}}.ds-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:var(--radius)}.ds-row-icon{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;flex-shrink:0;border-radius:7px;background:var(--accent-tint);color:var(--accent)}.ds-row-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.ds-row-title{font-size:var(--fs-body);overflow-wrap:anywhere}.ds-row-value{color:var(--text-2);font-size:var(--fs-subhead);text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums}.ds-row-chevron{color:var(--text-3);flex-shrink:0;display:inline-flex}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "沒有邊框、10px 圓角、44px 高、16px 字（再小 iPhone 會放大整頁）。底色跟著 --field-bg：灰底上用白色表面，卡片、列表、提示條裡用半透明灰。焦點是 2px 圖示藍環，aria-invalid 時換成警示紅環；沒有滑過狀態。",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">牌組名稱</span><input class=\"ds-input\" type=\"text\" placeholder=\"例如：N3 單字\" enterkeyhint=\"done\"></label>",
+      "css": ".ds-field{--field-bg:var(--surface);display:flex;flex-direction:column;gap:6px}.ds-field-label{font-size:var(--fs-footnote);font-weight:500;color:var(--text-2)}.ds-input{width:100%;min-height:44px;padding:11px 12px;border:none;border-radius:var(--radius-control);background-color:var(--field-bg,var(--fill));color:var(--text);font-family:inherit;font-size:var(--fs-body);caret-color:var(--accent);transition:box-shadow .15s ease,background-color .15s ease}.ds-input::placeholder{color:var(--placeholder)}.ds-input:focus,.ds-input:focus-visible{outline:none;box-shadow:0 0 0 2px var(--accent)}.ds-input[aria-invalid=\"true\"],.ds-input[aria-invalid=\"true\"]:focus{box-shadow:0 0 0 2px var(--danger)}"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "input",
+      "refersTo": "segmented",
+      "description": "半透明灰的軌道裡浮起選中的那一格（淺色有小陰影，深色是平的）。沒選中的滑過是淡灰洗色，按下 0.6 透明度。單選，role=radiogroup 加 roving tabindex。",
+      "html": "<div class=\"ds-segmented\" role=\"radiogroup\" aria-label=\"外觀\"><button type=\"button\" role=\"radio\" aria-checked=\"true\" tabindex=\"0\"><span>跟隨系統</span></button><button type=\"button\" role=\"radio\" aria-checked=\"false\" tabindex=\"-1\"><span>淺色</span></button><button type=\"button\" role=\"radio\" aria-checked=\"false\" tabindex=\"-1\"><span>深色</span></button></div>",
+      "css": ".ds-segmented{display:flex;gap:2px;padding:2px;background:var(--fill);border-radius:var(--radius-control)}.ds-segmented button{flex:1;min-width:0;min-height:34px;padding:0 8px;border:none;border-radius:var(--radius-sm);background:none;color:var(--text);font-family:inherit;font-size:var(--fs-small);font-weight:500;white-space:nowrap;cursor:pointer;transition:background-color .15s ease,box-shadow .15s ease}.ds-segmented button>span{display:block;overflow:hidden;text-overflow:ellipsis}.ds-segmented button[aria-checked=\"true\"]{background:var(--segmented-selected);font-weight:600;box-shadow:0 1px 3px rgb(0 0 0 / 0.12),0 0 0 0.5px rgb(0 0 0 / 0.04)}:root[data-theme=\"dark\"] .ds-segmented button[aria-checked=\"true\"]{box-shadow:none}@media (hover:hover){.ds-segmented button[aria-checked=\"false\"]:not(:disabled):hover{background:var(--fill-2)}}.ds-segmented button[aria-checked=\"false\"]:not(:disabled):active{opacity:.6}.ds-segmented button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.ds-segmented button:disabled{cursor:default}.ds-segmented button:disabled:not([aria-checked=\"true\"]){opacity:var(--disabled-opacity)}@media (pointer:coarse){.ds-segmented button{position:relative}.ds-segmented button::after{content:'';position:absolute;inset:-6px 0}}@media (max-width:340px){.ds-segmented button{font-size:var(--fs-footnote);padding:0 4px}}"
+    },
+    {
+      "name": "Switch",
+      "kind": "input",
+      "refersTo": "switch",
+      "description": "iOS 開關，用原生 checkbox 加 role=switch。51×31 的軌道，關著是開關關閉底、開著是圖示藍，27px 的白色圓鈕滑過 20px。有自己的焦點框，沒有滑過狀態。",
+      "html": "<label class=\"ds-switch-row\"><span>同時建立反向卡</span><input type=\"checkbox\" role=\"switch\" class=\"ds-switch\" aria-label=\"同時建立反向卡\" checked></label>",
+      "css": ".ds-switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px}.ds-switch{appearance:none;-webkit-appearance:none;position:relative;flex-shrink:0;width:51px;height:31px;margin:0;padding:0;border-radius:999px;background:var(--switch-off);cursor:pointer;transition:background-color .2s ease}.ds-switch::before{content:'';position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 6px rgb(0 0 0 / 0.2),0 0 1px rgb(0 0 0 / 0.1);transition:transform .2s cubic-bezier(.3,.7,.4,1)}.ds-switch:checked{background:var(--accent)}.ds-switch:checked::before{transform:translateX(20px)}.ds-switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px;box-shadow:none}.ds-switch:disabled{opacity:var(--disabled-opacity);cursor:default}"
+    },
+    {
+      "name": "Status Badges & Counts",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "靜態，沒有互動狀態。Anki 語意色的膠囊標籤是該色 14% 淡底配同色字，「已會」「先不學」用中性底；三色計數列（新卡藍、學習中紅、待複習綠）在數字是 0 時把圓點淡到 0.35、數字改成次要文字色。",
+      "html": "<span class=\"ds-badge ds-badge-due\">待複習</span> <span class=\"ds-badge ds-badge-learn\">學習中</span> <span class=\"ds-badge\">已會</span><div class=\"ds-counts\"><span class=\"ds-count\"><span class=\"ds-dot ds-dot-new\"></span>新卡 <b>12</b></span><span class=\"ds-count\"><span class=\"ds-dot ds-dot-learn\"></span>學習中 <b>3</b></span><span class=\"ds-count ds-count-zero\"><span class=\"ds-dot ds-dot-due\"></span>待複習 <b>0</b></span></div>",
+      "css": ".ds-badge{display:inline-flex;align-items:center;flex-shrink:0;padding:1px 8px;border-radius:999px;font-size:var(--fs-caption);font-weight:600;line-height:1.6;white-space:nowrap;background:var(--fill);color:var(--text-2)}.ds-badge-learn{background:color-mix(in srgb,var(--c-learn) 14%,transparent);color:var(--c-learn)}.ds-badge-due{background:color-mix(in srgb,var(--c-due-count) 14%,transparent);color:var(--c-due-count)}.ds-counts{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:var(--fs-small);color:var(--text-2)}.ds-count{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.ds-count b{color:var(--text);font-variant-numeric:tabular-nums;font-weight:600}.ds-count-zero,.ds-count-zero b{color:var(--text-2);font-weight:400}.ds-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}.ds-count-zero .ds-dot{opacity:.35}.ds-dot-new{background:var(--c-new)}.ds-dot-learn{background:var(--c-learn)}.ds-dot-due{background:var(--c-due-count)}"
+    },
+    {
+      "name": "Tab Bar",
+      "kind": "nav",
+      "refersTo": "tab-bar-item",
+      "description": "三個分頁。手機上在底部，圖示在上、字在下，目前的分頁是圖示藍，Home 指示條的安全區算在每一格裡。寬 768px 以上移到頂端，每個分頁變成膠囊（目前的分頁是淡藍底配淡底藍字），第一個對齊內容欄的左緣。紅點表示上次同步失敗。",
+      "html": "<nav class=\"ds-tabbar\" aria-label=\"主要分頁\"><a href=\"#\" class=\"ds-tab ds-tab-active\" aria-current=\"page\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"7\" width=\"14\" height=\"13\" rx=\"2.5\"/><path d=\"M7 4.5h10.5A2.5 2.5 0 0 1 20 7v10.5\"/></g></svg><span>牌組</span></a><a href=\"#\" class=\"ds-tab\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M5 20V11\"/><path d=\"M12 20V5\"/><path d=\"M19 20v-6\"/></g></svg><span>統計</span></a><a href=\"#\" class=\"ds-tab\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><g fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z\"/></g></svg><span>設定</span><span class=\"ds-tab-dot\" role=\"img\" aria-label=\"上次同步失敗\"></span></a></nav>",
+      "css": ".ds-tabbar{position:relative;display:flex;justify-content:space-around;padding:0 var(--safe-right) 0 var(--safe-left);background:color-mix(in srgb,var(--surface) 86%,var(--bg));box-shadow:0 -0.5px 0 var(--separator);touch-action:none;touch-action:pinch-zoom}.ds-tab{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;height:calc(var(--tabbar-h) + var(--safe-bottom));padding-bottom:var(--safe-bottom);color:var(--text-2);text-decoration:none;font-size:var(--fs-caption2);font-weight:600;letter-spacing:.02em}.ds-tab-active{color:var(--accent)}.ds-tab:active{opacity:.6}.ds-tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}.ds-tab-dot{position:absolute;top:8px;left:calc(50% + 10px);width:8px;height:8px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 2px var(--surface)}@media (min-width:768px){.ds-tabbar{justify-content:flex-start;gap:4px;padding:8px max(calc(24px + var(--safe-right)),calc((100% - 720px) / 2 + var(--page-x) + var(--safe-right) - 14px)) 8px max(calc(24px + var(--safe-left)),calc((100% - 720px) / 2 + var(--page-x) + var(--safe-left) - 14px));box-shadow:0 0.5px 0 var(--separator)}.ds-tab{flex:none;flex-direction:row;gap:8px;height:40px;padding:0 14px;border-radius:var(--radius-control);font-size:var(--fs-subhead);letter-spacing:0}.ds-tab svg{width:18px;height:18px}.ds-tab::before{content:'';position:absolute;inset:-8px -2px}.ds-tab-active{background:var(--accent-tint);color:var(--accent-text)}.ds-tab-dot{left:auto;right:6px}}@media (min-width:768px) and (hover:hover){.ds-tab:not(.ds-tab-active):hover{background:var(--fill-2);color:var(--text)}}"
+    },
+    {
+      "name": "Rating Keys",
+      "kind": "custom",
+      "refersTo": "rating-good",
+      "description": "四個 60px 的評分鍵（手機橫放時 52px）。只有「普通」是實心；其他三個是淡色塊配同色系的深字，深色模式是暗色塊配亮字，不和卡上的答案搶。滑過描一圈同色內框、不換底色；按下縮到 0.96 並稍微變暗。按鍵數字只在有滑鼠的裝置顯示；間隔是 formatInterval 格式的示意值。",
+      "html": "<div class=\"ds-ratings\"><button type=\"button\" class=\"ds-rating ds-rating-1\" aria-label=\"重來，1 分鐘後\"><span class=\"ds-rating-label\">重來</span><span class=\"ds-rating-interval\">1 分鐘</span><span class=\"ds-rating-key\">1</span></button><button type=\"button\" class=\"ds-rating ds-rating-2\" aria-label=\"困難，6 分鐘後\"><span class=\"ds-rating-label\">困難</span><span class=\"ds-rating-interval\">6 分鐘</span><span class=\"ds-rating-key\">2</span></button><button type=\"button\" class=\"ds-rating ds-rating-3\" aria-label=\"普通，10 分鐘後\"><span class=\"ds-rating-label\">普通</span><span class=\"ds-rating-interval\">10 分鐘</span><span class=\"ds-rating-key\">3</span></button><button type=\"button\" class=\"ds-rating ds-rating-4\" aria-label=\"簡單，8 天後\"><span class=\"ds-rating-label\">簡單</span><span class=\"ds-rating-interval\">8 天</span><span class=\"ds-rating-key\">4</span></button></div>",
+      "css": ".ds-ratings{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.ds-rating{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;min-height:60px;padding:6px 2px;border:none;border-radius:var(--radius-lg);font-family:inherit;cursor:pointer;transition:transform .08s ease,filter .15s ease,box-shadow .15s ease}.ds-rating:active{transform:scale(0.96);filter:brightness(.94)}@media (hover:hover){.ds-rating:hover{box-shadow:inset 0 0 0 2px color-mix(in srgb,currentColor 32%,transparent)}}.ds-rating:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.ds-rating-1{background:var(--rate-again-tint);color:var(--rate-again-fg)}.ds-rating-2{background:var(--rate-hard-tint);color:var(--rate-hard-fg)}.ds-rating-3{background:var(--rate-good);color:#fff}.ds-rating-4{background:var(--rate-easy-tint);color:var(--rate-easy-fg)}.ds-rating-label{font-size:var(--fs-headline);font-weight:600}.ds-rating-interval{font-size:var(--fs-caption);font-weight:500;font-variant-numeric:tabular-nums}.ds-rating-key{position:absolute;top:5px;right:8px;font-size:var(--fs-caption2);font-weight:400}@media (hover:none){.ds-rating-key{display:none}}@media (orientation:landscape) and (max-height:500px){.ds-rating{min-height:52px}}"
+    },
+    {
+      "name": "Flashcard",
+      "kind": "card",
+      "refersTo": "flashcard",
+      "description": "複習卡翻面後的樣子：24px 圓角的白色表面；日文單字依卡片寬度與字數縮放（--n 是字數，由 Review.tsx 寫入）；讀音上方用邊框畫高低重音，旁邊是淡藍的發音鈕；短分隔線下面是意思。內容從上往下排，翻面時單字不動。示意單字取自 App 自己的欄位範例：勉強／べんきょう／讀書、用功。",
+      "html": "<div class=\"ds-flashcard ds-flipped\"><span class=\"ds-card-tag\">新卡</span><div class=\"ds-card-face\"><p class=\"ds-expression\" lang=\"ja\" style=\"--n:2\">勉強</p><div class=\"ds-card-answer\"><div class=\"ds-reading-row\"><span class=\"ds-reading ds-pitch\" lang=\"ja\"><span class=\"ds-pitch-morae\"><span class=\"ds-mora\">べ</span><span class=\"ds-mora ds-high\">ん</span><span class=\"ds-mora ds-high\">きょ</span><span class=\"ds-mora ds-high\">う</span></span><span class=\"ds-pitch-num\">[0]</span></span><button type=\"button\" class=\"ds-speak-btn\" aria-label=\"播放發音\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 9h3l5-4v14l-5-4H4z\" fill=\"currentColor\"/><path d=\"M16 9a4 4 0 0 1 0 6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\"/><path d=\"M18.5 6.5a7.5 7.5 0 0 1 0 11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\"/></svg></button></div><div class=\"ds-card-divider\"></div><p class=\"ds-meaning\">讀書、用功</p></div></div></div>",
+      "css": ".ds-flashcard{position:relative;container-type:inline-size;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;min-height:300px;padding:clamp(52px,13vh,120px) 22px 36px;background:var(--surface);color:var(--text);border-radius:24px;box-shadow:var(--shadow-sm);text-align:center;cursor:pointer;animation:ds-card-in .22s ease}.ds-flashcard.ds-flipped{cursor:default}.ds-card-tag{position:absolute;top:12px;right:14px;padding:2px 9px;border-radius:999px;background:color-mix(in srgb,var(--c-new) 12%,transparent);color:var(--c-new);font-size:var(--fs-caption);font-weight:600;user-select:none}.ds-card-face{display:flex;flex-direction:column;align-items:center;gap:16px;width:100%;animation:ds-card-in .16s ease}.ds-expression{margin:0;font-family:var(--font-ja);font-size:clamp(var(--fs-title2),calc(100cqi / var(--n,4) - 1px),var(--fs-display));font-weight:700;letter-spacing:-0.01em;line-height:1.25;line-break:strict;overflow-wrap:anywhere;word-break:auto-phrase}.ds-card-answer{display:flex;flex-direction:column;align-items:center;gap:14px;width:100%}.ds-flashcard.ds-flipped .ds-card-answer{animation:ds-answer-in .2s ease}.ds-reading-row{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap}.ds-reading{font-family:var(--font-ja);font-size:var(--fs-title2);color:var(--text-2);font-weight:500}.ds-pitch{display:inline-flex;align-items:flex-start;gap:5px;max-width:100%}.ds-pitch-morae{display:inline-flex;flex-wrap:wrap;min-width:0}.ds-mora{border-top:2px solid transparent;line-height:1.6;padding:2px 1px 0}.ds-mora.ds-high{border-top-color:currentColor}.ds-mora.ds-drop{position:relative}.ds-mora.ds-drop::after{content:'';position:absolute;top:0;right:0;height:.6em;border-right:2px solid currentColor}.ds-pitch-num{font-size:0.66em;font-variant-numeric:tabular-nums}.ds-speak-btn{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:44px;height:44px;border:none;border-radius:50%;background:var(--accent-tint);color:var(--accent);cursor:pointer;font-family:inherit;transition:background-color .15s ease,transform .08s ease}@media (hover:hover){.ds-speak-btn:hover{background:var(--accent-tint-pressed)}}.ds-speak-btn:active{transform:scale(0.94);background:var(--accent-tint-pressed)}.ds-speak-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.ds-card-divider{width:40px;height:3px;border-radius:2px;background:var(--separator);margin:2px 0}.ds-meaning{margin:0;font-size:var(--fs-title2);font-weight:500;line-height:1.5;overflow-wrap:anywhere;text-wrap:pretty}@keyframes ds-card-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}@keyframes ds-answer-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion:reduce){.ds-card-face,.ds-flashcard.ds-flipped .ds-card-answer{animation:ds-fade-in .16s ease}}@keyframes ds-fade-in{from{opacity:0}to{opacity:1}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "像內建的一樣",
+    "overview": "字卡要看起來像 iPhone 本來就有的 App：熟悉、安靜、用完就忘了它在那裡。整套視覺沿用 iOS 既有的語彙，不另外發明風格：淺灰底上的白色圓角群組、從字的起點開始的 0.5px 細分隔線、底部三個分頁、從下方升起的面板與動作選單、大標題捲上去之後才浮現在導覽列中間的小標題。全介面只有一個主色，也就是和 App 圖示同一個藍（圖示藍），其餘是 iOS 的系統灰階；字全用系統字，日文另外走日文字型。\n\n密度是 iOS 設定頁那種中等密度：列高 48px，一般按鈕與輸入框 44px，複習時拇指底下的按鈕 60px。使用的人多半每天在 iPhone 上花幾分鐘複習，所以畫面為單手、短時間的使用而排：要按的東西集中在拇指搆得到的地方，觸控範圍至少 44pt；深淺色兩套 token 一次切換，常用的字與底色組合在兩套主題都量過對比。動態只在有意義的時候出現（面板升起、卡片翻面、toast 滑入）：狀態轉換 0.15 秒，進場多在 0.2 到 0.3 秒之間；開了「減少動態效果」就幾乎全部關掉。\n\n確定不要的樣子有四種。不要遊戲化：沒有像 Duolingo 那樣的吉祥物、獎章、連勝轟炸或彩帶動畫；首頁那顆連續天數小標籤是唯一留下的，維持現在的低調。不要像 Anki 桌機版：沒有工程感，不把選項攤滿一頁，不堆專有名詞。不要花俏：不拿漸層或毛玻璃當裝飾，不用霓虹色，也不讓每個區塊都有進場動畫；手機導覽列的背景模糊是 iOS 的功能材質（內容真的從它底下捲過），不是裝飾。不要像教科書：畫面上不堆滿說明文字，沒有補習班講義的感覺。",
+    "keyCharacteristics": [
+      "一個主色：圖示藍，用在按得下去的東西、選中狀態、焦點框與進度上。",
+      "iOS 分組列表的骨架：灰底、白色圓角群組、內縮的 0.5px 細線。",
+      "平面、靠色調分層；陰影留給浮在內容上面的層。",
+      "全用系統字；標了 lang=\"ja\" 的日文改走日文字型，不會學到台灣的字形。",
+      "拇指區：手機上複習時的按鈕固定在畫面底部，觸控目標至少 44pt。",
+      "深淺色各一套 token，常用的字與底色組合在兩套主題都量過對比。",
+      "動態短而安靜，「減少動態效果」時幾乎全關。"
+    ],
+    "rules": [
+      {
+        "name": "The Blue Text Means Tap Rule",
+        "body": "圖示藍的字只給按得下去的東西。讀音、意思、數字這些內容一律用主要或次要文字色；句子裡的連結除了藍色還要加一條淡淡的同色底線，因為只靠顏色，它和旁邊的字只差 1.17:1（深色 1.02:1）。圖示、進度條、轉圈這類不是字的元素可以用圖示藍。",
+        "section": "colors"
+      },
+      {
+        "name": "The Ink On Tint Rule",
+        "body": "淡色底上要用藍色的字（淡藍按鈕的字、提示條裡的連結、寬螢幕選中的分頁）一律用深一階的淡底藍字，不用圖示藍；淡色底上的圖示（3:1 就夠）才直接用圖示藍。",
+        "section": "colors"
+      },
+      {
+        "name": "The Measured Contrast Rule",
+        "body": "要讀的字在它可能出現的每一種底上都要 4.5:1 以上，包括淡色框疊在灰底上、深色的浮層上、按下去的狀態。新增顏色時兩套主題都要給值並量過；箭頭灰在灰底上只有 2.92:1，所以不放在灰底上。",
+        "section": "colors"
+      },
+      {
+        "name": "The Twelve Steps Rule",
+        "body": "字級只用 `--fs-*` 的十二級，頁面 CSS 不寫原始 px。需要新的大小時，先回頭看現有哪一級能用。",
+        "section": "typography"
+      },
+      {
+        "name": "The Japanese Glyph Rule",
+        "body": "每一段日文，就算只是中文句子裡的一個單字，都要標 lang=\"ja\"，改用日文字型。同一個漢字的中日字形不同（例如直、令、骨），用中文字型排日文單字，學到的會是台灣的字形。",
+        "section": "typography"
+      },
+      {
+        "name": "The Weight Over Opacity Rule",
+        "body": "小字要退一階時，靠字級和字重（例如 13px 一般字重對上 17px 粗體），不調透明度：調淡的小字常常跌破對比目標，鍵盤提示會只剩 2.5 到 2.8:1。目前唯一保留透明度的小字是沒選中的 chip 裡的數字（0.7），選中時就恢復不透明。",
+        "section": "typography"
+      },
+      {
+        "name": "The Plain Scroller Rule",
+        "body": "捲動容器不加 transform、filter、contain、z-index，也不加 overscroll-behavior: contain；要點的列（導覽列、評分鍵、批次列）用 position: fixed 或放在捲動區外面，永遠不用 sticky。不然 iPhone 慣性捲動時，點擊又會被拿去停住捲動。",
+        "section": "layout"
+      },
+      {
+        "name": "The Thumb Zone Rule",
+        "body": "手機上複習時，「顯示答案」和四個評分鍵固定在畫面底部（寬螢幕接在卡片下面），翻面前後同高（60px）、同圓角，拇指底下那顆不會長高或換形狀。toast 浮在它們上面，更新提示放在頂端、複習時乾脆不顯示，絕不蓋住按鈕。",
+        "section": "layout"
+      },
+      {
+        "name": "The 44-Point Rule",
+        "body": "觸控目標至少 44pt。外觀比較小的控制項（34px 的膠囊、chip、分段控制、步進器）外觀不變，在觸控裝置上用看不見的偽元素把可點範圍撐開；並排的控制項只往上下撐，免得蓋到隔壁那顆。",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat Until Floating Rule",
+        "body": "表面平放時不帶陰影，靠灰底、白色表面與浮層三階色調分層；陰影只屬於浮在內容上面的層（toast、更新提示、批次列、圖表提示框、底部面板、確認框）。例外只有兩種：淺色模式的複習卡帶一層極淡的小陰影（深色模式拿掉），以及分段控制選中格、開關圓鈕這種控制項本身的小陰影。",
+        "section": "elevation"
+      },
+      {
+        "name": "The Functional Blur Rule",
+        "body": "背景模糊只用在內容真的從底下捲過的固定列，目前只有手機的導覽列。不要把毛玻璃或漸層當裝飾加在卡片、按鈕或區塊上。",
+        "section": "elevation"
+      },
+      {
+        "name": "The Borderless Chrome Rule",
+        "body": "容器之間靠色調分開，列之間靠從字的起點開始的 0.5px 細線分開，不加邊框。放進卡片裡的一段結果不再包一層有底色的圓角框（框中框），改用一條分隔線和上面的內容分開。",
+        "section": "shapes"
+      },
+      {
+        "name": "The Inset Focus Rule",
+        "body": "在會裁切圓角的容器裡，焦點框往內畫 2px，並跟著容器的圓角；往外畫的框會被裁成一兩條橫線，看起來像分隔線。焦點用 outline 不用 box-shadow，因為 Windows 高對比模式會拿掉 box-shadow。文字輸入框是現有的例外，用 2px 的圖示藍 box-shadow 環。",
+        "section": "shapes"
+      },
+      {
+        "name": "The One Solid Button Rule",
+        "body": "一個決策區只放一顆實心圖示藍按鈕，其他降為灰底、淡藍或純文字；同一處再出現一顆實心按鈕時，原本那顆退一階（例如複習完成畫面上，「繼續複習其他牌組」是實心時，「完成」改成灰底）。已知的例外是範本列表：每個還沒加入的範本各有一顆實心的「加入這副牌組」。",
+        "section": "components"
+      },
+      {
+        "name": "The Quiet Rating Rule",
+        "body": "四個評分鍵裡只有「普通」是實心，其他三個是淡色塊配同色系的深字；不要把四個鍵做成一樣飽和。",
+        "section": "components"
+      },
+      {
+        "name": "The Honest Hover Rule",
+        "body": "滑過效果全部包在 (hover: hover) 裡，而且只給按得下去的東西：停用的按鈕滑過去不能亮，不然看起來像可以按。手機上的回饋是按下時的縮放、洗色或變淡。",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "Do 用 iOS 的分組列表表達設定與清單：灰底上 12px 圓角的白色群組、48px 的列、從字的起點（16px，有圖示時 56px）開始的 0.5px 細線。",
+      "Do 每個決策區只放一顆實心圖示藍按鈕，其他用灰底、淡藍或純文字。",
+      "Do 要讀的字用主要或次要文字色，淡色底上要用藍色的字改用淡底藍字；箭頭灰只給箭頭和圖示，而且只放在白色表面上。",
+      "Do 日文一律標 lang=\"ja\"，連中文句子裡的一個單字也是。",
+      "Do 介面上的中文用全形標點（，：；？！（）），數量單位用「個字」「張」「次」，不用「筆」。",
+      "Do 觸控目標至少 44pt；外觀小的控制項在觸控裝置上用看不見的偽元素把可點範圍撐開。",
+      "Do 焦點框用 2px 圖示藍 outline、離 2px；在會裁切圓角的容器裡往內畫 2px，並跟著容器的圓角。",
+      "Do 停用一律用 0.4 的透明度；正在處理的按鈕維持不透明，顯示轉圈。",
+      "Do 讓動態短而有理由：狀態轉換 0.15 秒，按下縮到 0.98；進場用 cubic-bezier(.2, .8, .2, 1)，退場不比進場長、先慢後快；「減少動態效果」時，無限轉圈改成靜止，複習卡的卡面與答案改成單純淡入。",
+      "Do 新增顏色時兩套主題都給值，並在每一種可能的底上量過對比（字 4.5:1，圖示 3:1）。",
+      "Do 首頁那顆連續天數小標籤維持現在的樣子：琥珀色淡底的小膠囊，一個火焰圖示加天數。"
+    ],
+    "donts": [
+      "Don't 遊戲化：不加吉祥物、獎章、連勝轟炸或彩帶動畫。",
+      "Don't 做成 Anki 桌機版：不把所有選項攤滿一頁，不用一堆專有名詞（寫「先不學」，不寫「擱置」）。",
+      "Don't 花俏：不拿漸層或毛玻璃當裝飾，不用霓虹色，也不要每個區塊都有進場動畫。",
+      "Don't 做成教科書：畫面上不堆滿說明文字；說明收在列表底下的腳註，或放進使用說明頁。",
+      "Don't 在列表或卡片上加陰影，也不要在手機導覽列以外的地方模糊背景。",
+      "Don't 用邊框分隔容器，也不要把卡片裡的一段結果再包成有底色的框中框。",
+      "Don't 把讀音、意思、數字這些不能按的字塗成圖示藍。",
+      "Don't 讓四個評分鍵一樣飽和，也不要把已會、先不學塗成綠色或紅色。",
+      "Don't 讓 toast 或更新提示蓋住底部拇指區的按鈕。",
+      "Don't 用透明度把小字調淡到跌破對比目標，也不要另創停用的透明度。",
+      "Don't 讓輸入框的字小於 16px。",
+      "Don't 對捲動容器加 transform、filter、contain、z-index 或 overscroll-behavior: contain，也不要把可點的列做成 sticky。",
+      "Don't 換成網路字型：系統字是「像內建的一樣」的一部分，而且 App 目前沒有任何跨來源資源（在跨來源隔離下，外部字型與圖片得另外帶 CORP／CORS 標頭）。",
+      "Don't 在只有觸控的裝置上顯示鍵盤提示。"
+    ]
+  }
+}
